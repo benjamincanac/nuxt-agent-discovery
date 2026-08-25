@@ -269,6 +269,18 @@ export default defineNuxtModule<ModuleOptions>({
       }
     }
 
+    /* ------------------------------- sitemap ------------------------------ */
+
+    if (hasNuxtModule('@nuxtjs/sitemap')) {
+      // The raw markdown twins are alternate representations of pages already
+      // in the sitemap, not pages of their own, so they must never be listed
+      // as separate URLs. Every site that pairs a sitemap module with a raw
+      // markdown route needs this, so the module does it rather than leaving
+      // each one to remember.
+      const sitemapOptions = nuxt.options as { sitemap?: { exclude?: string[] } }
+      sitemapOptions.sitemap = defu(sitemapOptions.sitemap, { exclude: [`${rawPrefix}/**`] })
+    }
+
     /* ------------------------------- skills ------------------------------- */
 
     const skillsDir = join(nuxt.options.rootDir, (options.skills && options.skills.dir) || 'skills')
