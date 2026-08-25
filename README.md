@@ -189,7 +189,7 @@ export default defineEventHandler(event => `# Docs\n\n${renderAgentResources(eve
 
 Detected automatically, never a dependency:
 
-- **`@nuxtjs/robots`** takes over `robots.txt`, and the shared user-agent list is fed into its `groups` instead of this module registering a competing route.
+- **`@nuxtjs/robots`** takes over `robots.txt`, and the shared user-agent list is contributed through its `robots:config` hook instead of this module registering a competing route. `robots.contentSignal` rides along on the wildcard group, so the directive survives the handoff.
 - **`@nuxtjs/sitemap`** owns `sitemap.xml`, and the raw markdown prefix is added to its `exclude`. The raw twins are alternate representations of pages already in the sitemap, not pages of their own, so listing them separately would be wrong on every site that pairs the two.
 
 ## Deployment

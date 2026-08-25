@@ -123,3 +123,17 @@ describe('discovery documents', () => {
     expect(body).toContain(`${SITE_URL}/raw/index.md`)
   })
 })
+
+describe('@nuxtjs/robots handoff', () => {
+  it('contributes the shared agent list and the Content-Signal to its robots.txt', async () => {
+    const body = await (await fetch('/robots.txt')).text()
+
+    // This module must not register a competing `/robots.txt`.
+    expect(body).toContain('nuxt-robots')
+    for (const userAgent of ['ClaudeBot', 'GPTBot', 'PerplexityBot', 'Bytespider']) {
+      expect(body).toContain(`User-agent: ${userAgent}`)
+    }
+    // Rides on the wildcard group, so adding `@nuxtjs/robots` cannot lose it.
+    expect(body).toContain('Content-Signal: search=yes, ai-train=yes, ai-input=yes')
+  })
+})

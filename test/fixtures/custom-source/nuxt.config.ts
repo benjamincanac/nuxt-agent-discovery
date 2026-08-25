@@ -1,5 +1,7 @@
 export default defineNuxtConfig({
-  modules: ['../../../src/module', 'nuxt-llms'],
+  // `@nuxtjs/robots` first, so this fixture proves the integration works
+  // even when the robots module reads its own options before ours runs.
+  modules: ['@nuxtjs/robots', '../../../src/module', 'nuxt-llms'],
   devtools: { enabled: false },
   compatibilityDate: '2026-01-01',
   agentDiscovery: {

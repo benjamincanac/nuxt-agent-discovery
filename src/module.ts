@@ -255,9 +255,32 @@ export default defineNuxtModule<ModuleOptions>({
       if (hasNuxtModule('@nuxtjs/robots')) {
         // Feed the shared user-agent list into the robots module instead of
         // competing for the `/robots.txt` route.
-        const robotsOptions = nuxt.options as { robots?: { groups?: unknown[] } }
-        robotsOptions.robots = defu(robotsOptions.robots, {
-          groups: userAgents.map(userAgent => ({ userAgent, allow: '/' }))
+        //
+        // Through its hook, not `nuxt.options.robots`: that module reads its
+        // options during its own setup, so a site listing it first (which
+        // `@nuxtjs/sitemap` asks for) would silently get none of this.
+        const contentSignal = options.robots.contentSignal
+        const onRobotsConfig = nuxt.hook as unknown as (
+          name: 'robots:config',
+          cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void
+        ) => void
+        onRobotsConfig('robots:config', (robotsConfig) => {
+          // `Content-Signal` belongs on the wildcard group, which this module's
+          // own `robots.txt` route emits too. Without it the directive would be
+          // lost the moment a site adds `@nuxtjs/robots`.
+          if (contentSignal) {
+            for (const group of robotsConfig.groups) {
+              if (group.userAgent.includes('*')) {
+                group.contentSignal = [contentSignal]
+              }
+            }
+          }
+          robotsConfig.groups.push(...userAgents.map(userAgent => ({
+            userAgent: [userAgent],
+            allow: ['/'],
+            disallow: [],
+            comment: []
+          })))
         })
       } else if (existsSync(join(nuxt.options.rootDir, nuxt.options.dir?.public || 'public', 'robots.txt'))) {
         logger.warn('A static `public/robots.txt` exists, so the AI robots policy is not applied to it. Align its agent list with `agentDiscovery.userAgents` or remove the file.')
