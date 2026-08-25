@@ -91,7 +91,8 @@ describe('O(1) route table', () => {
     userAgents: AGENT_USER_AGENTS,
     excludePrefixes: EXCLUDE_PREFIXES,
     links: [{ href: '/llms.txt', rel: 'describedby', type: 'text/plain', title: 'llms.txt' }],
-    cachedRoutes: []
+    cachedRoutes: [],
+    sitemapSections: { expand: [], labels: {} }
   }
 
   it('emits the closed-form number of routes for the fixture patterns', () => {

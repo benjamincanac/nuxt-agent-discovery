@@ -202,6 +202,20 @@ describe('discovery documents', () => {
   })
 })
 
+describe('sitemap.md sections', () => {
+  it('expands the configured prefix into a section per area, with label overrides', async () => {
+    const body = await (await fetch('/sitemap.md')).text()
+
+    // `expand: ['/docs']` splits `/docs/**` by its second segment...
+    expect(body).toContain('## UI Components')
+    // ...and `labels` renames one of them, the rest deriving from the segment.
+    expect(body).not.toContain('## Docs')
+    // Top-level pages share one section.
+    expect(body).toContain('## Pages')
+    expect(body).toContain(`[Basic](${SITE_URL})`)
+  })
+})
+
 describe('agent skills', () => {
   it('generates the skills index from the directory on disk', async () => {
     const response = await fetch('/.well-known/skills/index.json')

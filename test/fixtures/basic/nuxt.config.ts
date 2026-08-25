@@ -22,7 +22,14 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-01-01',
 
   agentDiscovery: {
-    siteName: 'Basic'
+    siteName: 'Basic',
+    sitemap: {
+      markdown: {
+        // `/docs/**` splits into a section per area; anything else stays whole.
+        expand: ['/docs'],
+        labels: { components: 'UI Components' }
+      }
+    }
   },
   llms: {
     domain: 'https://basic.example.com',

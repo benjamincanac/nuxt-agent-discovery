@@ -43,6 +43,18 @@ export interface DiscoveryLink {
   header?: boolean
 }
 
+/** How `sitemap.md` groups pages into sections. */
+export interface SitemapSections {
+  /**
+   * Path prefixes whose children each get their own section, instead of the
+   * whole prefix being one. `['/docs']` turns a single "Docs" section into
+   * "Components", "Composables", ... while `/blog/**` stays one "Blog".
+   */
+  expand: string[]
+  /** Label overrides, keyed by the path segment the section groups. */
+  labels: Record<string, string>
+}
+
 /** One Agent Skill published by the site, as listed in the skills index. */
 export interface SkillEntry {
   name: string
@@ -87,6 +99,8 @@ export interface NegotiationConfig {
   /** Path prefixes that never negotiate and keep their JSON/HTML errors. */
   excludePrefixes: string[]
   links: DiscoveryLink[]
+  /** How `sitemap.md` groups pages into sections. */
+  sitemapSections: SitemapSections
   /**
    * Route-rule patterns with a response cache (`isr`, `swr`, `cache`) that
    * cannot vary on `Accept`/`User-Agent`. The Nitro middleware skips

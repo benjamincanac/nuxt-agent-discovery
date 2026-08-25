@@ -19,9 +19,9 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, matchRoute, rawDestination, MARKDOWN_VARY } from './runtime/shared/negotiation'
-import type { AgentRoute, DiscoveryLink, NegotiationConfig, SkillEntry } from './runtime/shared/types'
+import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
-export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig, SkillEntry } from './runtime/shared/types'
+export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export interface McpServerCardOptions {
   /** MCP endpoint the card describes, e.g. `/mcp`. */
@@ -84,8 +84,11 @@ export interface ModuleOptions {
   /** Answer errors with a markdown body when the client asked for markdown. */
   errors?: boolean
   sitemap?: {
-    /** Serve `/sitemap.md`, a markdown index of every page. */
-    markdown?: boolean
+    /**
+     * Serve `/sitemap.md`, a markdown index of every page. Pass an object to
+     * control how pages are grouped into sections.
+     */
+    markdown?: boolean | Partial<SitemapSections>
   }
   robots?: {
     /**
@@ -172,7 +175,11 @@ export default defineNuxtModule<ModuleOptions>({
       userAgents,
       excludePrefixes: options.excludePrefixes || EXCLUDE_PREFIXES,
       links: [],
-      cachedRoutes: []
+      cachedRoutes: [],
+      sitemapSections: {
+        expand: (typeof options.sitemap?.markdown === 'object' && options.sitemap.markdown.expand) || [],
+        labels: (typeof options.sitemap?.markdown === 'object' && options.sitemap.markdown.labels) || {}
+      }
     }
 
     /* ------------------------------- source ------------------------------- */

@@ -17,7 +17,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 - A `nuxt-llms` bridge: `/llms.txt` and `/llms-full.txt` stay owned by `nuxt-llms`, this module never registers them, but their links get rewritten to the `/raw` twins and the raw route survives a content-backend swap
 - Markdown error bodies with recovery links for agents hitting a 404 or other error
 - `/.well-known/api-catalog` (RFC 9727) and an optional MCP server card
-- `/sitemap.md`, a markdown index of every page
+- `/sitemap.md`, a markdown index of every page, grouped into sections you control
 - Agent Skills served under `/.well-known/skills/`, with the index generated from the directory on disk instead of hand-maintained
 - `robots.txt` AI policy generated from the same user-agent list negotiation matches, so the two can't drift apart
 - A `useCanonical()` composable for canonical and markdown-alternate `<link>` tags
@@ -105,7 +105,7 @@ export default defineNuxtConfig({
 - **`discovery.mcpServerCard`** Given an `McpServerCardOptions` object (`endpoint`, `name`, and optionally `title`, `description`, `documentation`, `repository`, `license`, `version`), serves `/.well-known/mcp/server-card.json`. `false` to disable.
 - **`discovery.links`** Site-specific discovery links: OpenAPI documents, service docs, anything else worth advertising. Rels are validated against the IANA registry, an invented one fails the build. Other modules can push into the same list through the `agent-discovery:extend` hook.
 - **`errors`** Chains a markdown error handler ahead of any existing Nitro `errorHandler`, answering with a markdown body carrying recovery links when the request prefers it.
-- **`sitemap.markdown`** Serve `/sitemap.md`, a markdown index of every page, from the content adapter.
+- **`sitemap.markdown`** Serve `/sitemap.md`, a markdown index of every page, from the content adapter. Pass an object to control the grouping: `expand` lists path prefixes whose children each get their own section (`['/docs']` turns one "Docs" section into "Components", "Composables", ... while `/blog/**` stays a single "Blog"), and `labels` overrides the heading derived from a segment. Top-level pages share one "Pages" section.
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with `name` and `description` frontmatter becomes a skill; its files are listed from disk into a generated `/.well-known/skills/index.json`, so the index can never fall behind the files actually served. Names are validated against the Agent Skills spec. `false` to disable; the feature turns itself off when the directory does not exist. Skills are pushed into the discovery registry, so they reach the api-catalog and the error-body recovery links.
 - **`robots.aiPolicy`** Feeds the shared user-agent list into `@nuxtjs/robots` when it's installed. Otherwise generates `/robots.txt`, skipped (with a warning) if a static `public/robots.txt` already exists.
 - **`robots.contentSignal`** The `Content-Signal` line added to the wildcard group. `false` to omit it.

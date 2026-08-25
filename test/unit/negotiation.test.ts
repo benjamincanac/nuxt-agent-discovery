@@ -29,6 +29,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
     excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/'],
     links: [],
     cachedRoutes: [],
+    sitemapSections: { expand: [], labels: {} },
     ...overrides
   }
 }

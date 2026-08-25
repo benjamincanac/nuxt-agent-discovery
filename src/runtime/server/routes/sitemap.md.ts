@@ -23,10 +23,21 @@ export default defineEventHandler(async (event) => {
         : (await source.routes(event)).map(route => ({ route, title: undefined as string | undefined })))
     : []
 
+  const { expand, labels } = config.sitemapSections
+
+  // Top-level pages share one section; anything deeper is grouped by its first
+  // segment, or by its second when that prefix is expanded.
+  const sectionKey = (route: string): string => {
+    const parts = route.split('/').filter(Boolean)
+    if (parts.length < 2) {
+      return 'pages'
+    }
+    return expand.includes(`/${parts[0]}`) ? parts[1]! : parts[0]!
+  }
+
   const sections = new Map<string, { title: string, href: string }[]>()
   for (const entry of entries) {
-    const parts = entry.route.split('/').filter(Boolean)
-    const key = parts.length > 1 ? parts[0]! : 'pages'
+    const key = sectionKey(entry.route)
     const negotiated = matchRoute(config.routes, entry.route)
     const href = negotiated && entry.route !== '/'
       ? `${siteUrl}${entry.route}.md`
@@ -46,7 +57,7 @@ export default defineEventHandler(async (event) => {
   ]
 
   for (const [key, pages] of sections) {
-    const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/-/g, ' ')
+    const label = labels[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/-/g, ' ')
     lines.push(`## ${label}`, '')
     for (const page of pages) {
       lines.push(`- [${escapeLabel(page.title)}](${page.href})`)
