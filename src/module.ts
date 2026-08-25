@@ -1,0 +1,381 @@
+import { existsSync } from 'node:fs'
+import {
+  addImports,
+  addPrerenderRoutes,
+  addServerHandler,
+  addServerPlugin,
+  createResolver,
+  defineNuxtModule,
+  hasNuxtModule,
+  resolvePath,
+  useLogger
+} from '@nuxt/kit'
+import { defu } from 'defu'
+import { join } from 'pathe'
+import { withLeadingSlash, withoutTrailingSlash } from 'ufo'
+import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
+import { isValidRel } from './rels'
+import { setupVercelPreset } from './presets/vercel'
+import { formatLinkHeader, matchRoute, rawDestination, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import type { AgentRoute, DiscoveryLink, NegotiationConfig } from './runtime/shared/types'
+
+export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig } from './runtime/shared/types'
+
+export interface McpServerCardOptions {
+  /** MCP endpoint the card describes, e.g. `/mcp`. */
+  endpoint: string
+  name: string
+  title?: string
+  description?: string
+  /** HTML documentation page for the server. */
+  documentation?: string
+  repository?: string
+  license?: string
+  version?: string
+}
+
+export interface ModuleOptions {
+  /**
+   * Canonical site URL. Left empty, it is resolved per-request from the
+   * incoming host, which keeps preview deployments correct.
+   */
+  siteUrl?: string
+  /** Site name, used in `sitemap.md` and markdown error bodies. */
+  siteName?: string
+  /** Prefix the raw markdown representations are served under. */
+  rawPrefix?: string
+  /**
+   * Content adapter feeding the raw markdown route, `sitemap.md` and the
+   * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content`; a path points at a
+   * file exporting an `AgentContentSource` (build one for comark with
+   * `createComarkSource()` from `#agent-discovery`); `false` disables every
+   * content-backed feature and leaves negotiation and discovery running
+   * against whatever already serves the raw markdown.
+   */
+  source?: 'auto' | 'content' | false | string
+  /**
+   * Page patterns markdown is negotiated for. `*` matches one path segment,
+   * `**` one or more, so a locale prefix is one pattern and the generated
+   * CDN route table stays O(patterns) in page count.
+   */
+  routes?: (string | AgentRoute)[]
+  /** Path prefixes that never negotiate and keep their JSON/HTML errors. */
+  excludePrefixes?: string[]
+  userAgents?: {
+    /** Extra user agents on top of the defaults. */
+    extend?: string[]
+    /** Replaces the default list entirely. */
+    replace?: string[]
+  }
+  discovery?: {
+    /** Emit the discovery `Link` header on `/`. */
+    link?: boolean
+    /** Serve `/.well-known/api-catalog` (RFC 9727). */
+    apiCatalog?: boolean
+    /** Advertise `/sitemap.xml` in the discovery links. */
+    sitemapXml?: boolean
+    /** Serve `/.well-known/mcp/server-card.json` for the given MCP server. */
+    mcpServerCard?: false | McpServerCardOptions
+    /** Site-specific discovery links: OpenAPI documents, service docs, ... */
+    links?: DiscoveryLink[]
+  }
+  /** Answer errors with a markdown body when the client asked for markdown. */
+  errors?: boolean
+  sitemap?: {
+    /** Serve `/sitemap.md`, a markdown index of every page. */
+    markdown?: boolean
+  }
+  robots?: {
+    /**
+     * Allow the agent user-agent list in `robots.txt`, through
+     * `@nuxtjs/robots` when installed, otherwise through a generated
+     * `/robots.txt` (skipped when a static one exists).
+     */
+    aiPolicy?: boolean
+    /** `Content-Signal` line for the wildcard group. `false` to omit. */
+    contentSignal?: string | false
+  }
+}
+
+declare module '@nuxt/schema' {
+  interface NuxtHooks {
+    /** Lets other modules add discovery links and agent user agents. */
+    'agent-discovery:extend': (registry: { links: DiscoveryLink[], userAgents: string[] }) => void | Promise<void>
+  }
+  interface RuntimeConfig {
+    agentDiscovery: NegotiationConfig
+    agentDiscoveryMcp?: McpServerCardOptions
+    agentDiscoveryRobots?: { contentSignal: string }
+  }
+  interface PublicRuntimeConfig {
+    agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string }
+  }
+}
+
+export default defineNuxtModule<ModuleOptions>({
+  meta: {
+    name: 'nuxt-agent-discovery',
+    configKey: 'agentDiscovery',
+    compatibility: {
+      nuxt: '>=3.0.0'
+    }
+  },
+  defaults: {
+    siteUrl: '',
+    siteName: '',
+    rawPrefix: '/raw',
+    source: 'auto',
+    // Option arrays merge by concatenation, so the routes default is applied
+    // in setup instead: a site defining its own patterns replaces it.
+    routes: [],
+    excludePrefixes: EXCLUDE_PREFIXES,
+    userAgents: { extend: [] },
+    discovery: {
+      link: true,
+      apiCatalog: true,
+      sitemapXml: true,
+      mcpServerCard: false,
+      links: []
+    },
+    errors: true,
+    sitemap: { markdown: true },
+    robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes' }
+  },
+  async setup(options, nuxt) {
+    const logger = useLogger('nuxt-agent-discovery')
+    const { resolve } = createResolver(import.meta.url)
+
+    const rawPrefix = withoutTrailingSlash(withLeadingSlash(options.rawPrefix || '/raw'))
+    const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
+      .map(route => typeof route === 'string' ? { path: route } : route)
+    const userAgents = options.userAgents?.replace || [...AGENT_USER_AGENTS, ...(options.userAgents?.extend || [])]
+
+    // Mutated until `modules:done`, then read by the runtime and the presets.
+    const config: NegotiationConfig = {
+      siteUrl: (options.siteUrl || '').replace(/\/$/, ''),
+      siteName: options.siteName || '',
+      rawPrefix,
+      routes,
+      userAgents,
+      excludePrefixes: options.excludePrefixes || EXCLUDE_PREFIXES,
+      links: [],
+      cachedRoutes: []
+    }
+
+    /* ------------------------------- source ------------------------------- */
+
+    let sourcePath: string | undefined
+    let builtinContentSource = false
+    if (options.source === 'content' || (options.source === 'auto' && hasNuxtModule('@nuxt/content'))) {
+      sourcePath = resolve('./runtime/server/sources/content')
+      builtinContentSource = true
+    } else if (options.source === 'comark') {
+      throw new Error('[nuxt-agent-discovery] comark sites construct their content instance themselves, so pass a source file instead: `source: \'~~/server/utils/agent-source\'`, exporting `createComarkSource(() => getContent())` from `#agent-discovery/comark`.')
+    } else if (typeof options.source === 'string' && options.source !== 'auto') {
+      sourcePath = await resolvePath(options.source)
+    }
+
+    nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
+      '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
+      '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
+      '#agent-discovery': resolve('./runtime/server/utils/agent-discovery')
+    })
+
+    /* ------------------------------- handlers ----------------------------- */
+
+    if (sourcePath) {
+      addServerHandler({ route: `${rawPrefix}/**`, handler: resolve('./runtime/server/routes/raw') })
+      if (options.sitemap?.markdown) {
+        addServerHandler({ route: '/sitemap.md', handler: resolve('./runtime/server/routes/sitemap.md') })
+        // Not a page twin: without this, a catch-all route pattern would
+        // rewrite it to `${rawPrefix}/sitemap.md` at the edge and in the
+        // middleware, shadowing the handler.
+        config.excludePrefixes.push('/sitemap.md')
+      }
+    }
+    if (options.discovery?.apiCatalog) {
+      addServerHandler({ route: '/.well-known/api-catalog', handler: resolve('./runtime/server/routes/api-catalog') })
+    }
+    if (options.discovery?.mcpServerCard) {
+      nuxt.options.runtimeConfig.agentDiscoveryMcp = options.discovery.mcpServerCard
+      addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: resolve('./runtime/server/routes/mcp-server-card') })
+    }
+
+    addServerHandler({ middleware: true, handler: resolve('./runtime/server/middleware/negotiate') })
+
+    nuxt.hook('nitro:config', (nitroConfig) => {
+      if (options.errors) {
+        const handlers = nitroConfig.errorHandler
+          ? (Array.isArray(nitroConfig.errorHandler) ? nitroConfig.errorHandler : [nitroConfig.errorHandler])
+          : []
+        nitroConfig.errorHandler = [resolve('./runtime/server/error'), ...handlers]
+      }
+      // The stringifier is a dependency of this module, not of the site, so
+      // it has to be bundled rather than traced.
+      nitroConfig.externals = defu(nitroConfig.externals, { inline: ['minimark'] })
+    })
+
+    addImports({ name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') })
+
+    /* ------------------------------- robots ------------------------------- */
+
+    if (options.robots?.aiPolicy) {
+      if (hasNuxtModule('@nuxtjs/robots')) {
+        // Feed the shared user-agent list into the robots module instead of
+        // competing for the `/robots.txt` route.
+        const robotsOptions = nuxt.options as { robots?: { groups?: unknown[] } }
+        robotsOptions.robots = defu(robotsOptions.robots, {
+          groups: userAgents.map(userAgent => ({ userAgent, allow: '/' }))
+        })
+      } else if (existsSync(join(nuxt.options.rootDir, nuxt.options.dir?.public || 'public', 'robots.txt'))) {
+        logger.warn('A static `public/robots.txt` exists, so the AI robots policy is not applied to it. Align its agent list with `agentDiscovery.userAgents` or remove the file.')
+      } else {
+        nuxt.options.runtimeConfig.agentDiscoveryRobots = {
+          contentSignal: options.robots.contentSignal || ''
+        }
+        addServerHandler({ route: '/robots.txt', handler: resolve('./runtime/server/routes/robots.txt') })
+      }
+    }
+
+    /* ---------------------------- nuxt-llms bridge ------------------------- */
+
+    const hasLlms = hasNuxtModule('nuxt-llms')
+    if (hasLlms && sourcePath) {
+      // This module serves the raw markdown route from the adapter, so the
+      // route survives a content-backend swap. Works whichever module runs
+      // first: `@nuxt/content` normalizes `contentRawMarkdown` into runtime
+      // config at `modules:done`, and its handler is dropped below.
+      const llmsOptions = nuxt.options as { llms?: Record<string, unknown> }
+      llmsOptions.llms = { ...llmsOptions.llms, contentRawMarkdown: false }
+    }
+
+    nuxt.hook('modules:done', async () => {
+      // Prerendered documents bake the site URL in, so resolve it from the
+      // site config or the llms domain when not set explicitly. Request-time
+      // responses still fall back to the incoming host.
+      if (!config.siteUrl) {
+        const siteOptions = nuxt.options as { site?: { url?: string }, llms?: { domain?: string } }
+        config.siteUrl = (siteOptions.site?.url || siteOptions.llms?.domain || '').replace(/\/$/, '')
+      }
+
+      if (hasLlms && sourcePath) {
+        const handlers = nuxt.options.serverHandlers
+        for (let i = handlers.length - 1; i >= 0; i--) {
+          const handler = handlers[i]!
+          if (handler.route === '/raw/**:slug.md' && String(handler.handler).includes('llms')) {
+            handlers.splice(i, 1)
+          }
+        }
+        addServerPlugin(resolve('./runtime/server/plugins/llms'))
+      }
+
+      /* ------------------------------ registry ----------------------------- */
+
+      const links: DiscoveryLink[] = []
+      if (options.discovery?.sitemapXml) {
+        links.push({ href: '/sitemap.xml', rel: 'sitemap', type: 'application/xml', title: 'Sitemap (XML)' })
+      }
+      if (sourcePath && options.sitemap?.markdown) {
+        links.push({ href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown', title: 'Sitemap (Markdown): every page on the site' })
+      }
+      if (options.discovery?.apiCatalog) {
+        links.push({ href: '/.well-known/api-catalog', rel: 'api-catalog', type: 'application/linkset+json' })
+      }
+      if (options.discovery?.mcpServerCard) {
+        const card = options.discovery.mcpServerCard
+        links.push({ href: '/.well-known/mcp/server-card.json', rel: 'service-desc', type: 'application/json', title: `MCP server card: MCP endpoint at ${card.endpoint}`, anchor: card.endpoint })
+        if (card.documentation) {
+          links.push({ href: card.documentation, rel: 'service-doc', type: 'text/html', anchor: card.endpoint, header: false })
+        }
+      }
+      if (hasLlms) {
+        const llms = (nuxt.options as { llms?: { full?: unknown } }).llms
+        links.push(
+          { href: '/llms.txt', rel: 'describedby', type: 'text/plain', title: 'llms.txt: index of the documentation for LLMs' },
+          { href: '/llms.txt', rel: 'service-desc', type: 'text/plain', anchor: '/', header: false }
+        )
+        if (llms?.full) {
+          links.push(
+            { href: '/llms-full.txt', rel: 'describedby', type: 'text/plain', title: 'llms-full.txt: the full documentation as a single file' },
+            { href: '/llms-full.txt', rel: 'service-desc', type: 'text/plain', anchor: '/', header: false }
+          )
+        }
+      }
+      if (matchRoute(routes, '/')) {
+        links.push({ href: '/', rel: 'alternate', type: 'text/markdown' })
+      }
+      links.push(...(options.discovery?.links || []))
+
+      await nuxt.callHook('agent-discovery:extend', { links, userAgents })
+
+      for (const link of links) {
+        if (!isValidRel(link.rel)) {
+          throw new Error(`[nuxt-agent-discovery] \`rel="${link.rel}"\` (${link.href}) is not an IANA-registered link relation. Use a registered rel or an absolute URI extension relation.`)
+        }
+      }
+      config.links.push(...links)
+
+      /* ----------------------------- route rules ---------------------------- */
+
+      const headerRules: Record<string, { headers: Record<string, string> }> = {}
+      for (const route of routes) {
+        headerRules[route.path] = { headers: { Vary: MARKDOWN_VARY } }
+        if (!route.path.includes('*') && route.path !== '/') {
+          headerRules[`${route.path}.md`] = { headers: { Vary: MARKDOWN_VARY } }
+        }
+      }
+      headerRules[`${rawPrefix}/**`] = { headers: { Vary: MARKDOWN_VARY } }
+      if (options.discovery?.link !== false && config.links.length) {
+        headerRules['/'] = { headers: { Vary: MARKDOWN_VARY, Link: formatLinkHeader(config.links) } }
+      }
+      nuxt.options.routeRules = defu(nuxt.options.routeRules, headerRules)
+
+      // A cached response cannot vary on Accept/User-Agent, so request-time
+      // negotiation is disabled there. The CDN rewrites still cover those
+      // pages because they run before the cache.
+      const staticPrefix = (pattern: string) => pattern.split('*')[0]!
+      for (const [key, rule] of Object.entries(nuxt.options.routeRules || {})) {
+        if (!rule || !(rule.isr || rule.swr || 'cache' in rule)) {
+          continue
+        }
+        // Excluded prefixes never negotiate, so their caches are safe.
+        if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
+          continue
+        }
+        const overlaps = routes.some(route => staticPrefix(key).startsWith(staticPrefix(route.path)) || staticPrefix(route.path).startsWith(staticPrefix(key)))
+        if (overlaps) {
+          config.cachedRoutes.push(key)
+          logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there and only applies at the CDN level.`)
+        }
+      }
+
+      /* ---------------------------- runtime config --------------------------- */
+
+      nuxt.options.runtimeConfig.agentDiscovery = config
+      nuxt.options.runtimeConfig.public.agentDiscovery = {
+        siteUrl: config.siteUrl,
+        siteName: config.siteName,
+        rawPrefix
+      }
+    })
+
+    /* ------------------------------ prerender ------------------------------ */
+
+    if (builtinContentSource) {
+      for (const route of routes) {
+        if (!route.path.includes('*')) {
+          addPrerenderRoutes(rawDestination(config, route, route.path))
+        }
+      }
+      if (options.sitemap?.markdown) {
+        addPrerenderRoutes('/sitemap.md')
+      }
+    }
+
+    /* ------------------------------- presets ------------------------------- */
+
+    nuxt.hook('nitro:init', (nitro) => {
+      setupVercelPreset(nitro, config)
+    })
+  }
+})

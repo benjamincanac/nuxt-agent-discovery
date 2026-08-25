@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+
+.claude
+
+.nuxt
+.output
+.data
+.vercel
+.netlify
+.wrangler
+
+.env
+.DS_Store
+*.log

@@ -1,0 +1,84 @@
+{
+  "name": "nuxt-agent-discovery",
+  "version": "0.0.0",
+  "description": "Markdown content negotiation, CDN-level rewrites and discovery documents for AI agents on Nuxt documentation sites",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benjamincanac/nuxt-agent-discovery.git"
+  },
+  "bugs": {
+    "url": "https://github.com/benjamincanac/nuxt-agent-discovery/issues"
+  },
+  "author": "Benjamin Canac <canacb1@gmail.com>",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/module.mjs"
+    }
+  },
+  "main": "./dist/module.mjs",
+  "typesVersions": {
+    "*": {
+      ".": [
+        "./dist/types.d.mts"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "nuxt-module-build build",
+    "dev": "nuxi dev playground",
+    "dev:build": "nuxi build playground",
+    "dev:prepare": "nuxt-module-build build --stub && nuxt-module-build prepare && nuxi prepare playground",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "typecheck": "vue-tsc --noEmit",
+    "release": "npm run lint && npm run test && npm run prepack && changelogen --release && npm publish && git push --follow-tags"
+  },
+  "dependencies": {
+    "@nuxt/kit": "^4.5.2",
+    "defu": "^6.1.4",
+    "minimark": "^1.0.0",
+    "pathe": "^2.0.3",
+    "ufo": "^1.6.4"
+  },
+  "devDependencies": {
+    "@nuxt/content": "^3.15.2",
+    "@nuxt/eslint-config": "^1.17.0",
+    "@nuxt/module-builder": "^1.0.3",
+    "@nuxt/schema": "^4.5.2",
+    "@nuxt/test-utils": "^4.1.0",
+    "@types/node": "^26.2.0",
+    "better-sqlite3": "^13.0.3",
+    "changelogen": "^0.6.2",
+    "eslint": "^10.9.1",
+    "h3": "^1.15.4",
+    "nuxt": "^4.5.2",
+    "nuxt-llms": "^0.2.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.11",
+    "vue-tsc": "^3.3.5"
+  },
+  "packageManager": "pnpm@11.23.0",
+  "peerDependencies": {
+    "@nuxt/content": "^3.0.0",
+    "nuxt-llms": ">=0.1.0",
+    "comark": "*"
+  },
+  "peerDependenciesMeta": {
+    "@nuxt/content": {
+      "optional": true
+    },
+    "nuxt-llms": {
+      "optional": true
+    },
+    "comark": {
+      "optional": true
+    }
+  }
+}
