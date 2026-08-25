@@ -129,6 +129,25 @@ describe('errors', () => {
   })
 })
 
+describe('@nuxt/content source', () => {
+  it('appends the page related links, like `@nuxt/content`\'s own raw route', async () => {
+    const body = await (await fetch('/raw/docs/components/badge.md')).text()
+
+    expect(body).toContain('\n---\n\n- [Reka UI](https://reka-ui.com/docs/components/badge)\n- [GitHub](https://github.com/nuxt/ui)')
+  })
+
+  it('strips the highlighter `<style>` node instead of exposing its CSS', async () => {
+    const body = await (await fetch('/raw/docs/components/badge.md')).text()
+
+    // The stringifier only drops a `<style>` node while it is last in the
+    // tree, so appending the related links above would otherwise dump the
+    // per-document shiki CSS variables into the markdown agents read.
+    expect(body).not.toMatch(/^<style>$/m)
+    expect(body).not.toContain('--shiki-')
+    expect(body).toContain('```ts\nconst label = \'Badge\'\n```')
+  })
+})
+
 describe('discovery documents', () => {
   it('emits the discovery `Link` header and `Vary` on the homepage', async () => {
     const response = await fetch('/')

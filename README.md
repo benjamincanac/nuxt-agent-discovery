@@ -109,7 +109,7 @@ export default defineNuxtConfig({
 
 ## Content sources
 
-**`'auto'` / `@nuxt/content`** (default when the module is installed): queries every `type: 'page'` collection with `queryCollection()` and stringifies with `minimark/stringify`, resolved from `@nuxt/content` itself rather than from this module, so the stringifier is always the one that produced the tree. Mirrors the raw markdown route `@nuxt/content` registers itself when `nuxt-llms` is present, so nothing changes for agents when this module takes over. A site that needs to transform MDC components into plain markdown can hook `agent-discovery:document` before the tree is stringified:
+**`'auto'` / `@nuxt/content`** (default when the module is installed): queries every `type: 'page'` collection with `queryCollection()` and stringifies with `minimark/stringify`, resolved from `@nuxt/content` itself rather than from this module, so the stringifier is always the one that produced the tree. It also drops the `<style>` node syntax highlighters append, which carries per-document CSS variables that mean nothing in markdown. Mirrors the raw markdown route `@nuxt/content` registers itself when `nuxt-llms` is present, including the related links appended from a page's `links` frontmatter, so nothing changes for agents when this module takes over. A site that needs to transform MDC components into plain markdown can hook `agent-discovery:document` before the tree is stringified:
 
 ```ts
 // server/plugins/agent-discovery.ts

@@ -78,6 +78,17 @@ const source: AgentContentSource = {
     await hooks.callHook('agent-discovery:document', requireEvent(event), page)
 
     const value = page.body.value as unknown as MinimarkNode[]
+
+    // Syntax highlighters append a `<style>` node carrying the per-document
+    // CSS variables. It is meaningless in a markdown representation, and the
+    // stringifier only drops it while it is the last node, so anything
+    // appended below (the related links) would otherwise expose it.
+    for (let i = value.length - 1; i >= 0; i--) {
+      if (value[i]?.[0] === 'style') {
+        value.splice(i, 1)
+      }
+    }
+
     if (value[0]?.[0] !== 'h1') {
       if (page.description) {
         value.unshift(['blockquote', {}, page.description])
