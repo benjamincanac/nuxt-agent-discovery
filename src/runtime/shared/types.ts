@@ -43,6 +43,14 @@ export interface DiscoveryLink {
   header?: boolean
 }
 
+/** One Agent Skill published by the site, as listed in the skills index. */
+export interface SkillEntry {
+  name: string
+  description: string
+  /** Files the skill is made of, relative to its directory. `SKILL.md` first. */
+  files: string[]
+}
+
 /** What a content adapter returns for one route. */
 export interface AgentPage {
   markdown: string

@@ -16,11 +16,12 @@ import { join } from 'pathe'
 import { withLeadingSlash, withoutTrailingSlash } from 'ufo'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { isValidRel } from './rels'
+import { scanSkills } from './skills'
 import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, matchRoute, rawDestination, MARKDOWN_VARY } from './runtime/shared/negotiation'
-import type { AgentRoute, DiscoveryLink, NegotiationConfig } from './runtime/shared/types'
+import type { AgentRoute, DiscoveryLink, NegotiationConfig, SkillEntry } from './runtime/shared/types'
 
-export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig } from './runtime/shared/types'
+export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig, SkillEntry } from './runtime/shared/types'
 
 export interface McpServerCardOptions {
   /** MCP endpoint the card describes, e.g. `/mcp`. */
@@ -96,6 +97,15 @@ export interface ModuleOptions {
     /** `Content-Signal` line for the wildcard group. `false` to omit. */
     contentSignal?: string | false
   }
+  /**
+   * Agent Skills served under `/.well-known/skills/`, with a generated
+   * `index.json`. `false` to disable; otherwise the directory is scanned and
+   * the feature turns itself off when it does not exist.
+   */
+  skills?: false | {
+    /** Directory holding one subdirectory per skill, relative to the root. */
+    dir?: string
+  }
 }
 
 declare module '@nuxt/schema' {
@@ -107,6 +117,7 @@ declare module '@nuxt/schema' {
     agentDiscovery: NegotiationConfig
     agentDiscoveryMcp?: McpServerCardOptions
     agentDiscoveryRobots?: { contentSignal: string }
+    agentDiscoverySkills?: { skills: SkillEntry[] }
   }
   interface PublicRuntimeConfig {
     agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string }
@@ -140,7 +151,8 @@ export default defineNuxtModule<ModuleOptions>({
     },
     errors: true,
     sitemap: { markdown: true },
-    robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes' }
+    robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes' },
+    skills: { dir: 'skills' }
   },
   async setup(options, nuxt) {
     const logger = useLogger('nuxt-agent-discovery')
@@ -250,6 +262,28 @@ export default defineNuxtModule<ModuleOptions>({
       }
     }
 
+    /* ------------------------------- skills ------------------------------- */
+
+    const skillsDir = join(nuxt.options.rootDir, (options.skills && options.skills.dir) || 'skills')
+    const skills: SkillEntry[] = options.skills === false ? [] : await scanSkills(skillsDir, logger)
+
+    if (skills.length) {
+      logger.info(`Found ${skills.length} agent skill${skills.length > 1 ? 's' : ''}: ${skills.map(skill => skill.name).join(', ')}`)
+      nuxt.options.runtimeConfig.agentDiscoverySkills = { skills }
+
+      nuxt.hook('nitro:config', (nitroConfig) => {
+        nitroConfig.serverAssets ||= []
+        nitroConfig.serverAssets.push({ baseName: 'agentSkills', dir: skillsDir })
+      })
+
+      addServerHandler({ route: '/.well-known/skills/index.json', handler: resolve('./runtime/server/routes/skills-index') })
+      addServerHandler({ route: '/.well-known/skills/**', handler: resolve('./runtime/server/routes/skills-files') })
+      addPrerenderRoutes([
+        '/.well-known/skills/index.json',
+        ...skills.flatMap(skill => skill.files.map(file => `/.well-known/skills/${skill.name}/${file}`))
+      ])
+    }
+
     /* ---------------------------- nuxt-llms bridge ------------------------- */
 
     const hasLlms = hasNuxtModule('nuxt-llms')
@@ -312,6 +346,14 @@ export default defineNuxtModule<ModuleOptions>({
             { href: '/llms-full.txt', rel: 'describedby', type: 'text/plain', title: 'llms-full.txt: the full documentation as a single file' },
             { href: '/llms-full.txt', rel: 'service-desc', type: 'text/plain', anchor: '/', header: false }
           )
+        }
+      }
+      if (skills.length) {
+        links.push({ href: '/.well-known/skills/index.json', rel: 'index', type: 'application/json', title: 'Agent skills index: every skill published by this site' })
+        // The skills themselves stay out of the `Link` header, which
+        // advertises the discovery documents rather than every resource.
+        for (const skill of skills) {
+          links.push({ href: `/.well-known/skills/${skill.name}/SKILL.md`, rel: 'service-doc', type: 'text/markdown', title: `Agent skill: ${skill.name}`, anchor: '/', header: false })
         }
       }
       if (matchRoute(routes, '/')) {

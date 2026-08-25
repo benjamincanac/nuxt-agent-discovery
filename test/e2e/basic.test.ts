@@ -202,6 +202,58 @@ describe('discovery documents', () => {
   })
 })
 
+describe('agent skills', () => {
+  it('generates the skills index from the directory on disk', async () => {
+    const response = await fetch('/.well-known/skills/index.json')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/json')
+
+    const body = (await response.json()) as { skills: { name: string, description: string, files: string[] }[] }
+    expect(body.skills).toHaveLength(1)
+    expect(body.skills[0]).toEqual({
+      name: 'basic-site',
+      description: 'Fixture agent skill used to test the skills catalog and file serving.',
+      // Generated from disk, `SKILL.md` first, so it cannot drift from what is served.
+      files: ['SKILL.md', 'references/conventions.md']
+    })
+  })
+
+  it('serves each file of a skill with a useful content type', async () => {
+    const skill = await fetch('/.well-known/skills/basic-site/SKILL.md')
+    expect(skill.status).toBe(200)
+    expect(skill.headers.get('content-type')).toBe('text/markdown; charset=utf-8')
+    expect(await skill.text()).toContain('# Basic site')
+
+    const reference = await fetch('/.well-known/skills/basic-site/references/conventions.md')
+    expect(reference.status).toBe(200)
+    expect(await reference.text()).toContain('# Conventions')
+  })
+
+  it('ignores a directory without a `SKILL.md` and refuses to escape the skill', async () => {
+    expect((await fetch('/.well-known/skills/not-a-skill/README.md')).status).toBe(404)
+    expect((await fetch('/.well-known/skills/basic-site/../../../nuxt.config.ts')).status).not.toBe(200)
+  })
+
+  it('advertises the skills index in the discovery registry', async () => {
+    const link = (await fetch('/')).headers.get('link') || ''
+    expect(link).toContain('</.well-known/skills/index.json>; rel="index"; type="application/json"')
+
+    // The skill itself reaches the api-catalog, not the `Link` header.
+    expect(link).not.toContain('/.well-known/skills/basic-site/SKILL.md')
+    const linkset = (await (await fetch('/.well-known/api-catalog')).json()) as { linkset: { 'anchor': string, 'service-doc'?: { href: string }[] }[] }
+    const root = linkset.linkset.find(entry => entry.anchor === `${SITE_URL}/`)
+    expect(root!['service-doc']).toContainEqual({ href: `${SITE_URL}/.well-known/skills/basic-site/SKILL.md`, type: 'text/markdown' })
+  })
+
+  it('keeps skills out of markdown negotiation', async () => {
+    const response = await fetch('/.well-known/skills/basic-site/SKILL.md', { headers: { 'User-Agent': CLAUDE_BOT } })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8')
+  })
+})
+
 describe('nuxt-llms bridge', () => {
   it('rewrites the `llms.txt` links to their raw markdown twins', async () => {
     const response = await fetch('/llms.txt')
