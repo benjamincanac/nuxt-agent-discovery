@@ -8,6 +8,7 @@ import {
   defineNuxtModule,
   hasNuxtModule,
   resolvePath,
+  tryResolveModule,
   useLogger
 } from '@nuxt/kit'
 import { defu } from 'defu'
@@ -166,9 +167,23 @@ export default defineNuxtModule<ModuleOptions>({
 
     let sourcePath: string | undefined
     let builtinContentSource = false
+    let minimarkStringify: string | undefined
     if (options.source === 'content' || (options.source === 'auto' && hasNuxtModule('@nuxt/content'))) {
       sourcePath = resolve('./runtime/server/sources/content')
       builtinContentSource = true
+      // `minimark` is the tree format `@nuxt/content` stores and serializes
+      // with, not a format this module owns: comark sources render through
+      // `comark/render` and custom sources bring their own. So the stringifier
+      // has to be the one that produced the tree. Resolved from this module's
+      // own dependencies it would pin a version that can disagree with the
+      // content backend's, and a major bump changes the markdown of every page
+      // (attribute serialization, code-fence meta, ...). Resolve it from
+      // `@nuxt/content` instead, so the two can never drift.
+      const contentEntry = await tryResolveModule('@nuxt/content', nuxt.options.modulesDir)
+      minimarkStringify = contentEntry ? await tryResolveModule('minimark/stringify', [contentEntry]) : undefined
+      if (!minimarkStringify) {
+        logger.warn('Could not resolve `minimark/stringify` from `@nuxt/content`; falling back to this module\'s own copy. Raw markdown may differ from what `@nuxt/content` produces.')
+      }
     } else if (options.source === 'comark') {
       throw new Error('[nuxt-agent-discovery] comark sites construct their content instance themselves, so pass a source file instead: `source: \'~~/server/utils/agent-source\'`, exporting `createComarkSource(() => getContent())` from `#agent-discovery/comark`.')
     } else if (typeof options.source === 'string' && options.source !== 'auto') {
@@ -176,6 +191,7 @@ export default defineNuxtModule<ModuleOptions>({
     }
 
     nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
+      ...(minimarkStringify ? { 'minimark/stringify': minimarkStringify } : {}),
       '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
       '#agent-discovery': resolve('./runtime/server/utils/agent-discovery')
@@ -210,9 +226,6 @@ export default defineNuxtModule<ModuleOptions>({
           : []
         nitroConfig.errorHandler = [resolve('./runtime/server/error'), ...handlers]
       }
-      // The stringifier is a dependency of this module, not of the site, so
-      // it has to be bundled rather than traced.
-      nitroConfig.externals = defu(nitroConfig.externals, { inline: ['minimark'] })
     })
 
     addImports({ name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') })
