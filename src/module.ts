@@ -209,12 +209,19 @@ export default defineNuxtModule<ModuleOptions>({
       sourcePath = await resolvePath(options.source)
     }
 
-    nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
-      ...(minimarkStringify ? { 'minimark/stringify': minimarkStringify } : {}),
+    const aliases = {
       '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
       '#agent-discovery': resolve('./runtime/server/utils/agent-discovery')
+    }
+    nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
+      ...(minimarkStringify ? { 'minimark/stringify': minimarkStringify } : {}),
+      ...aliases
     })
+    // Also aliased app-side, purely so a site whose `tsconfig.json` extends the
+    // app config (the common single-tsconfig setup) can typecheck a server
+    // route importing `#agent-discovery`. Nitro is what actually resolves it.
+    nuxt.options.alias = defu(nuxt.options.alias, aliases)
 
     /* ------------------------------- handlers ----------------------------- */
 
