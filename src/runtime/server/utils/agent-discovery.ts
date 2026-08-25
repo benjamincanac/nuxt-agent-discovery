@@ -67,6 +67,8 @@ export function renderAgentResources(event: H3Event, options: { heading?: string
   return lines.length ? [`## ${heading}`, '', ...lines, ''].join('\n') : ''
 }
 
+export { agentDiscoveryOpenApi } from './openapi'
+
 /** Identity helper for typed custom content sources. */
 export function defineAgentContentSource(source: AgentContentSource): AgentContentSource {
   return source

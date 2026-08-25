@@ -183,6 +183,22 @@ import { renderAgentResources } from '#agent-discovery'
 export default defineEventHandler(event => `# Docs\n\n${renderAgentResources(event)}`)
 ```
 
+**`agentDiscoveryOpenApi()`** returns the discovery layer as OpenAPI fragments, for sites publishing an `openapi.json`. These paths are identical across every site running this module by construction, so hand-writing them means restating the route config where it can drift:
+
+```ts
+const discovery = agentDiscoveryOpenApi(event)
+
+return {
+  openapi: '3.1.0',
+  info: { title: 'Example', version },
+  tags: [...discovery.tags, ...myTags],
+  paths: { ...discovery.paths, ...myPaths },
+  components: { ...discovery.components, schemas: { ...discovery.components.schemas, ...mySchemas } }
+}
+```
+
+Spreading your own values last means any generated path can be replaced with a richer, site-specific description.
+
 **`agent-discovery:document`** transforms a page before it is stringified, covered under [Content sources](#content-sources).
 
 ## Companion modules

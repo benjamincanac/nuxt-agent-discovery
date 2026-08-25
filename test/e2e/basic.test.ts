@@ -257,6 +257,32 @@ describe('agent resources block', () => {
   })
 })
 
+describe('openapi fragments', () => {
+  it('describes the negotiated routes and their raw twins from the route config', async () => {
+    const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, { get: { parameters?: { name: string }[], responses: Record<string, { content: Record<string, unknown>, headers: Record<string, unknown> }> } }> }
+
+    // Default `routes` is ['/', '/**'], so both the page and its twin appear.
+    expect(Object.keys(doc.paths)).toEqual(expect.arrayContaining([
+      '/', '/raw/index.md', '/{path}', '/raw/{path}.md'
+    ]))
+    // The wildcard becomes a path parameter rather than being enumerated.
+    expect(doc.paths['/{path}']!.get.parameters?.[0]).toMatchObject({ name: 'path', in: 'path', required: true })
+    expect(doc.paths['/']!.get.responses['200']!.content).toHaveProperty('text/markdown')
+    expect(doc.paths['/']!.get.responses['200']!.headers.Vary).toEqual({ $ref: '#/components/headers/Vary' })
+  })
+
+  it('only describes the discovery documents this site actually serves', async () => {
+    const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, unknown>, components: { schemas: Record<string, unknown> } }
+
+    for (const path of ['/sitemap.md', '/llms.txt', '/llms-full.txt', '/.well-known/api-catalog', '/.well-known/mcp/server-card.json', '/.well-known/skills/index.json']) {
+      expect(doc.paths).toHaveProperty([path])
+    }
+    // Schemas ride along with the documents that reference them.
+    expect(doc.components.schemas).toHaveProperty('Linkset')
+    expect(doc.components.schemas).toHaveProperty('SkillsIndex')
+  })
+})
+
 describe('agent skills', () => {
   it('generates the skills index from the directory on disk', async () => {
     const response = await fetch('/.well-known/skills/index.json')
