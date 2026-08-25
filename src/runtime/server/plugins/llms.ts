@@ -18,13 +18,13 @@ interface LlmsOptions {
   sections: LlmsSection[]
 }
 
-function toLocalPathname(href: string, domain: string): string | undefined {
+function toLocalUrl(href: string, domain: string): { pathname: string, suffix: string } | undefined {
   try {
     const url = new URL(href, domain)
     if (url.origin !== new URL(domain).origin) {
       return undefined
     }
-    return normalizePathname(url.pathname)
+    return { pathname: normalizePathname(url.pathname), suffix: url.search + url.hash }
   } catch {
     return undefined
   }
@@ -49,8 +49,8 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // negotiable pages count, so nuxt-llms's own llms-full.txt entry doesn't
     // mask an otherwise empty document.
     const hasPageLinks = options.sections.some(section => section.links?.some((link) => {
-      const pathname = toLocalPathname(link.href, domain)
-      return !!pathname && (pathname === '/' || !hasFileExtension(pathname))
+      const local = toLocalUrl(link.href, domain)
+      return !!local && (local.pathname === '/' || !hasFileExtension(local.pathname))
     }))
     if (source && !hasPageLinks) {
       const entries = source.list
@@ -73,17 +73,25 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         continue
       }
       section.links = section.links.map((link) => {
-        const pathname = toLocalPathname(link.href, domain)
-        if (!pathname || (pathname !== '/' && hasFileExtension(pathname))) {
+        const local = toLocalUrl(link.href, domain)
+        if (!local) {
           return link
         }
-        const route = matchRoute(config.routes, pathname)
+        const { pathname, suffix } = local
+
+        // Off-site links keep whatever they were written as, but a same-origin
+        // one has to come out absolute: `llms.txt` is read detached from the
+        // site, so a relative href in it points nowhere.
+        const route = pathname === '/' || !hasFileExtension(pathname)
+          ? matchRoute(config.routes, pathname)
+          : undefined
         if (!route) {
-          return link
+          return { ...link, href: withBase(pathname + suffix, domain) }
         }
+
         const raw = rawDestination(config, route, pathname)
         prerenderPaths.add(raw)
-        return { ...link, href: withBase(raw, domain) }
+        return { ...link, href: withBase(raw + suffix, domain) }
       })
     }
   }) as never)
