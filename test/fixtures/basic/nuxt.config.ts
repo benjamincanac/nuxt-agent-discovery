@@ -1,7 +1,6 @@
 export default defineNuxtConfig({
   modules: ['../../../src/module', '@nuxt/content', 'nuxt-llms'],
   devtools: { enabled: false },
-  compatibilityDate: '2026-01-01',
   // Multi-theme highlighting makes the highlighter append a `<style>` node
   // carrying the per-document CSS variables, which the raw markdown must not
   // expose (see the `style` stripping in the `@nuxt/content` source).
@@ -23,11 +22,21 @@ export default defineNuxtConfig({
 
   agentDiscovery: {
     siteName: 'Basic',
+    // `/agent-resources.md` is served by its own handler, so it has to be
+    // excluded or the catch-all route pattern would rewrite it to its raw twin.
+    excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/', '/agent-resources.md'],
     sitemap: {
       markdown: {
         // `/docs/**` splits into a section per area; anything else stays whole.
         expand: ['/docs'],
         labels: { components: 'UI Components' }
+      }
+    },
+    discovery: {
+      mcpServerCard: {
+        endpoint: '/mcp',
+        name: 'Basic',
+        documentation: '/docs/getting-started'
       }
     }
   },

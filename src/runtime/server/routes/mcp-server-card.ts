@@ -1,4 +1,5 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
+import { useNitroApp } from 'nitropack/runtime'
 import { useRuntimeConfig } from '#imports'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
 
@@ -14,17 +15,26 @@ interface McpServerCardConfig {
 }
 
 /**
- * Minimal MCP server card. Sites running `@nuxtjs/mcp-toolkit` usually serve
- * a richer card themselves (live tool listings) and keep this disabled,
- * registering only the discovery link.
+ * MCP server card. The static half comes from `discovery.mcpServerCard`; a
+ * site that knows its live tools, resources and prompts fills the rest in
+ * through the `agent-discovery:mcp-server-card` hook:
+ *
+ * ```ts
+ * nitroApp.hooks.hook('agent-discovery:mcp-server-card', async (event, card) => {
+ *   const { tools } = await listMcpDefinitions({ event })
+ *   card.tools = tools.map(tool => ({ name: tool.name, description: tool.description }))
+ * })
+ * ```
+ *
+ * Detecting an MCP module directly would make this module depend on one, which
+ * is exactly the coupling it exists to avoid.
  */
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const card = useRuntimeConfig(event).agentDiscoveryMcp as McpServerCardConfig
   const siteUrl = getAgentSiteUrl(event)
   const absolute = (href: string) => href.startsWith('/') ? `${siteUrl}${href}` : href
 
-  setResponseHeader(event, 'Content-Type', 'application/json; charset=utf-8')
-  return {
+  const serverCard: Record<string, unknown> = {
     $schema: 'https://modelcontextprotocol.io/schema/server-card/v1',
     serverInfo: {
       name: card.name,
@@ -46,4 +56,10 @@ export default defineEventHandler((event) => {
       required: false
     }
   }
+
+  const hooks = useNitroApp().hooks as unknown as { callHook: (name: string, ...args: unknown[]) => Promise<void> }
+  await hooks.callHook('agent-discovery:mcp-server-card', event, serverCard)
+
+  setResponseHeader(event, 'Content-Type', 'application/json; charset=utf-8')
+  return serverCard
 })

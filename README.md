@@ -159,6 +159,32 @@ export default defineAgentContentSource({
 
 `routes()` lists every markdown-representable route, `get()` resolves one to its markdown. An optional `list()` returns routes with metadata in one call, used by `sitemap.md` and the `nuxt-llms` bridge to avoid a `get()` per page; both fall back to `routes()` + `get()` when it's absent.
 
+## Extending
+
+Two Nitro hooks and one helper let a site contribute what only it knows, without the module depending on its tooling.
+
+**`agent-discovery:mcp-server-card`** enriches the served card with live tools, resources and prompts:
+
+```ts
+// server/plugins/agent-discovery.ts
+export default defineNitroPlugin((nitroApp) => {
+  nitroApp.hooks.hook('agent-discovery:mcp-server-card', async (event, card) => {
+    const { tools } = await listMcpDefinitions({ event })
+    card.tools = tools.map(tool => ({ name: tool.name, description: tool.description }))
+  })
+})
+```
+
+**`renderAgentResources()`** renders the discovery registry as a markdown block, for sites that hand-write an agent-facing homepage. It is the same list the `Link` header and the api-catalog are built from, so a resource can't be advertised in one place and missed in another:
+
+```ts
+import { renderAgentResources } from '#agent-discovery'
+
+export default defineEventHandler(event => `# Docs\n\n${renderAgentResources(event)}`)
+```
+
+**`agent-discovery:document`** transforms a page before it is stringified, covered under [Content sources](#content-sources).
+
 ## Companion modules
 
 Detected automatically, never a dependency:

@@ -216,6 +216,47 @@ describe('sitemap.md sections', () => {
   })
 })
 
+describe('mcp server card', () => {
+  it('serves the configured card, enriched through the hook', async () => {
+    const response = await fetch('/.well-known/mcp/server-card.json')
+
+    expect(response.status).toBe(200)
+
+    const card = (await response.json()) as { serverInfo: Record<string, string>, endpoints: unknown[], tools: unknown[] }
+    expect(card.serverInfo.name).toBe('Basic')
+    expect(card.serverInfo.documentation).toBe(`${SITE_URL}/docs/getting-started`)
+    expect(card.endpoints).toEqual([{ type: 'streamable-http', url: `${SITE_URL}/mcp` }])
+    // Contributed by the site, which is the only thing that knows its tools.
+    expect(card.tools).toEqual([{ name: 'search', description: 'Search the fixture.' }])
+  })
+})
+
+describe('rawUrl', () => {
+  it('maps a page to its raw twin and leaves everything else alone', async () => {
+    const body = await (await fetch('/raw-urls.json')).json() as Record<string, string>
+
+    expect(body.page).toBe(`${SITE_URL}/raw/docs/getting-started.md`)
+    expect(body.home).toBe(`${SITE_URL}/raw/index.md`)
+    expect(body.query).toBe(`${SITE_URL}/raw/docs/getting-started.md?x=1#y`)
+    // Not a page: no route matches, so it only becomes absolute.
+    expect(body.asset).toBe(`${SITE_URL}/openapi.json`)
+    // Off-site links are never rewritten.
+    expect(body.external).toBe('https://example.com/docs/x')
+  })
+})
+
+describe('agent resources block', () => {
+  it('renders the discovery registry as markdown', async () => {
+    const body = await (await fetch('/agent-resources.md')).text()
+
+    expect(body).toContain('## Resources for Agents')
+    expect(body).toContain(`- [llms.txt: index of the documentation for LLMs](${SITE_URL}/llms.txt)`)
+    expect(body).toContain(`- [Agent skills index: every skill published by this site](${SITE_URL}/.well-known/skills/index.json)`)
+    // Only titled resources are listed, so untitled registry entries stay internal.
+    expect(body).not.toContain('](/')
+  })
+})
+
 describe('agent skills', () => {
   it('generates the skills index from the directory on disk', async () => {
     const response = await fetch('/.well-known/skills/index.json')

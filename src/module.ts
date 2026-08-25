@@ -345,11 +345,15 @@ export default defineNuxtModule<ModuleOptions>({
         links.push({ href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown', title: 'Sitemap (Markdown): every page on the site' })
       }
       if (options.discovery?.apiCatalog) {
-        links.push({ href: '/.well-known/api-catalog', rel: 'api-catalog', type: 'application/linkset+json' })
+        links.push({ href: '/.well-known/api-catalog', rel: 'api-catalog', type: 'application/linkset+json', title: 'API catalog: every service document this site publishes' })
       }
       if (options.discovery?.mcpServerCard) {
         const card = options.discovery.mcpServerCard
-        links.push({ href: '/.well-known/mcp/server-card.json', rel: 'service-desc', type: 'application/json', title: `MCP server card: MCP endpoint at ${card.endpoint}`, anchor: card.endpoint })
+        const endpoint = card.endpoint.startsWith('/') ? `${config.siteUrl}${card.endpoint}` : card.endpoint
+        links.push({ href: '/.well-known/mcp/server-card.json', rel: 'service-desc', type: 'application/json', title: `MCP server card: MCP endpoint at ${endpoint}`, anchor: card.endpoint })
+        // The endpoint itself, so an agent reading the resources block or the
+        // error body can reach it without fetching the card first.
+        links.push({ href: card.endpoint, rel: 'service', title: 'MCP endpoint (streamable HTTP)', header: false })
         if (card.documentation) {
           links.push({ href: card.documentation, rel: 'service-doc', type: 'text/html', anchor: card.endpoint, header: false })
         }
