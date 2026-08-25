@@ -41,3 +41,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Build
+        run: pnpm prepack
+
+      - name: Publish preview
+        run: pnpm dlx pkg-pr-new publish
