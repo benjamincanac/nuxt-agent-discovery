@@ -21,7 +21,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 - A generated `/raw/index.md` for sites whose landing page is a Vue page rather than a document, built from the discovery registry
 - Agent Skills served under `/.well-known/skills/`, with the index generated from the directory on disk instead of hand-maintained
 - `robots.txt` AI policy generated from the same user-agent list negotiation matches, so the two can't drift apart
-- A `useCanonical()` composable for canonical and markdown-alternate `<link>` tags
+- A `useCanonical()` composable for canonical and markdown-alternate `<link>` tags, and a `rawUrl()` helper resolving a page URL to its markdown twin from the same route config
 - An `agent-discovery:extend` hook so other modules can add discovery links and user agents
 - Link relations validated against the IANA registry, so an invented `rel="llms"` fails the build
 
@@ -47,7 +47,7 @@ What you get out of the box:
 
 - `/raw/**.md`, the raw markdown route, served from whichever content source is detected
 - `Accept: text/markdown` or an explicit `<path>.md` URL returns markdown for any negotiated route; a known agent User-Agent (ClaudeBot, GPTBot, PerplexityBot, ...) gets markdown without an `Accept` header
-- `Vary: Accept, User-Agent` on negotiated routes and on `/`
+- `Vary: Accept, User-Agent` on negotiated routes, their `.md` twins and `/raw/**`
 - a `Link` header on `/` advertising the discovery resources
 - `/.well-known/api-catalog`
 - `/sitemap.md`
@@ -102,7 +102,7 @@ export default defineNuxtConfig({
 - **`userAgents.extend`** Extra user agents appended to the defaults (18 agents, from `ai.robots.txt`: ClaudeBot, GPTBot, PerplexityBot, and others, see `src/defaults.ts`). **`userAgents.replace`** replaces the list entirely.
 - **`discovery.link`** Emit the discovery `Link` header on `/`.
 - **`discovery.apiCatalog`** Serve `/.well-known/api-catalog` (RFC 9727).
-- **`discovery.sitemapXml`** Add a `Link` entry pointing at `/sitemap.xml`. This module doesn't generate that file, bring your own sitemap module.
+- **`discovery.sitemapXml`** Add a `Link` entry pointing at `/sitemap.xml`. It also puts the `Sitemap:` line in the generated `robots.txt`. This module doesn't generate that file, bring your own sitemap module.
 - **`discovery.mcpServerCard`** Given an `McpServerCardOptions` object (`endpoint`, `name`, and optionally `title`, `description`, `documentation`, `repository`, `license`, `version`), serves `/.well-known/mcp/server-card.json`. `false` to disable.
 - **`discovery.links`** Site-specific discovery links: OpenAPI documents, service docs, anything else worth advertising. Rels are validated against the IANA registry, an invented one fails the build. Other modules can push into the same list through the `agent-discovery:extend` hook.
 - **`errors`** Chains a markdown error handler ahead of any existing Nitro `errorHandler`, answering with a markdown body carrying recovery links when the request prefers it.
@@ -111,9 +111,44 @@ export default defineNuxtConfig({
 - **`robots.aiPolicy`** Feeds the shared user-agent list into `@nuxtjs/robots` when it's installed. Otherwise generates `/robots.txt`, skipped (with a warning) if a static `public/robots.txt` already exists.
 - **`robots.contentSignal`** The `Content-Signal` line added to the wildcard group. `false` to omit it.
 
+## Routes
+
+| Route | Registered when |
+| --- | --- |
+| `/raw/**.md` | a content source resolves, under whatever `rawPrefix` is set to |
+| `/sitemap.md` | a content source resolves and `sitemap.markdown` is on |
+| `/.well-known/api-catalog` | `discovery.apiCatalog` |
+| `/.well-known/mcp/server-card.json` | `discovery.mcpServerCard` is an object |
+| `/.well-known/skills/index.json` and `/.well-known/skills/**` | the skills directory exists |
+| `/robots.txt` | `robots.aiPolicy`, and neither `@nuxtjs/robots` nor a static `public/robots.txt` |
+
+`/llms.txt` and `/llms-full.txt` are not in there, and there's no option to add them. They belong to `nuxt-llms`, which every site already configures, so a second module claiming the route would be last-write-wins with no detection.
+
+With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, and the crawler picks up the twins `llms.txt` links. Skill files are prerendered whatever the source.
+
+### The raw route
+
+`/raw/**.md` answers `text/markdown; charset=utf-8`, with a `Link` header carrying the page's `rel="canonical"` and its `rel="alternate"; type="text/html"`. The body opens on frontmatter:
+
+```md
+---
+title: "Getting Started"
+description: "Install the module and negotiate a first page."
+canonical_url: "https://example.com/docs/getting-started"
+---
+```
+
+`canonical_url` is always there. `title` and `description` are left out when the page has none, rather than emitted empty, since an empty key reads as a value the page set to nothing on purpose.
+
+Then the page markdown, with every same-origin link absolutized. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
+
+A path naming a section rather than a page, `/raw/docs.md` where there is no `docs` index document, redirects 302 to the section's first document when the adapter implements `firstLeaf()`. Anything else missing answers a real 404, so an agent can tell an unknown URL from an empty one. The body is the markdown error, reporting the page path the client asked for rather than the raw one.
+
+`/` is the exception. With no `/` entry in the adapter, `/raw/index.md` falls through to a generated landing page instead of 404ing, see [`agent-discovery:index`](#extending).
+
 ## Content sources
 
-**`'auto'` / `@nuxt/content`** (default when the module is installed): queries every `type: 'page'` collection with `queryCollection()` and stringifies with `minimark/stringify`, resolved from `@nuxt/content` itself rather than from this module, so the stringifier is always the one that produced the tree. It also drops the `<style>` node syntax highlighters append, which carries per-document CSS variables that mean nothing in markdown. Mirrors the raw markdown route `@nuxt/content` registers itself when `nuxt-llms` is present, including the related links appended from a page's `links` frontmatter, so nothing changes for agents when this module takes over. A site that needs to transform MDC components into plain markdown can hook `agent-discovery:document` before the tree is stringified:
+**`'auto'` / `@nuxt/content`** (default when the module is installed): queries every `type: 'page'` collection with `queryCollection()` and stringifies with `minimark/stringify`, resolved from `@nuxt/content` itself rather than from this module, so the stringifier is always the one that produced the tree. It also drops the `<style>` node syntax highlighters append, which carries per-document CSS variables that mean nothing in markdown. A document whose body doesn't open on an `h1` gets one from its `title`, with the `description` as a blockquote under it. Mirrors the raw markdown route `@nuxt/content` registers itself when `nuxt-llms` is present, including the related links appended from a page's `links` frontmatter, so nothing changes for agents when this module takes over. A site that needs to transform MDC components into plain markdown can hook `agent-discovery:document` before the tree is stringified:
 
 ```ts
 // server/plugins/agent-discovery.ts
@@ -188,6 +223,8 @@ Existing `llms.sections` config keeps working: each section is handed to the ada
 
 A section that already carries its own `links` is left alone, and every same-origin link, hand-written or resolved, is rewritten to its `/raw/**.md` twin. Declare no sections at all and pages are grouped by the `section` label the adapter returns.
 
+A section whose selector no adapter recognises, and that has no description of its own, is dropped rather than left as a dangling heading, which is what config that outlived a backend swap turns into. When nothing links `/`, an `Overview` section pointing at the landing page goes in first, since a site whose homepage is a Vue page has no `/` entry to resolve.
+
 ## Extending
 
 A few Nitro hooks and helpers let a site contribute what only it knows, without the module depending on its tooling.
@@ -204,7 +241,7 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
-**`renderAgentResources()`** renders the discovery registry as a markdown block, for sites that hand-write an agent-facing homepage. It is the same list the `Link` header and the api-catalog are built from, so a resource can't be advertised in one place and missed in another:
+**`renderAgentResources()`** renders the discovery registry as a markdown block, for sites that hand-write an agent-facing homepage. It is the same list the `Link` header and the api-catalog are built from, so a resource can't be advertised in one place and missed in another. Pass `{ heading }` to change the default `## Resources for Agents` title:
 
 ```ts
 import { renderAgentResources } from '#agent-discovery'
@@ -237,6 +274,27 @@ export default defineNitroPlugin((nitroApp) => {
     body.push('Nuxt UI is a Vue component library...')
   })
 })
+```
+
+**`rawUrl()`** resolves a page URL to its markdown twin, through the same route config the CDN rewrites, the middleware and the `llms.txt` bridge resolve. Paths that don't negotiate come back untouched, everything comes back absolute, and the query string is carried over. A site hand-rolling this drifts the moment `routes` changes: a hardcoded `/docs/` prefix keeps rewriting after the config has moved on.
+
+```ts
+import { rawUrl } from '#agent-discovery'
+
+rawUrl(event, '/docs/getting-started') // https://example.com/raw/docs/getting-started.md
+rawUrl(event, '/compare?tools=a,b')    // https://example.com/raw/compare.md?tools=a,b
+```
+
+The same entry point exports `getAgentSiteUrl(event)`, the configured `siteUrl` falling back to the request origin, and `useAgentDiscoveryConfig(event)` for the resolved module config.
+
+**`useCanonical()`** is the app-side half. It adds a `rel="canonical"` link for the current route, and a `rel="alternate"; type="text/markdown"` one when you pass it a markdown path. The raw route sets the same pair as a `Link` header on its own responses.
+
+```vue
+<script setup lang="ts">
+const route = useRoute()
+
+useCanonical(() => `${route.path}.md`)
+</script>
 ```
 
 **`agent-discovery:document`** transforms a page before it is stringified, covered under [Content sources](#content-sources).
