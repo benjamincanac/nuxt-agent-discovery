@@ -22,7 +22,7 @@ import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, hasFileExtension, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
-export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+export type { AgentContentSource, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 /** `@nuxt/content`'s llms nitro plugin, by the path its feature registers. */
 const CONTENT_LLMS_PLUGIN = /features[\\/]llms[\\/]runtime[\\/]server[\\/]content-llms\.plugin/
