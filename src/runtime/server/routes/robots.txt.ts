@@ -27,5 +27,8 @@ export default defineEventHandler((event) => {
   }
 
   setResponseHeader(event, 'Content-Type', 'text/plain; charset=utf-8')
+  // Same as the api-catalog: the agent list and the content signal are both
+  // build-time configuration.
+  setResponseHeader(event, 'Cache-Control', 'public, max-age=3600')
   return lines.join('\n')
 })

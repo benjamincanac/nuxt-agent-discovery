@@ -26,5 +26,8 @@ export default defineEventHandler((event) => {
   }
 
   setResponseHeader(event, 'Content-Type', 'application/linkset+json; charset=utf-8')
+  // Built from `discovery.links`, which is settled at build time, so the
+  // document is identical for every request a deployment ever serves.
+  setResponseHeader(event, 'Cache-Control', 'public, max-age=3600')
   return { linkset: [...groups.values()] }
 })

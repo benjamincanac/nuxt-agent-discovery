@@ -84,6 +84,9 @@ describe('discovery documents', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('application/linkset+json')
+    // Built once from the discovery registry, so it never changes between
+    // builds and has no business costing a function invocation per request.
+    expect(response.headers.get('cache-control')).toBe('public, max-age=3600')
 
     const linkset = (await response.json()) as { linkset: { 'anchor': string, 'service-desc'?: { href: string, type?: string }[] }[] }
     expect(linkset.linkset.length).toBeGreaterThan(0)
@@ -98,6 +101,7 @@ describe('discovery documents', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/plain')
+    expect(response.headers.get('cache-control')).toBe('public, max-age=3600')
 
     const body = await response.text()
     expect(body).toContain('User-agent: ClaudeBot')
@@ -125,6 +129,9 @@ describe('mcp server card', () => {
     const response = await fetch('/.well-known/mcp/server-card.json')
 
     expect(response.status).toBe(200)
+    // The one discovery document a cache must not hold: the tool list is read
+    // per request and `agent-discovery:mcp-server-card` runs after it.
+    expect(response.headers.get('cache-control')).toBe('no-cache')
 
     const card = (await response.json()) as {
       serverInfo: Record<string, string>

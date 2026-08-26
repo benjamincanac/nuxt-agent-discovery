@@ -91,5 +91,10 @@ export default defineEventHandler(async (event) => {
   await useNitroApp().hooks.callHook('agent-discovery:mcp-server-card', event, serverCard)
 
   setResponseHeader(event, 'Content-Type', 'application/json; charset=utf-8')
+  // The other discovery documents are build-time output and cache for an hour.
+  // This one is not: the definitions are listed per request and the hook runs
+  // after them, so a shared cache would keep advertising a tool the server has
+  // since dropped, which is worse than serving no card at all.
+  setResponseHeader(event, 'Cache-Control', 'no-cache')
   return serverCard
 })
