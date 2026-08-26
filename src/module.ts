@@ -19,7 +19,7 @@ import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { formatLinkHeader, hasFileExtension, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -535,7 +535,16 @@ export {}
         if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
           continue
         }
-        if (routes.some(route => patternsOverlap(key, route.path))) {
+        // The question is whether the path negotiates at all, which for an
+        // exact rule is `matchRoute`, not `patternsOverlap`: overlap puts
+        // every path under a `/` pattern, so a non-page rule like
+        // `/llms.txt` joined the list and the CDN gave it a 307 to a
+        // `/raw/llms.txt.md` that does not exist. A dotted last segment is an
+        // asset either way, the same rule `negotiatedRawPath` applies.
+        const negotiable = key.includes('*')
+          ? routes.some(route => patternsOverlap(key, route.path))
+          : Boolean(matchRoute(routes, key)) && !hasFileExtension(key)
+        if (negotiable) {
           config.cachedRoutes.push(key)
           logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
         }

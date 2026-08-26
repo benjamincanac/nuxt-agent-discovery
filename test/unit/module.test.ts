@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { nuxtCtx } from '@nuxt/kit'
 import module from '../../src/module'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from '../../src/defaults'
+import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import type { ModuleOptions } from '../../src/module'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
@@ -31,7 +32,7 @@ function createHooks() {
  * carries `@nuxt/content` so the source resolves and the `/sitemap.md` handler
  * is registered, which is the branch that mutates `excludePrefixes`.
  */
-function createNuxt() {
+function createNuxt(routeRules: Record<string, unknown> = {}) {
   const hooks = createHooks()
   return {
     _version: '4.5.2',
@@ -52,15 +53,15 @@ function createNuxt() {
       nitro: {},
       alias: {},
       serverHandlers: [],
-      routeRules: {},
+      routeRules,
       runtimeConfig: { public: {} } as Record<string, unknown> & { public: Record<string, unknown> }
     }
   }
 }
 
 /** One full module setup, resolved through to the config the runtime reads. */
-async function setupModule(options: Partial<ModuleOptions> = {}): Promise<NegotiationConfig> {
-  const nuxt = createNuxt()
+async function setupModule(options: Partial<ModuleOptions> = {}, routeRules: Record<string, unknown> = {}): Promise<NegotiationConfig> {
+  const nuxt = createNuxt(routeRules)
   // `set`, not `callAsync`: unctx only restores an async context in code the
   // Nuxt transform has processed, and this file is plain vitest.
   nuxtCtx.set(nuxt as never, true)
@@ -113,5 +114,45 @@ describe('module setup: shared defaults', () => {
 
     expect(config.userAgents).toEqual([...before, 'MyBot'])
     expect(AGENT_USER_AGENTS).toEqual(before)
+  })
+})
+
+describe('module setup: cached routes', () => {
+  // The `routes` a site lists page patterns with, plus the ISR rules a Vercel
+  // site puts on the documents it generates.
+  const routes = ['/', '/tools', '/tools/**', '/compare', '/compare/**']
+  const routeRules = {
+    '/llms.txt': { isr: 3600 },
+    '/llms-full.txt': { isr: 3600 },
+    '/sitemap.xml': { isr: 3600 },
+    '/tools': { isr: 3600 },
+    '/tools/**': { isr: 3600 }
+  }
+
+  it('only lists a rule the routes actually negotiate', async () => {
+    const config = await setupModule({ routes }, routeRules)
+
+    // `/llms.txt` overlaps `/` under `patternsOverlap`, because everything is
+    // under `/`, but no pattern matches it: it is a document, not a page.
+    expect(config.cachedRoutes).toEqual(['/tools', '/tools/**'])
+  })
+
+  it('never redirects a cached document to a raw twin that does not exist', async () => {
+    const config = await setupModule({ routes }, routeRules)
+    const locations = vercelMarkdownRoutes(config).map(route => route.headers?.Location || '')
+
+    expect(locations.some(location => location.startsWith('/raw/llms'))).toBe(false)
+    expect(locations.some(location => location.startsWith('/raw/sitemap'))).toBe(false)
+    expect(locations.filter(Boolean)).toEqual(['/raw/tools.md', '/raw/tools.md', '/raw/tools/$1.md', '/raw/tools/$1.md'])
+  })
+
+  it('drops a dotted rule under the default catch-all pattern too', async () => {
+    // `/**` does match `/llms.txt`, so `matchRoute` alone is not enough: a
+    // dotted last segment is an asset, the same rule the runtime applies.
+    const config = await setupModule({ routes: ['/', '/**'] }, routeRules)
+
+    expect(config.cachedRoutes).not.toContain('/llms.txt')
+    expect(config.cachedRoutes).not.toContain('/sitemap.xml')
+    expect(config.cachedRoutes).toEqual(['/tools', '/tools/**'])
   })
 })

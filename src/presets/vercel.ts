@@ -127,12 +127,21 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       continue
     }
 
-    const src = rule.includes('*')
+    // An exact rule is only negotiable through the route it matches. Without
+    // one there is no twin to send the client to, and inventing a
+    // `rawPrefix + rule + '.md'` destination 307s to a URL that 404s.
+    const wildcard = rule.includes('*')
+    const matched = wildcard ? undefined : matchRoute(config.routes, rule)
+    if (!wildcard && !matched) {
+      continue
+    }
+
+    const src = wildcard
       ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${compilePattern(rule).source.slice(1, -1)}$`
       : `^${escapeRegExp(rule)}$`
-    const dest = rule.includes('*')
-      ? `${config.rawPrefix}${patternDest(rule)}.md`
-      : rawDestination(config, matchRoute(config.routes, rule) || { path: rule }, rule)
+    const dest = matched
+      ? rawDestination(config, matched, rule)
+      : `${config.rawPrefix}${patternDest(rule)}.md`
 
     routes.push(
       negotiatedRoute(src, dest, [acceptMarkdown], true),
