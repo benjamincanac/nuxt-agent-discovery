@@ -1,5 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nuxtjs",
-  "buildCommand": "pnpm dev:build"
+  "buildCommand": "pnpm dev:prepare && pnpm dev:build"
 }
