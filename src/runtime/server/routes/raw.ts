@@ -4,28 +4,39 @@ import { useNitroApp } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { normalizePathname } from '../../shared/negotiation'
+import type { AgentIndex } from '../../shared/types'
 
 /**
  * The landing page as markdown, for a site whose `/` is a Vue page rather than
  * a content document. The bridge already links `/raw/index.md` from `llms.txt`,
  * and both `nuxt/ui` docs and `nuxt.com` hand-wrote this route to stop it
  * 404ing. Everything structural comes from the registry; `agent-discovery:index`
- * is where the site adds the prose only it knows.
+ * is where the site fills in what only it knows.
+ *
+ * The hook gets the whole document, not just its body: the title and
+ * description of a landing page like this live wherever the site keeps them,
+ * and `siteName` is a fallback rather than the answer. There is no page to read
+ * them off, which is the reason this branch exists at all.
  */
-async function generatedIndex(event: H3Event, siteUrl: string): Promise<{ title: string, markdown: string }> {
+async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentIndex & { markdown: string }> {
   const config = useAgentDiscoveryConfig(event)
-  const title = config.siteName || siteUrl.replace(/^https?:\/\//, '')
 
-  const body: string[] = []
-  await useNitroApp().hooks.callHook('agent-discovery:index', event, body)
+  const index: AgentIndex = {
+    title: config.siteName || siteUrl.replace(/^https?:\/\//, ''),
+    body: []
+  }
+  await useNitroApp().hooks.callHook('agent-discovery:index', event, index)
 
   const resources = renderAgentResources(event)
   return {
-    title,
+    ...index,
     markdown: [
-      `# ${title}`,
+      `# ${index.title}`,
       '',
-      ...(body.length ? [...body, ''] : []),
+      // Same shape a content document comes out in, so the two paths read
+      // alike whichever one served the file.
+      ...(index.description ? [`> ${index.description}`, ''] : []),
+      ...(index.body.length ? [...index.body, ''] : []),
       ...(resources ? [resources] : []),
       'Every page on this site is available as raw markdown: append `.md` to its',
       'URL or send `Accept: text/markdown`.',
@@ -84,7 +95,7 @@ export default defineEventHandler(async (event) => {
   // An empty key reads as a value the page deliberately set to nothing, so a
   // missing title or description is left out rather than emitted as `""`.
   const title = page?.title || index?.title
-  const description = page?.description
+  const description = page?.description || index?.description
   const frontmatter = [
     '---',
     ...(title ? [`title: ${JSON.stringify(title)}`] : []),

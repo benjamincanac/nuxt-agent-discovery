@@ -27,12 +27,24 @@ describe('generated /raw/index.md', () => {
     expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
 
     const body = await response.text()
-    expect(body).toContain('title: "Landing"')
     expect(body).toContain(`canonical_url: "${SITE_URL}"`)
-    expect(body).toContain('# Landing')
-    // The generated index has no description, so the key is left out rather
-    // than emitted empty.
-    expect(body).not.toContain('description:')
+    expect(body).toContain('## Resources for Agents')
+  })
+
+  it('takes its title and description from `agent-discovery:index`', async () => {
+    // The metadata of a Vue landing page lives in the app, not in a document,
+    // so `siteName` is only the fallback. `nuxt/ui` docs cannot adopt this
+    // route otherwise: its frontmatter would lose the real title and the
+    // description entirely.
+    const body = await (await fetch('/raw/index.md')).text()
+
+    // The fixture's hook appends to what it was handed, so `Landing` here is
+    // the `siteName` the module pre-fills.
+    expect(body).toContain('title: "Landing: A Vue Landing Page"')
+    expect(body).toContain('description: "Metadata that lives in the app, not in a document."')
+    expect(body).toContain('# Landing: A Vue Landing Page')
+    // Same shape a content document comes out in.
+    expect(body).toContain('\n> Metadata that lives in the app, not in a document.\n')
   })
 
   it('carries the discovery resources, so an agent can recover from it', async () => {

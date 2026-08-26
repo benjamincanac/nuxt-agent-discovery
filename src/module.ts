@@ -22,7 +22,7 @@ import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, hasFileExtension, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
-export type { AgentContentSource, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 /** `@nuxt/content`'s llms nitro plugin, by the path its feature registers. */
 const CONTENT_LLMS_PLUGIN = /features[\\/]llms[\\/]runtime[\\/]server[\\/]content-llms\.plugin/
@@ -290,6 +290,7 @@ export default defineNuxtModule<ModuleOptions>({
       filename: 'agent-discovery/hooks.d.ts',
       getContents: () => `
 import type { H3Event } from 'h3'
+import type { AgentIndex } from ${JSON.stringify(resolve('./runtime/shared/types'))}
 
 declare module 'nitropack/types' {
   interface NitroRuntimeHooks {
@@ -301,10 +302,11 @@ declare module 'nitropack/types' {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     'agent-discovery:document': (event: H3Event, page: any) => void | Promise<void>
     /**
-     * Adds body blocks to the generated \`/raw/index.md\`, for a site whose
-     * landing page is a Vue page rather than a document.
+     * Fills in the generated \`/raw/index.md\`, for a site whose landing page is
+     * a Vue page rather than a document. Set \`title\` and \`description\`, which
+     * reach the frontmatter, and push markdown blocks onto \`body\`.
      */
-    'agent-discovery:index': (event: H3Event, body: string[]) => void | Promise<void>
+    'agent-discovery:index': (event: H3Event, index: AgentIndex) => void | Promise<void>
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
   }

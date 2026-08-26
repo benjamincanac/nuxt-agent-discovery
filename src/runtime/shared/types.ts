@@ -1,5 +1,8 @@
 import type { H3Event } from 'h3'
 
+// Mirrored by the `agent-discovery/hooks.d.ts` template in `module.ts`, which
+// is what a consuming site sees. This copy is what type-checks the module's own
+// source; keep the two in step.
 declare module 'nitropack/types' {
   interface NitroRuntimeHooks {
     /**
@@ -12,10 +15,11 @@ declare module 'nitropack/types' {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     'agent-discovery:document': (event: H3Event, page: any) => void | Promise<void>
     /**
-     * Adds body blocks to the generated `/raw/index.md`, for a site whose
-     * landing page is a Vue page rather than a document.
+     * Fills in the generated `/raw/index.md`, for a site whose landing page is
+     * a Vue page rather than a document. Set `title` and `description`, which
+     * reach the frontmatter, and push markdown blocks onto `body`.
      */
-    'agent-discovery:index': (event: H3Event, body: string[]) => void | Promise<void>
+    'agent-discovery:index': (event: H3Event, index: AgentIndex) => void | Promise<void>
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
   }
@@ -90,6 +94,24 @@ export interface AgentPage {
   title?: string
   description?: string
   updatedAt?: string
+}
+
+/**
+ * The generated `/raw/index.md`, handed to `agent-discovery:index` for a site
+ * whose landing page is a Vue page rather than a document.
+ *
+ * `title` arrives pre-filled from `siteName` (or the host), and everything the
+ * hook leaves alone is dropped from the frontmatter rather than emitted empty.
+ * The metadata for a landing page like this lives wherever the site keeps it,
+ * which is why the module cannot read it itself.
+ */
+export interface AgentIndex {
+  /** Frontmatter `title`, and the document's `# ` heading. */
+  title: string
+  /** Frontmatter `description`, and the blockquote under the heading. */
+  description?: string
+  /** Markdown blocks between the heading and the resources list. */
+  body: string[]
 }
 
 /** One page in a listing: the route plus whatever metadata is cheap to read. */

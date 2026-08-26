@@ -267,16 +267,20 @@ Every operation carries an `operationId`, since that is what client generators t
 
 Spreading your own values last means any generated path can be replaced with a richer, site-specific description.
 
-**`agent-discovery:index`** adds the prose only the site knows to the generated `/raw/index.md`. When the content adapter has no `/` entry, because the landing page is a Vue page rather than a document, the module serves a markdown landing page built from the discovery registry: frontmatter, canonical and alternate links, and the resources block. The hook is where the site fills in the rest:
+**`agent-discovery:index`** fills in the generated `/raw/index.md`. When the content adapter has no `/` entry, because the landing page is a Vue page rather than a document, the module serves a markdown landing page built from the discovery registry: frontmatter, canonical and alternate links, and the resources block. The hook is where the site adds what only it knows:
 
 ```ts
 // server/plugins/agent-discovery.ts
 export default defineNitroPlugin((nitroApp) => {
-  nitroApp.hooks.hook('agent-discovery:index', (event, body) => {
-    body.push('Nuxt UI is a Vue component library...')
+  nitroApp.hooks.hook('agent-discovery:index', (event, index) => {
+    index.title = 'Nuxt UI'
+    index.description = 'The Intuitive Vue UI Library'
+    index.body.push('Nuxt UI is a Vue component library...')
   })
 })
 ```
+
+`title` arrives pre-filled from `siteName` (or the host), `description` starts empty, and anything the hook leaves alone is left out of the frontmatter rather than emitted as `""`. There is no page to read either off in this branch, which is the whole reason it exists: the metadata of a Vue landing page lives wherever the site keeps it.
 
 **`rawUrl()`** resolves a page URL to its markdown twin, through the same route config the CDN rewrites, the middleware and the `llms.txt` bridge resolve. Paths that don't negotiate come back untouched, everything comes back absolute, and the query string is carried over. A site hand-rolling this drifts the moment `routes` changes: a hardcoded `/docs/` prefix keeps rewriting after the config has moved on.
 
