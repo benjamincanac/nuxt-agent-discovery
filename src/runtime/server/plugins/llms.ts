@@ -161,13 +161,43 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     }
   }) as never)
 
-  nitroApp.hooks.hook('llms:generate:full' as never, (async (event: H3Event, _options: LlmsOptions, contents: string[]) => {
+  nitroApp.hooks.hook('llms:generate:full' as never, (async (event: H3Event, options: LlmsOptions, contents: string[]) => {
     if (!source) {
       return
     }
+
+    // The full document follows the sections the site declared, the same set
+    // `llms.txt` lists. Rendering every route instead pulls in pages kept out
+    // of the documentation on purpose: a landing page, a showcase, a template
+    // gallery. Sections carrying hand-written links resolve to nothing here,
+    // exactly as they did while `@nuxt/content` owned this.
+    const routes: string[] = []
+    const seen = new Set<string>()
+    const add = (route: string) => {
+      if (!seen.has(route)) {
+        seen.add(route)
+        routes.push(route)
+      }
+    }
+
+    if (source.list) {
+      for (const section of options.sections || []) {
+        const entries = await source.list(event, section as unknown as Record<string, unknown>)
+        for (const entry of entries || []) {
+          add(entry.route)
+        }
+      }
+    }
+    // A site declaring no resolvable section still wants its whole site.
+    if (!routes.length) {
+      for (const route of await source.routes(event)) {
+        add(route)
+      }
+    }
+
     // The same `get()` the raw route calls, so a page reads identically whether
     // an agent fetches `/raw/**.md` or the single full document.
-    for (const route of await source.routes(event)) {
+    for (const route of routes) {
       const page = await source.get(route, event)
       if (page?.markdown) {
         contents.push(page.markdown)

@@ -335,6 +335,22 @@ describe('agent skills', () => {
   })
 })
 
+describe('pages without a markdown body', () => {
+  it('404s the raw twin of a structured page', async () => {
+    // `data.yml` is a page collection entry carrying data, not prose. It has
+    // no markdown representation, so serving an empty document would be worse
+    // than saying so.
+    expect((await fetch('/raw/data.md')).status).toBe(404)
+  })
+
+  it('keeps it out of `llms-full.txt` instead of crashing on it', async () => {
+    const response = await fetch('/llms-full.txt')
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).not.toContain('Structured')
+  })
+})
+
 describe('nuxt-llms bridge', () => {
   it('rewrites the `llms.txt` links to their raw markdown twins', async () => {
     const response = await fetch('/llms.txt')
@@ -347,6 +363,18 @@ describe('nuxt-llms bridge', () => {
     expect(body).toContain(`${SITE_URL}/raw/index.md`)
     // Every documentation link points at markdown, never at the HTML page.
     expect(body).not.toContain(`${SITE_URL}/docs/getting-started)`)
+  })
+
+  it('renders only the pages the declared sections name', async () => {
+    const body = await (await fetch('/llms-full.txt')).text()
+
+    // `/pages/standalone` is a page collection no section selects. Rendering
+    // every route would pull it in alongside the documentation.
+    expect(body).toContain('# Getting Started')
+    expect(body).not.toContain('deliberately outside the documentation sections')
+
+    // ...while it is still reachable as raw markdown on its own.
+    expect((await fetch('/raw/pages/standalone.md')).status).toBe(200)
   })
 
   it('still serves `llms-full.txt`', async () => {

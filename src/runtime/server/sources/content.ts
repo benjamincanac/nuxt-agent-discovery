@@ -164,7 +164,11 @@ const source: AgentContentSource = {
         break
       }
     }
-    if (!page) {
+    // A structured page carries no markdown body: a YAML landing page, or a
+    // collection backed by data rather than prose. It has no markdown
+    // representation, so the raw route 404s it and the landing page falls
+    // through to the generated index, which is what a site wants for `/`.
+    if (!page?.body?.value) {
       return null
     }
 
