@@ -178,6 +178,67 @@ describe('rawUrl', () => {
   })
 })
 
+/**
+ * `sitemap.md` lists every page unfiltered and the raw route always asks for
+ * whole documents, so the options an MCP tool reaches for are only covered
+ * from a fixture route.
+ */
+describe('agent tooling helpers', () => {
+  const load = async () => await (await fetch('/agent-pages.json')).json() as {
+    all: string[]
+    prefixed: string[]
+    everyTerm: string[]
+    oneTermMisses: string[]
+    combined: string[]
+    entry: { route: string, title: string, description: string, section?: string, url: string, rawUrl: string }
+    sectioned: string
+    unmatchedSections: string
+  }
+
+  it('lists every page with both URLs an agent might want', async () => {
+    const body = await load()
+
+    expect(body.all).toEqual(expect.arrayContaining(['/', '/docs/getting-started', '/docs/components/badge', '/docs/components/button']))
+    // Resolved through `rawUrl()`, so the twin cannot drift from the rewrites.
+    expect(body.entry).toMatchObject({
+      route: '/docs/components/badge',
+      title: 'Badge',
+      url: `${SITE_URL}/docs/components/badge`,
+      rawUrl: `${SITE_URL}/raw/docs/components/badge.md`
+    })
+  })
+
+  it('narrows by prefix', async () => {
+    const body = await load()
+
+    expect(body.prefixed.sort()).toEqual(['/docs/components/badge', '/docs/components/button'])
+    expect(body.prefixed).not.toContain('/docs/getting-started')
+  })
+
+  it('requires every search term to match, across title, path and description', async () => {
+    const body = await load()
+
+    // `button` is in the title and path, `nested` only in the description.
+    expect(body.everyTerm).toEqual(['/docs/components/button'])
+    // Matching any term would have returned the button page here.
+    expect(body.oneTermMisses).toEqual([])
+    expect(body.combined).toEqual(['/docs/components/badge'])
+  })
+
+  it('narrows a document to the sections asked for, and hands back the whole one otherwise', async () => {
+    const body = await load()
+
+    expect(body.sectioned).toContain('## Usage')
+    expect(body.sectioned).toContain('# Badge')
+    // Frontmatter survives the narrowing, so the document still identifies itself.
+    expect(body.sectioned.startsWith('---')).toBe(true)
+    expect(body.sectioned.length).toBeLessThan(body.unmatchedSections.length)
+    // Nothing matched, so the whole document answers rather than a bare title.
+    expect(body.unmatchedSections).toContain('## Usage')
+    expect(body.unmatchedSections).toContain('const label')
+  })
+})
+
 describe('agent resources block', () => {
   it('renders the discovery registry as markdown', async () => {
     const body = await (await fetch('/agent-resources.md')).text()
