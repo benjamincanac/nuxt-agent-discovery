@@ -21,16 +21,34 @@ import type { SkillEntry } from './runtime/shared/types'
 const SKILL_NAME_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 const MAX_NAME_LENGTH = 64
 
-function parseFrontmatter(content: string): { name?: string, description?: string } | null {
+interface Frontmatter {
+  name?: string
+  description?: string
+}
+
+/**
+ * The frontmatter mapping, or why it could not be read.
+ *
+ * The reason is carried out rather than collapsed to `null` because the
+ * failures read nothing alike: an unquoted `description` holding a `: ` is a
+ * YAML syntax error, and reporting that as a missing description sends you to
+ * the wrong line of the wrong file.
+ */
+function parseFrontmatter(content: string): { data: Frontmatter } | { error: string } {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!match?.[1]) {
-    return null
+    return { error: 'no `SKILL.md` frontmatter' }
   }
+  let data: unknown
   try {
-    return parseYaml(match[1])
-  } catch {
-    return null
+    data = parseYaml(match[1])
+  } catch (error) {
+    return { error: `invalid \`SKILL.md\` frontmatter (${(error as Error).message.split('\n')[0]})` }
   }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { error: 'the `SKILL.md` frontmatter is not a mapping' }
+  }
+  return { data: data as Frontmatter }
 }
 
 function isValidSkillName(name: string, dirName: string, logger: ConsolaInstance): boolean {
@@ -81,12 +99,16 @@ export async function scanSkills(dir: string, logger: ConsolaInstance): Promise<
     }
 
     const frontmatter = parseFrontmatter(await readFile(skillMd, 'utf8'))
-    if (!frontmatter?.description) {
+    if ('error' in frontmatter) {
+      logger.warn(`Skipping skill "${entry.name}": ${frontmatter.error}.`)
+      continue
+    }
+    if (!frontmatter.data.description) {
       logger.warn(`Skipping skill "${entry.name}": no \`description\` in the \`SKILL.md\` frontmatter.`)
       continue
     }
 
-    const name = frontmatter.name || entry.name
+    const name = frontmatter.data.name || entry.name
     if (!isValidSkillName(name, entry.name, logger)) {
       continue
     }
@@ -96,7 +118,7 @@ export async function scanSkills(dir: string, logger: ConsolaInstance): Promise<
 
     catalog.push({
       name,
-      description: frontmatter.description,
+      description: frontmatter.data.description,
       files: ['SKILL.md', ...files.filter(file => file !== 'SKILL.md').sort()]
     })
   }
