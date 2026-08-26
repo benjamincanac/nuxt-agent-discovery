@@ -115,20 +115,26 @@ export interface ModuleOptions {
   }
 }
 
+/** What this module puts in `runtimeConfig`. */
+interface AgentDiscoveryRuntimeConfig {
+  agentDiscovery: NegotiationConfig
+  agentDiscoveryMcp?: McpServerCardOptions
+  agentDiscoveryRobots?: { contentSignal: string }
+  agentDiscoverySkills?: { skills: SkillEntry[] }
+}
+
+/** What this module puts in `runtimeConfig.public`. */
+interface AgentDiscoveryPublicRuntimeConfig {
+  agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string }
+}
+
 declare module '@nuxt/schema' {
   interface NuxtHooks {
     /** Lets other modules add discovery links and agent user agents. */
     'agent-discovery:extend': (registry: { links: DiscoveryLink[], userAgents: string[] }) => void | Promise<void>
   }
-  interface RuntimeConfig {
-    agentDiscovery: NegotiationConfig
-    agentDiscoveryMcp?: McpServerCardOptions
-    agentDiscoveryRobots?: { contentSignal: string }
-    agentDiscoverySkills?: { skills: SkillEntry[] }
-  }
-  interface PublicRuntimeConfig {
-    agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string }
-  }
+  interface RuntimeConfig extends AgentDiscoveryRuntimeConfig {}
+  interface PublicRuntimeConfig extends AgentDiscoveryPublicRuntimeConfig {}
 }
 
 export default defineNuxtModule<ModuleOptions>({
@@ -164,6 +170,14 @@ export default defineNuxtModule<ModuleOptions>({
   async setup(options, nuxt) {
     const logger = useLogger('nuxt-agent-discovery')
     const { resolve } = createResolver(import.meta.url)
+
+    // Nuxt generates the `runtimeConfig` type from the site's own resolved
+    // config, so a `Record<string, string>` like `sitemapSections.labels` comes
+    // back with that site's literal keys and stops accepting the type this
+    // module declares. Assign through the module's own shape instead, which
+    // still checks every value. Only bites a site with this module linked from
+    // source, where its `src` is type-checked along with the app.
+    const runtimeConfig = nuxt.options.runtimeConfig as unknown as AgentDiscoveryRuntimeConfig & { public: AgentDiscoveryPublicRuntimeConfig }
 
     const rawPrefix = withoutTrailingSlash(withLeadingSlash(options.rawPrefix || '/raw'))
     const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
@@ -252,7 +266,7 @@ export default defineNuxtModule<ModuleOptions>({
       addServerHandler({ route: '/.well-known/api-catalog', handler: resolve('./runtime/server/routes/api-catalog') })
     }
     if (options.discovery?.mcpServerCard) {
-      nuxt.options.runtimeConfig.agentDiscoveryMcp = options.discovery.mcpServerCard
+      runtimeConfig.agentDiscoveryMcp = options.discovery.mcpServerCard
       addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: resolve('./runtime/server/routes/mcp-server-card') })
     }
 
@@ -365,7 +379,7 @@ export {}
 
     if (skills.length) {
       logger.info(`Found ${skills.length} agent skill${skills.length > 1 ? 's' : ''}: ${skills.map(skill => skill.name).join(', ')}`)
-      nuxt.options.runtimeConfig.agentDiscoverySkills = { skills }
+      runtimeConfig.agentDiscoverySkills = { skills }
 
       nuxt.hook('nitro:config', (nitroConfig) => {
         nitroConfig.serverAssets ||= []
@@ -388,7 +402,7 @@ export {}
       // route survives a content-backend swap. Works whichever module runs
       // first: `@nuxt/content` normalizes `contentRawMarkdown` into runtime
       // config at `modules:done`, and its handler is dropped below.
-      const llmsOptions = nuxt.options as { llms?: Record<string, unknown> }
+      const llmsOptions = nuxt.options as unknown as { llms?: Record<string, unknown> }
       llmsOptions.llms = { ...llmsOptions.llms, contentRawMarkdown: false }
     }
 
@@ -552,8 +566,8 @@ export {}
 
       /* ---------------------------- runtime config --------------------------- */
 
-      nuxt.options.runtimeConfig.agentDiscovery = config
-      nuxt.options.runtimeConfig.public.agentDiscovery = {
+      runtimeConfig.agentDiscovery = config
+      runtimeConfig.public.agentDiscovery = {
         siteUrl: config.siteUrl,
         siteName: config.siteName,
         rawPrefix

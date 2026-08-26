@@ -3,7 +3,6 @@ import { stringify } from 'minimark/stringify'
 import { queryCollection } from '@nuxt/content/server'
 import type { Collections, PageCollectionItemBase } from '@nuxt/content'
 import type { H3Event } from 'h3'
-// @ts-expect-error - virtual file provided by @nuxt/content
 import collections from '#content/manifest'
 import { useNitroApp } from 'nitropack/runtime'
 import { getAgentSiteUrl } from '../utils/agent-discovery'

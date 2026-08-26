@@ -9,5 +9,8 @@ export default createConfigForNuxt({
     }
   }
 }).overrideRules({
-  'vue/multi-word-component-names': 'off'
+  'vue/multi-word-component-names': 'off',
+  // `interface RuntimeConfig extends AgentDiscoveryRuntimeConfig {}` is how a
+  // module merges its own types into `@nuxt/schema`.
+  '@typescript-eslint/no-empty-object-type': ['error', { allowInterfaces: 'with-single-extends' }]
 })

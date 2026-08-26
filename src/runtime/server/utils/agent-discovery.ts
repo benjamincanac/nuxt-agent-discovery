@@ -5,7 +5,10 @@ import type { AgentContentSource, NegotiationConfig } from '../../shared/types'
 import { hasFileExtension, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
 export function useAgentDiscoveryConfig(event?: H3Event): NegotiationConfig {
-  return useRuntimeConfig(event).agentDiscovery as NegotiationConfig
+  // Through `unknown`: a site's generated `runtimeConfig` type narrows the
+  // records this config carries to that site's own literal keys, which no
+  // longer overlap with the module's declaration.
+  return useRuntimeConfig(event).agentDiscovery as unknown as NegotiationConfig
 }
 
 /** Configured canonical site URL, falling back to the request origin. */
