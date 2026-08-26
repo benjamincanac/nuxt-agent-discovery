@@ -54,6 +54,14 @@ const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
  * let its HTML and markdown variants overwrite each other under the same key.
  * Cached patterns get a 307 instead, so each URL keeps a single variant and the
  * client resolves the twin before any cache lookup.
+ *
+ * `Location` carries no query of its own, and does not need one: `src` matches
+ * the pathname excluding the querystring, and the CDN re-attaches the incoming
+ * query to the destination itself ("all query strings that are found in the
+ * source path will be passed to the destination path"). That is the same thing
+ * the Nitro middleware does by hand for the presets that have no CDN, so a
+ * query-driven page like `/compare?tools=a,b` reaches
+ * `/raw/compare.md?tools=a,b` either way.
  */
 function negotiatedRoute(src: string, dest: string, has: { type: string, key: string, value: string }[], cached: boolean): VercelRoute {
   if (cached) {

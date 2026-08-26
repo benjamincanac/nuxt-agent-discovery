@@ -43,6 +43,11 @@ export default defineEventHandler(async (event) => {
   // negotiated (it has one variant, so its cache entry is safe) and is served
   // normally. Dev has no response cache, and a site that caches every page
   // (ISR on Vercel) would otherwise never negotiate locally.
+  //
+  // The query has to be re-attached by hand here. The CDN 307 gets it for
+  // free, because Vercel matches a route's `src` against the pathname alone
+  // and passes the incoming query on to the destination, so both paths land on
+  // the same URL for a page whose content is its query.
   const pathname = normalizePathname(event.path)
   if (!import.meta.dev && !pathname.endsWith('.md') && config.cachedRoutes.length
     && matchRoute(config.cachedRoutes.map(path => ({ path })), pathname)) {

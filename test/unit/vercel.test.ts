@@ -188,6 +188,19 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect('/docs/3.x/guide'.replace(new RegExp(route.src), route.headers!.Location!)).toBe('/raw/docs/3.x/guide.md')
   })
 
+  it('leaves the query string to the CDN, which re-attaches it itself', () => {
+    // Vercel matches `src` against the pathname excluding the querystring and
+    // passes the incoming query on to the destination, so a `Location` of its
+    // own would end up duplicating it. `/compare?tools=cursor,zed` reaches
+    // `/raw/compare.md?tools=cursor,zed`, which is what the middleware builds
+    // by hand on the presets that have no CDN in front of them.
+    for (const route of routes) {
+      expect(route.headers?.Location || '').not.toContain('?')
+      expect(route.dest || '').not.toContain('?')
+    }
+    expect('/docs/compare'.replace(new RegExp(docs[0]!.src), docs[0]!.headers!.Location!)).toBe('/raw/docs/compare.md')
+  })
+
   it('leaves the uncached patterns rewriting', () => {
     expect(root).toHaveLength(2)
     expect(root.every(route => route.check && !route.status)).toBe(true)

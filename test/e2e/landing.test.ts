@@ -90,6 +90,19 @@ describe('cached routes', () => {
     expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
   })
 
+  it('carries the query string over to the raw twin', async () => {
+    // A page whose content is its query (`/compare?tools=cursor,zed`) would
+    // come out empty if the redirect dropped it. On Vercel the CDN 307 does
+    // this for us, so both negotiation paths land on the same URL.
+    const response = await fetch('/docs/getting-started?tools=cursor,zed', {
+      headers: { accept: 'text/markdown' },
+      redirect: 'manual'
+    })
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('/raw/docs/getting-started.md?tools=cursor,zed')
+  })
+
   it('still serves HTML to a browser on a cached page', async () => {
     const response = await fetch('/docs/getting-started', { headers: { accept: 'text/html' } })
 
