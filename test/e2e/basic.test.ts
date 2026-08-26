@@ -162,7 +162,7 @@ describe('discovery documents', () => {
     expect(link).toContain('</.well-known/api-catalog>; rel="api-catalog"')
   })
 
-  it('serves `/sitemap.md` linking every page to its markdown twin', async () => {
+  it('serves `/sitemap.md` linking every page to its raw markdown twin', async () => {
     const response = await fetch('/sitemap.md')
 
     expect(response.status).toBe(200)
@@ -170,9 +170,21 @@ describe('discovery documents', () => {
 
     const body = await response.text()
     expect(body).toContain('# Basic Sitemap')
-    expect(body).toContain(`[Getting Started](${SITE_URL}/docs/getting-started.md)`)
-    expect(body).toContain(`[Button](${SITE_URL}/docs/components/button.md)`)
-    expect(body).toContain(`[Basic](${SITE_URL})`)
+    expect(body).toContain(`[Getting Started](${SITE_URL}/raw/docs/getting-started.md)`)
+    expect(body).toContain(`[Button](${SITE_URL}/raw/docs/components/button.md)`)
+    expect(body).toContain(`[Basic](${SITE_URL}/raw/index.md)`)
+  })
+
+  it('agrees with `llms.txt` on the pages it lists', async () => {
+    // The two documents are read together, so a homepage pointing at the HTML
+    // page in one and at `/raw/index.md` in the other is a real divergence.
+    const sitemap = await (await fetch('/sitemap.md')).text()
+    const llms = await (await fetch('/llms.txt')).text()
+
+    for (const page of ['/raw/index.md', '/raw/docs/getting-started.md', '/raw/docs/components/button.md']) {
+      expect(sitemap).toContain(`${SITE_URL}${page}`)
+      expect(llms).toContain(`${SITE_URL}${page}`)
+    }
   })
 
   it('serves the RFC 9727 api-catalog', async () => {
@@ -212,7 +224,7 @@ describe('sitemap.md sections', () => {
     expect(body).not.toContain('## Docs')
     // Top-level pages share one section.
     expect(body).toContain('## Pages')
-    expect(body).toContain(`[Basic](${SITE_URL})`)
+    expect(body).toContain(`[Basic](${SITE_URL}/raw/index.md)`)
   })
 })
 

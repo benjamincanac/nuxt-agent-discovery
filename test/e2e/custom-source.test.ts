@@ -93,13 +93,12 @@ describe('content negotiation', () => {
 })
 
 describe('discovery documents', () => {
-  // FAILING (module bug, not a test bug): the negotiation middleware treats
-  // `/sitemap.md` as the `.md` twin of a page called `/sitemap`, rewrites it
-  // to `/raw/sitemap.md` and the raw route 404s. The `@nuxt/content` fixture
-  // hides it because `/sitemap.md` is prerendered there and Nitro serves
-  // public assets ahead of user middleware. Every adapter-backed site (comark,
-  // Docus) hits it. `negotiatedRawPath()` needs to leave the module's own
-  // routes alone.
+  // Without the `/sitemap.md` exclusion the module adds, the negotiation
+  // middleware would treat this as the `.md` twin of a page called
+  // `/sitemap`, rewrite it to `/raw/sitemap.md` and 404. The `@nuxt/content`
+  // fixture hides that because `/sitemap.md` is prerendered there and Nitro
+  // serves public assets ahead of user middleware, so this is the fixture
+  // that covers it for every adapter-backed site.
   it('serves `/sitemap.md` from the adapter', async () => {
     const response = await fetch('/sitemap.md')
 
@@ -108,8 +107,9 @@ describe('discovery documents', () => {
 
     const body = await response.text()
     expect(body).toContain('# Basic Sitemap')
-    expect(body).toContain(`[Getting Started](${SITE_URL}/docs/getting-started.md)`)
-    expect(body).toContain(`[Button](${SITE_URL}/docs/components/button.md)`)
+    expect(body).toContain(`[Basic](${SITE_URL}/raw/index.md)`)
+    expect(body).toContain(`[Getting Started](${SITE_URL}/raw/docs/getting-started.md)`)
+    expect(body).toContain(`[Button](${SITE_URL}/raw/docs/components/button.md)`)
   })
 
   it('rewrites the `llms.txt` links to their raw markdown twins', async () => {

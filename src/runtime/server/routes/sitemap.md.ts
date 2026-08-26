@@ -1,7 +1,6 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
 import source from '#agent-discovery/source'
-import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { matchRoute } from '../../shared/negotiation'
+import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 
 const escapeLabel = (label: string) => label
   .replace(/\\/g, '\\\\')
@@ -10,8 +9,13 @@ const escapeLabel = (label: string) => label
 
 /**
  * Markdown index of every page, grouped by first path segment. Pages covered
- * by the negotiation routes link to their `.md` twin so agents keep getting
- * markdown when they follow them.
+ * by the negotiation routes link to their raw markdown twin so agents keep
+ * getting markdown when they follow them.
+ *
+ * Through `rawUrl()`, which is the same `rawDestination()` the CDN rewrites,
+ * the middleware and the `llms.txt` bridge resolve. Hand-rolling the twin here
+ * put `/` on the HTML page while `llms.txt` pointed it at `/raw/index.md`, in
+ * two documents an agent reads together, and ignored `raw` overrides.
  */
 export default defineEventHandler(async (event) => {
   const config = useAgentDiscoveryConfig(event)
@@ -38,10 +42,7 @@ export default defineEventHandler(async (event) => {
   const sections = new Map<string, { title: string, href: string }[]>()
   for (const entry of entries) {
     const key = sectionKey(entry.route)
-    const negotiated = matchRoute(config.routes, entry.route)
-    const href = negotiated && entry.route !== '/'
-      ? `${siteUrl}${entry.route}.md`
-      : `${siteUrl}${entry.route === '/' ? '' : entry.route}` || siteUrl
+    const href = rawUrl(event, entry.route)
     if (!sections.has(key)) {
       sections.set(key, [])
     }
@@ -52,7 +53,7 @@ export default defineEventHandler(async (event) => {
   const lines: string[] = [
     `# ${siteName} Sitemap`,
     '',
-    `> Markdown index of every page on ${new URL(siteUrl).hostname}. Append \`.md\` to any page URL (or set \`Accept: text/markdown\`) to retrieve the markdown source.`,
+    `> Markdown index of every page on ${new URL(siteUrl).hostname}. Links point at the raw markdown; append \`.md\` to any page URL (or set \`Accept: text/markdown\`) to get it from the page URL instead.`,
     ''
   ]
 

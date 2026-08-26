@@ -76,6 +76,22 @@ describe('per-locale negotiation', () => {
   })
 })
 
+describe('sitemap.md destinations', () => {
+  it('honours the explicit `raw` destination and agrees with `llms.txt`', async () => {
+    const sitemap = await fetch('/sitemap.md').then(response => response.text())
+    const llms = await fetch('/llms.txt').then(response => response.text())
+
+    // `{ path: '/', raw: '/raw/index.md' }`. Hand-rolling the twin here sent
+    // `/` to the HTML page while `llms.txt` sent it to the override.
+    expect(sitemap).toContain(`(${SITE_URL}/raw/index.md)`)
+    expect(llms).toContain(`${SITE_URL}/raw/index.md`)
+    expect(sitemap).toContain(`(${SITE_URL}/raw/en/docs/getting-started.md)`)
+    expect(sitemap).toContain(`(${SITE_URL}/raw/fr/docs/getting-started.md)`)
+    // `/about` matches no pattern, so it stays the page URL, absolute.
+    expect(sitemap).toContain(`(${SITE_URL}/about)`)
+  })
+})
+
 /**
  * The route table is generated from `agentDiscovery.routes` alone, so it is
  * O(patterns) and never O(pages). Docus generates two Vercel routes per link
