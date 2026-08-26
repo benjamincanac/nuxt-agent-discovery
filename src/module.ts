@@ -250,24 +250,12 @@ export default defineNuxtModule<ModuleOptions>({
 
     // The MCP server card lists whatever the site's MCP server exposes, which
     // only `@nuxtjs/mcp-toolkit` knows. Detected, never depended on, the same
-    // way `@nuxtjs/robots` and `@nuxtjs/sitemap` are.
-    //
-    // `hasNuxtModule` alone is not enough: the toolkit's own setup returns
-    // early when it is disabled or running under `nuxt generate`, registering
-    // none of the `#nuxt-mcp-toolkit/*` virtual modules its listing API
-    // imports. Aliasing the real re-export in that state fails the Nitro
-    // build on an unresolvable id, so the same three conditions are mirrored
-    // here.
-    const mcpOptions = (nuxt.options as { mcp?: { enabled?: boolean } }).mcp
-    const mcpToolkit = hasNuxtModule('@nuxtjs/mcp-toolkit')
-      && mcpOptions?.enabled !== false
-      && !nuxt.options.nitro?.static
-      && (nuxt.options as { _generate?: boolean })._generate !== true
-
+    // way `@nuxtjs/robots` and `@nuxtjs/sitemap` are. Starts on the stub, and
+    // the detection below swaps it.
     const aliases = {
       '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
-      '#agent-discovery/mcp': resolve(mcpToolkit ? './runtime/server/mcp/definitions' : './runtime/server/mcp/none'),
+      '#agent-discovery/mcp': resolve('./runtime/server/mcp/none'),
       '#agent-discovery': resolve('./runtime/server/utils/agent-discovery')
     }
     nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
@@ -278,6 +266,34 @@ export default defineNuxtModule<ModuleOptions>({
     // app config (the common single-tsconfig setup) can typecheck a server
     // route importing `#agent-discovery`. Nitro is what actually resolves it.
     nuxt.options.alias = defu(nuxt.options.alias, aliases)
+
+    // Detection waits for `modules:done` for the same reason the companion
+    // modules do: `@nuxtjs/seo`-style declarative `moduleDependencies` are
+    // installed after every listed module's `setup()`, so deciding here would
+    // read a toolkit installed that way as absent and serve a card listing no
+    // tools at all, silently. Nitro resolves the alias table well after this
+    // hook, so swapping the entry now still lands.
+    nuxt.hook('modules:done', () => {
+      // `hasNuxtModule` alone is not enough: the toolkit's own setup returns
+      // early when it is disabled or running under `nuxt generate`, registering
+      // none of the `#nuxt-mcp-toolkit/*` virtual modules its listing API
+      // imports. Aliasing the real re-export in that state fails the Nitro
+      // build on an unresolvable id, so the same three conditions are mirrored
+      // here.
+      const mcpOptions = (nuxt.options as { mcp?: { enabled?: boolean } }).mcp
+      const mcpToolkit = hasNuxtModule('@nuxtjs/mcp-toolkit')
+        && mcpOptions?.enabled !== false
+        && !nuxt.options.nitro?.static
+        && (nuxt.options as { _generate?: boolean })._generate !== true
+      if (!mcpToolkit) {
+        return
+      }
+
+      const definitions = resolve('./runtime/server/mcp/definitions')
+      const nitroAlias = nuxt.options.nitro.alias ||= {}
+      nitroAlias['#agent-discovery/mcp'] = definitions
+      nuxt.options.alias['#agent-discovery/mcp'] = definitions
+    })
 
     /* ------------------------------- handlers ----------------------------- */
 

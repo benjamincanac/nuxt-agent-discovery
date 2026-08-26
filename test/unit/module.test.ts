@@ -53,7 +53,7 @@ function createNuxt(routeRules: Record<string, unknown> = {}) {
       experimental: {},
       build: { templates: [] },
       nitro: {} as { plugins?: string[], alias?: Record<string, string>, static?: boolean },
-      alias: {},
+      alias: {} as Record<string, string>,
       serverHandlers: [] as { route?: string, handler: string }[],
       routeRules,
       runtimeConfig: { public: {} } as Record<string, unknown> & { public: Record<string, unknown> }
@@ -248,6 +248,33 @@ describe('module setup: companion modules', () => {
     const nuxt = await runModule()
 
     expect((nuxt.options.nitro.plugins || []).some(plugin => String(plugin).includes('plugins/sitemap'))).toBe(false)
+  })
+
+  it('resolves the MCP definitions for a toolkit installed after `setup()`', async () => {
+    // Same `moduleDependencies` timing as the robots case. Deciding during
+    // `setup()` left the alias on the stub, so the card went out listing no
+    // tools rather than failing, which is the worse of the two.
+    const nuxt = await runModule({}, {}, installLate('@nuxtjs/mcp-toolkit'))
+
+    expect(nuxt.options.nitro.alias?.['#agent-discovery/mcp']).toContain('mcp/definitions')
+    expect(nuxt.options.alias['#agent-discovery/mcp']).toContain('mcp/definitions')
+  })
+
+  it('keeps the MCP stub when the toolkit is not installed', async () => {
+    const nuxt = await runModule()
+
+    expect(nuxt.options.nitro.alias?.['#agent-discovery/mcp']).toContain('mcp/none')
+  })
+
+  it('keeps the MCP stub when the toolkit is installed but disabled', async () => {
+    // It registers none of the virtual modules the definitions re-export
+    // imports in that state, so aliasing them would fail the Nitro build.
+    const nuxt = await runModule({}, {}, (nuxt) => {
+      installLate('@nuxtjs/mcp-toolkit')(nuxt)
+      Object.assign(nuxt.options, { mcp: { enabled: false } })
+    })
+
+    expect(nuxt.options.nitro.alias?.['#agent-discovery/mcp']).toContain('mcp/none')
   })
 })
 
