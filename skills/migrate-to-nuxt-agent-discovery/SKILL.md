@@ -164,7 +164,7 @@ curl -sS -A ClaudeBot http://localhost:3000/nope | head
 
 Then build, and read the log rather than skimming it. The module warns when a cached route rule overlaps a negotiated pattern, when a static `robots.txt` shadows the generated one, and throws on an invented link rel. Compare the prerendered route count against the old build.
 
-Then deploy a preview and run the `agent-discovery-preview` skill against it. Local checks cannot exercise `Vary`, the `Link` header or the CDN rewrites, which is where the interesting failures live.
+Then deploy a preview and run the `verify-nuxt-agent-discovery` skill against it. Local checks cannot exercise `Vary`, the `Link` header or the CDN rewrites, which is where the interesting failures live.
 
 ## Gotchas
 
