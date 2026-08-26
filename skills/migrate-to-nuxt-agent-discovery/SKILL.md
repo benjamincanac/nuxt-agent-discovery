@@ -5,7 +5,7 @@ description: Migrate a Nuxt site to the nuxt-agent-discovery module, replacing a
 
 # Migrating a site to nuxt-agent-discovery
 
-Replace a site's hand-rolled agent-discovery layer with the module. The reference migration is [nuxt/ui#6883](https://github.com/nuxt/ui/pull/6883): 350 lines added, 1486 deleted, and everything site-specific kept behind hooks.
+Replace a site's hand-rolled agent-discovery layer with the module. The reference migration is [nuxt/ui#6883](https://github.com/nuxt/ui/pull/6883): a negotiation core, a CDN rewrite module, a request middleware, an error handler and six route handlers deleted, replaced by one config block and one Nitro plugin holding three hooks. Almost every file it touches is a deletion.
 
 Read the module's README first, and `.claude/DESIGN.md` in the module repo when a decision needs the reasoning behind it.
 
@@ -103,15 +103,18 @@ export default defineNitroPlugin((nitroApp) => {
     await transformMDC(event, page as any)
   })
 
-  // The module serves a static card; only the site knows what its endpoint exposes.
-  nitroApp.hooks.hook('agent-discovery:mcp-server-card', async (event, card) => {
-    const { tools } = await listMcpDefinitions({ event })
-    card.tools = tools.map(t => ({ name: t.name, description: t.description }))
+  // The module already lists what `@nuxtjs/mcp-toolkit` reports. This is for
+  // what the toolkit cannot know, and it runs last, so append rather than assign.
+  nitroApp.hooks.hook('agent-discovery:mcp-server-card', (event, card) => {
+    card.tools = [...(card.tools ?? []), { name: 'external', description: 'Served elsewhere.' }]
   })
 
-  // Prose for the generated `/raw/index.md`, when the landing page is a Vue page.
-  nitroApp.hooks.hook('agent-discovery:index', (event, body) => {
-    body.push('...')
+  // The generated `/raw/index.md`, when the landing page is a Vue page and the
+  // adapter has no `/` entry to read a title and description off.
+  nitroApp.hooks.hook('agent-discovery:index', (event, index) => {
+    index.title = 'Example'
+    index.description = 'What the site is'
+    index.body.push('...')
   })
 })
 ```
@@ -133,6 +136,7 @@ A site that rewrote its own `llms.txt` links to raw twins can delete that code: 
 | `server/middleware/markdown.ts` | the module's middleware |
 | `server/error.ts` plus the `nitro:config` errorHandler chaining in `nuxt.config` | `errors: true` |
 | `server/routes/raw/[...slug].md.get.ts` | the module's raw route |
+| `server/routes/raw/index.md.get.ts` | `agent-discovery:index` |
 | `server/routes/.well-known/api-catalog.get.ts`, `.well-known/mcp/server-card.json.get.ts` | `discovery.apiCatalog`, `discovery.mcpServerCard` |
 | `server/routes/sitemap.md.get.ts` | `sitemap.markdown` |
 | `public/robots.txt`, hand-maintained agent lists | `robots.aiPolicy` |
