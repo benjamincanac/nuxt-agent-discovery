@@ -205,8 +205,9 @@ describe('openapi fragments', () => {
   })
 
   it('names every operation, so a generated client keeps its method names', async () => {
-    const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, { get: { operationId: string } }> }
-    const ids = Object.fromEntries(Object.entries(doc.paths).map(([path, item]) => [path, item.get.operationId]))
+    // The MCP endpoint is the one `post`, so read whichever the path carries.
+    const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, { get?: { operationId: string }, post?: { operationId: string } }> }
+    const ids = Object.fromEntries(Object.entries(doc.paths).map(([path, item]) => [path, (item.get || item.post)!.operationId]))
 
     expect(ids).toMatchObject({
       '/': 'getHomepage',
@@ -217,6 +218,7 @@ describe('openapi fragments', () => {
       '/llms.txt': 'getLlmsTxt',
       '/llms-full.txt': 'getLlmsFullTxt',
       '/.well-known/api-catalog': 'getApiCatalog',
+      '/mcp': 'callMcpServer',
       '/.well-known/mcp/server-card.json': 'getMcpServerCard',
       '/.well-known/skills/index.json': 'getSkillsIndex'
     })
@@ -228,7 +230,7 @@ describe('openapi fragments', () => {
   it('only describes the discovery documents this site actually serves', async () => {
     const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, unknown>, components: { schemas: Record<string, unknown> } }
 
-    for (const path of ['/sitemap.md', '/llms.txt', '/llms-full.txt', '/.well-known/api-catalog', '/.well-known/mcp/server-card.json', '/.well-known/skills/index.json']) {
+    for (const path of ['/sitemap.md', '/llms.txt', '/llms-full.txt', '/.well-known/api-catalog', '/mcp', '/.well-known/mcp/server-card.json', '/.well-known/skills/index.json']) {
       expect(doc.paths).toHaveProperty([path])
     }
     // Schemas ride along with the documents that reference them.

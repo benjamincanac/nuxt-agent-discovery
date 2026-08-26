@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import { useRuntimeConfig } from '#imports'
 import { useAgentDiscoveryConfig } from './agent-discovery'
 import type { AgentRoute, NegotiationConfig } from '../../shared/types'
 
@@ -229,6 +230,38 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
       'Linkset pointing at the documents this site publishes for agents.',
       { description: 'Linkset document.', content: { 'application/linkset+json': { schema: { $ref: '#/components/schemas/Linkset' } } } }
     )
+  }
+  // The MCP endpoint itself, alongside the card that describes it. Not a route
+  // this module serves, the same as `/sitemap.xml` and the two llms documents
+  // above: what earns a path here is being in the discovery registry, not who
+  // answers it. Leaving this one out is what made every adopter hand-write the
+  // same JSON-RPC block.
+  //
+  // Only a same-origin path, since `paths` is relative to `servers`. A card
+  // pointing at an endpoint on another host has nothing to describe here.
+  const mcp = useRuntimeConfig(event).agentDiscoveryMcp as { endpoint?: string } | undefined
+  if (mcp?.endpoint?.startsWith('/')) {
+    paths[mcp.endpoint] = {
+      post: {
+        tags: ['Discovery'],
+        operationId: 'callMcpServer',
+        summary: 'MCP endpoint',
+        description: 'Model Context Protocol endpoint (streamable HTTP transport), speaking JSON-RPC 2.0. Use an MCP client rather than calling it directly.',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', description: 'JSON-RPC 2.0 request.' } } }
+        },
+        responses: {
+          200: {
+            description: 'JSON-RPC 2.0 response, or an SSE stream of them.',
+            content: {
+              'application/json': { schema: { type: 'object', description: 'JSON-RPC 2.0 response.' } },
+              'text/event-stream': { schema: { type: 'string' } }
+            }
+          }
+        }
+      }
+    }
   }
   if (has('/.well-known/mcp/server-card.json')) {
     paths['/.well-known/mcp/server-card.json'] = discoveryDocument(

@@ -171,4 +171,13 @@ describe('openapi operation ids', () => {
     })
     expect(new Set(Object.values(ids)).size).toBe(Object.values(ids).length)
   })
+
+  it('describes no MCP endpoint on a site that declares no server card', async () => {
+    // The endpoint rides on `discovery.mcpServerCard`, so a site without one
+    // gets neither path rather than an endpoint nothing answers.
+    const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, unknown> }
+
+    expect(doc.paths).not.toHaveProperty(['/mcp'])
+    expect(doc.paths).not.toHaveProperty(['/.well-known/mcp/server-card.json'])
+  })
 })

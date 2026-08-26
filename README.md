@@ -284,9 +284,11 @@ return {
 }
 ```
 
-Every operation carries an `operationId`, since that is what client generators turn into a method name. Discovery documents have fixed ids (`getLlmsTxt`, `getSitemapMarkdown`, `getApiCatalog`, ...) and page patterns derive theirs from the pattern: `/` gives `getHomepage` and `getHomepageMarkdown`, `/docs/**` gives `getDocsPage` and `getDocsPageMarkdown`, and a locale wildcard in front of that gives `getSegmentDocsPage`. They only move when the pattern does.
+Covered are the negotiated page patterns and their raw twins, plus every discovery document the site actually serves: `/sitemap.md`, `/sitemap.xml`, `/llms.txt`, `/llms-full.txt`, the api-catalog, the skills index, and, where `discovery.mcpServerCard` declares one, both the server card and the MCP endpoint itself as a JSON-RPC `post`. What earns a path is being in the discovery registry, not being a route this module serves, which is why the sitemap, the llms documents and the MCP endpoint are all in there.
 
-Spreading your own values last means any generated path can be replaced with a richer, site-specific description.
+Every operation carries an `operationId`, since that is what client generators turn into a method name. Discovery documents have fixed ids (`getLlmsTxt`, `getSitemapMarkdown`, `getApiCatalog`, `callMcpServer`, ...) and page patterns derive theirs from the pattern: `/` gives `getHomepage` and `getHomepageMarkdown`, `/docs/**` gives `getDocsPage` and `getDocsPageMarkdown`, and a locale wildcard in front of that gives `getSegmentDocsPage`. They only move when the pattern does.
+
+Spreading your own values last means any generated path can be replaced with a richer, site-specific description. That is where anything only the site knows belongs, a custom header its MCP endpoint reads, for instance.
 
 **`agent-discovery:index`** fills in the generated `/raw/index.md`. When the content adapter has no `/` entry, because the landing page is a Vue page rather than a document, the module serves a markdown landing page built from the discovery registry: frontmatter, canonical and alternate links, and the resources block. The hook is where the site adds what only it knows:
 
