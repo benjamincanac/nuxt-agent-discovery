@@ -11,12 +11,36 @@ export interface VercelRoute {
   /** Redirect status, for the cached-route strategy below. */
   status?: number
   headers?: Record<string, string>
-  has?: { type: string, key: string, value: string }[]
+  has?: RouteMatcher[]
+  /** Negated matchers: the route applies only when none of them match. */
+  missing?: RouteMatcher[]
   check?: boolean
   continue?: boolean
 }
 
+interface RouteMatcher {
+  type: string
+  key: string
+  value: string
+}
+
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * `Accept` values that explicitly refuse markdown, as an anchored RE2 pattern:
+ * a `text/markdown` range carrying `q=0`, with or without trailing zeroes, and
+ * whatever follows it.
+ *
+ * The negotiation core reads q-values per RFC 9110, so the Nitro middleware
+ * serves HTML for `Accept: text/markdown;q=0, text/html`. A CDN matcher is a
+ * plain regex over the raw header, and Vercel runs RE2, so there is no
+ * lookahead to say "markdown, but not at q=0" in a `has` matcher. A `missing`
+ * matcher says it directly: the rewrite applies only when this does not match.
+ *
+ * `q=0.5` and friends must not match, hence the `(\.0+)?` rather than a loose
+ * tail, and the boundary that follows keeps `q=0.05` (a real quality) out.
+ */
+const REFUSES_MARKDOWN = String.raw`.*text/markdown\s*;\s*[qQ]=0(\.0+)?([;,].*)?`
 
 /** `has` matcher for the Vercel Build Output API, which anchors the value. */
 function agentUserAgentPattern(config: NegotiationConfig): string {
@@ -63,13 +87,13 @@ const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
  * query-driven page like `/compare?tools=a,b` reaches
  * `/raw/compare.md?tools=a,b` either way.
  */
-function negotiatedRoute(src: string, dest: string, has: { type: string, key: string, value: string }[], cached: boolean): VercelRoute {
+function negotiatedRoute(src: string, dest: string, has: RouteMatcher[], cached: boolean, missing?: RouteMatcher[]): VercelRoute {
   if (cached) {
-    return { src, status: 307, headers: { Location: dest, Vary: MARKDOWN_VARY }, has }
+    return { src, status: 307, headers: { Location: dest, Vary: MARKDOWN_VARY }, has, ...(missing ? { missing } : {}) }
   }
   // `check: true` looks the destination up in the filesystem first, which is
   // where prerendered raw files live.
-  return { src, dest, has, check: true }
+  return { src, dest, has, ...(missing ? { missing } : {}), check: true }
 }
 
 /**
@@ -85,6 +109,9 @@ function negotiatedRoute(src: string, dest: string, has: { type: string, key: st
  */
 export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   const acceptMarkdown = { type: 'header', key: 'accept', value: '(.*)text/markdown(.*)' }
+  // Only on the `Accept` routes. A known agent user agent gets markdown
+  // whatever its `Accept` says, which is what the negotiation core does too.
+  const acceptsMarkdown = [{ type: 'header', key: 'accept', value: REFUSES_MARKDOWN }]
   const agentUserAgent = { type: 'header', key: 'user-agent', value: agentUserAgentPattern(config) }
   const excluded = excludeLookahead(config)
 
@@ -144,7 +171,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       : `${config.rawPrefix}${patternDest(rule)}.md`
 
     routes.push(
-      negotiatedRoute(src, dest, [acceptMarkdown], true),
+      negotiatedRoute(src, dest, [acceptMarkdown], true, acceptsMarkdown),
       negotiatedRoute(src, dest, [agentUserAgent], true)
     )
   }
@@ -169,7 +196,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       // and assets (`_payload.json`, images) out.
       const negotiatedSrc = `^${NO_DOTTED_LAST_SEGMENT}${excluded}${body}$`
       routes.push(
-        negotiatedRoute(negotiatedSrc, dest, [acceptMarkdown], cached),
+        negotiatedRoute(negotiatedSrc, dest, [acceptMarkdown], cached, acceptsMarkdown),
         negotiatedRoute(negotiatedSrc, dest, [agentUserAgent], cached)
       )
     } else {
@@ -179,7 +206,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
         routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, dest })
       }
       routes.push(
-        negotiatedRoute(src, dest, [acceptMarkdown], cached),
+        negotiatedRoute(src, dest, [acceptMarkdown], cached, acceptsMarkdown),
         negotiatedRoute(src, dest, [agentUserAgent], cached)
       )
     }

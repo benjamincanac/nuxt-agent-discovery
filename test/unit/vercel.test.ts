@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import type { VercelRoute } from '../../src/presets/vercel'
-import { formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
+import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -291,5 +291,64 @@ describe('vercelMarkdownRoutes: user-agent matcher', () => {
 
   it('stays case-sensitive, like the runtime', () => {
     expect(new RegExp(value).test('claudebot/1.0')).toBe(false)
+  })
+})
+
+describe('vercelMarkdownRoutes: explicit markdown refusal', () => {
+  const routes = vercelMarkdownRoutes(createConfig())
+  const accept = routes.filter(route => route.has?.[0]?.key === 'accept')
+  const userAgent = routes.filter(route => route.has?.[0]?.key === 'user-agent')
+
+  /** How Vercel evaluates a matcher value: RE2, anchored on the whole header. */
+  const refuses = (header: string) => new RegExp(`^(?:${accept[0]!.missing![0]!.value})$`).test(header)
+
+  it('guards every `Accept` route and no other', () => {
+    expect(accept.length).toBeGreaterThan(0)
+    for (const route of accept) {
+      expect(route.missing).toEqual([{ type: 'header', key: 'accept', value: expect.any(String) }])
+    }
+    // A known agent user agent gets markdown whatever its `Accept` says, the
+    // same as `negotiatedRawPath`.
+    for (const route of userAgent) {
+      expect(route.missing).toBeUndefined()
+    }
+  })
+
+  it('matches the headers that refuse markdown', () => {
+    for (const header of [
+      'text/markdown;q=0',
+      'text/markdown;q=0, text/html',
+      'text/markdown; q=0',
+      'text/markdown;Q=0',
+      'text/markdown;q=0.0',
+      'text/markdown;q=0.000',
+      'text/html, text/markdown;q=0'
+    ]) {
+      expect(refuses(header), header).toBe(true)
+      // The whole point: the runtime says no too, so edge and origin agree.
+      expect(acceptsMarkdown(header), header).toBe(false)
+    }
+  })
+
+  it('leaves every real quality alone', () => {
+    for (const header of [
+      'text/markdown',
+      'text/markdown;q=1',
+      'text/markdown;q=0.5',
+      'text/markdown;q=0.05',
+      'text/markdown, text/html;q=0.9',
+      'text/html;q=0, text/markdown'
+    ]) {
+      expect(refuses(header), header).toBe(false)
+      expect(acceptsMarkdown(header), header).toBe(true)
+    }
+  })
+
+  it('cannot express full q-value precedence, a known divergence', () => {
+    // `text/html` outranks markdown, so the origin returns HTML while the edge
+    // rewrites. Nothing a regex matcher can say, so it stays documented rather
+    // than half-solved.
+    expect(acceptsMarkdown('text/markdown;q=0.1, text/html;q=0.9')).toBe(false)
+    expect(refuses('text/markdown;q=0.1, text/html;q=0.9')).toBe(false)
   })
 })

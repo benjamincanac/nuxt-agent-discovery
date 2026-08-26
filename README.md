@@ -323,6 +323,8 @@ Then, per route pattern, two negotiated routes: a `has` matcher on `Accept: text
 
 The explicit `.md` twin stays a rewrite either way: that URL only ever serves markdown, so it has no second variant to worry about.
 
+The `Accept` route also carries a `missing` matcher for `text/markdown;q=0`, so a client that explicitly refuses markdown gets HTML from the edge like it does from the origin. Full q-value precedence is not expressible in a matcher: Vercel runs RE2, which has no lookahead, so `Accept: text/markdown;q=0.1, text/html;q=0.9` is a known divergence. The Nitro middleware ranks those per RFC 9110 and returns HTML, while the edge rewrite still sends markdown. Only the outright refusal (`q=0`) is covered.
+
 The table stays O(route patterns): one set of routes per configured pattern, not one per page, however many pages the site has.
 
 ### Other hosts
