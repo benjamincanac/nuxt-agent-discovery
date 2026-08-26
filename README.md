@@ -263,6 +263,8 @@ return {
 }
 ```
 
+Every operation carries an `operationId`, since that is what client generators turn into a method name. Discovery documents have fixed ids (`getLlmsTxt`, `getSitemapMarkdown`, `getApiCatalog`, ...) and page patterns derive theirs from the pattern: `/` gives `getHomepage` and `getHomepageMarkdown`, `/docs/**` gives `getDocsPage` and `getDocsPageMarkdown`, and a locale wildcard in front of that gives `getSegmentDocsPage`. They only move when the pattern does.
+
 Spreading your own values last means any generated path can be replaced with a richer, site-specific description.
 
 **`agent-discovery:index`** adds the prose only the site knows to the generated `/raw/index.md`. When the content adapter has no `/` entry, because the landing page is a Vue page rather than a document, the module serves a markdown landing page built from the discovery registry: frontmatter, canonical and alternate links, and the resources block. The hook is where the site fills in the rest:

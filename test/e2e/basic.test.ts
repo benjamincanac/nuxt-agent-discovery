@@ -283,6 +283,27 @@ describe('openapi fragments', () => {
     expect(doc.paths['/']!.get.responses['200']!.headers.Vary).toEqual({ $ref: '#/components/headers/Vary' })
   })
 
+  it('names every operation, so a generated client keeps its method names', async () => {
+    const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, { get: { operationId: string } }> }
+    const ids = Object.fromEntries(Object.entries(doc.paths).map(([path, item]) => [path, item.get.operationId]))
+
+    expect(ids).toMatchObject({
+      '/': 'getHomepage',
+      '/raw/index.md': 'getHomepageMarkdown',
+      '/{path}': 'getPage',
+      '/raw/{path}.md': 'getPageMarkdown',
+      '/sitemap.md': 'getSitemapMarkdown',
+      '/llms.txt': 'getLlmsTxt',
+      '/llms-full.txt': 'getLlmsFullTxt',
+      '/.well-known/api-catalog': 'getApiCatalog',
+      '/.well-known/mcp/server-card.json': 'getMcpServerCard',
+      '/.well-known/skills/index.json': 'getSkillsIndex'
+    })
+    // A client generator turns these into method names, so a duplicate would
+    // silently drop an operation.
+    expect(new Set(Object.values(ids)).size).toBe(Object.values(ids).length)
+  })
+
   it('only describes the discovery documents this site actually serves', async () => {
     const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, unknown>, components: { schemas: Record<string, unknown> } }
 

@@ -50,6 +50,55 @@ function toTemplate(pattern: string): { path: string, params: string[] } {
   return { path, params }
 }
 
+/** `docs-api` → `DocsApi`, `3.x` → `3X`. */
+function pascalCase(segment: string): string {
+  return segment
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map(word => word[0]!.toUpperCase() + word.slice(1))
+    .join('')
+}
+
+/**
+ * The `operationId` of a route pattern, which client generators turn into a
+ * method name. Static segments are PascalCased, `*` becomes `Segment` and an
+ * inner `**` becomes `Path`; a wildcard pattern ends in `Page`, with the
+ * trailing `**` left implicit:
+ *
+ * `/` → `getHomepage`, `/about` → `getAbout`, `/docs/**` → `getDocsPage`, and a
+ * locale wildcard in front of that last one → `getSegmentDocsPage`.
+ *
+ * Derived from the pattern alone, so an id only moves when that pattern does.
+ */
+function routeOperation(pattern: string): string {
+  if (pattern === '/') {
+    return 'Homepage'
+  }
+  const segments = pattern.split('/').filter(Boolean)
+  const wildcard = pattern.includes('*')
+  if (segments[segments.length - 1] === '**') {
+    segments.pop()
+  }
+  const name = segments
+    .map(segment => segment === '**' ? 'Path' : segment === '*' ? 'Segment' : pascalCase(segment))
+    .join('')
+  return wildcard ? `${name}Page` : name
+}
+
+/**
+ * Two patterns can still derive the same name (`/docs/api` and `/docs-api`),
+ * so the second one along takes a numeric suffix. Route order is the site's
+ * own config order, which makes the result stable for a given config.
+ */
+function claim(taken: Set<string>, name: string): string {
+  let candidate = name
+  for (let index = 2; taken.has(candidate); index++) {
+    candidate = `${name}${index}`
+  }
+  taken.add(candidate)
+  return candidate
+}
+
 function pathParameters(params: string[], pattern: string): Json[] {
   return params.map(name => ({
     name,
@@ -70,13 +119,14 @@ function text(description: string): Json {
   return { description, content: { 'text/plain': { schema: { type: 'string' } } } }
 }
 
-function negotiatedPage(route: AgentRoute): Json {
+function negotiatedPage(route: AgentRoute, operationId: string): Json {
   const { path, params } = toTemplate(route.path)
   const label = route.path === '/' ? 'Homepage' : `Page under \`${route.path}\``
   return {
     [path]: {
       get: {
         tags: ['Documentation'],
+        operationId,
         summary: label,
         description: `Returns HTML by default, Markdown when negotiated. ${NEGOTIATION}`,
         ...(params.length ? { parameters: pathParameters(params, route.path) } : {}),
@@ -96,7 +146,7 @@ function negotiatedPage(route: AgentRoute): Json {
   }
 }
 
-function rawPage(config: NegotiationConfig, route: AgentRoute): Json {
+function rawPage(config: NegotiationConfig, route: AgentRoute, operationId: string): Json {
   const raw = route.raw && !route.path.includes('*')
     ? { path: route.raw, params: [] as string[] }
     : (() => {
@@ -108,6 +158,7 @@ function rawPage(config: NegotiationConfig, route: AgentRoute): Json {
     [raw.path]: {
       get: {
         tags: ['Documentation'],
+        operationId,
         summary: route.path === '/' ? 'Homepage as Markdown' : `Markdown of a page under \`${route.path}\``,
         description: 'Markdown source, with YAML frontmatter (`title`, `description`, `canonical_url`).',
         ...(raw.params.length ? { parameters: pathParameters(raw.params, route.path) } : {}),
@@ -120,8 +171,8 @@ function rawPage(config: NegotiationConfig, route: AgentRoute): Json {
   }
 }
 
-function discoveryDocument(summary: string, description: string, response: Json): Json {
-  return { get: { tags: ['Discovery'], summary, description, responses: { 200: response } } }
+function discoveryDocument(operationId: string, summary: string, description: string, response: Json): Json {
+  return { get: { tags: ['Discovery'], operationId, summary, description, responses: { 200: response } } }
 }
 
 export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
@@ -129,12 +180,19 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   const has = (href: string) => config.links.some(link => link.href === href)
 
   const paths: Json = {}
+  const taken = new Set<string>()
   for (const route of config.routes) {
-    Object.assign(paths, negotiatedPage(route), rawPage(config, route))
+    const operation = routeOperation(route.path)
+    Object.assign(
+      paths,
+      negotiatedPage(route, `get${claim(taken, operation)}`),
+      rawPage(config, route, `get${claim(taken, `${operation}Markdown`)}`)
+    )
   }
 
   if (has('/sitemap.md')) {
     paths['/sitemap.md'] = discoveryDocument(
+      'getSitemapMarkdown',
       'Markdown sitemap',
       'Every page, grouped into sections, linking to the Markdown URLs.',
       markdown('Markdown index of every page.')
@@ -142,6 +200,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/sitemap.xml')) {
     paths['/sitemap.xml'] = discoveryDocument(
+      'getSitemapXml',
       'XML sitemap',
       'Every indexable page, in the sitemaps.org XML format.',
       { description: 'Sitemap in the sitemaps.org XML format.', content: { 'application/xml': { schema: { type: 'string' } } } }
@@ -149,6 +208,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/llms.txt')) {
     paths['/llms.txt'] = discoveryDocument(
+      'getLlmsTxt',
       'llms.txt index',
       'Index of the documentation for LLMs, following the llms.txt convention.',
       text('Markdown index.')
@@ -156,6 +216,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/llms-full.txt')) {
     paths['/llms-full.txt'] = discoveryDocument(
+      'getLlmsFullTxt',
       'Full documentation for LLMs',
       'Every documentation page concatenated as Markdown. Large response.',
       text('Full documentation as Markdown.')
@@ -163,6 +224,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/.well-known/api-catalog')) {
     paths['/.well-known/api-catalog'] = discoveryDocument(
+      'getApiCatalog',
       'API catalog (RFC 9727)',
       'Linkset pointing at the documents this site publishes for agents.',
       { description: 'Linkset document.', content: { 'application/linkset+json': { schema: { $ref: '#/components/schemas/Linkset' } } } }
@@ -170,6 +232,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/.well-known/mcp/server-card.json')) {
     paths['/.well-known/mcp/server-card.json'] = discoveryDocument(
+      'getMcpServerCard',
       'MCP server card',
       'Describes the MCP endpoint, its capabilities and what it exposes.',
       { description: 'MCP server card, following the schema it declares in `$schema`.', content: { 'application/json': { schema: { type: 'object' } } } }
@@ -177,6 +240,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/.well-known/skills/index.json')) {
     paths['/.well-known/skills/index.json'] = discoveryDocument(
+      'getSkillsIndex',
       'Agent skills index',
       'Lists the agent skills published by this site and the files each one is made of, served under `/.well-known/skills/{name}/`.',
       { description: 'Skills index.', content: { 'application/json': { schema: { $ref: '#/components/schemas/SkillsIndex' } } } }

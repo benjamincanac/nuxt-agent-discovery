@@ -155,3 +155,20 @@ describe('O(1) route table', () => {
     expect(vercelMarkdownRoutes(config).length).toBeLessThan(pages * 2)
   })
 })
+
+describe('openapi operation ids', () => {
+  it('keeps the locale pattern apart from the homepage and its twin', async () => {
+    const doc = (await (await fetch('/openapi.json')).json()) as { paths: Record<string, { get: { operationId: string } }> }
+    const ids = Object.fromEntries(Object.entries(doc.paths).map(([path, item]) => [path, item.get.operationId]))
+
+    // Two page patterns, each with a raw twin: four operations that all have to
+    // come out with different names.
+    expect(ids).toMatchObject({
+      '/': 'getHomepage',
+      '/raw/index.md': 'getHomepageMarkdown',
+      '/{segment}/docs/{path}': 'getSegmentDocsPage',
+      '/raw/{segment}/docs/{path}.md': 'getSegmentDocsPageMarkdown'
+    })
+    expect(new Set(Object.values(ids)).size).toBe(Object.values(ids).length)
+  })
+})
