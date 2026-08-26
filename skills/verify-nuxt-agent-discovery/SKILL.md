@@ -1,6 +1,6 @@
 ---
 name: verify-nuxt-agent-discovery
-description: Verify a deployed Nuxt site running the nuxt-agent-discovery module, from a URL alone: markdown content negotiation, Vary and Link headers, the raw markdown route, discovery documents, the llms.txt bridge, agent error bodies and a full page sweep. Use after migrating a site to the module, when asked to test a preview deployment, or to check markdown negotiation on a deployed site.
+description: "Verify a deployed Nuxt site running the nuxt-agent-discovery module, from a URL alone: markdown content negotiation, Vary and Link headers, the raw markdown route, discovery documents, the llms.txt bridge, agent error bodies and a full page sweep. Use after migrating a site to the module, when asked to test a preview deployment, or to check markdown negotiation on a deployed site."
 ---
 
 # nuxt-agent-discovery deployment check
