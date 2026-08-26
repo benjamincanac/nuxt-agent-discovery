@@ -168,7 +168,12 @@ export default defineNuxtModule<ModuleOptions>({
     const rawPrefix = withoutTrailingSlash(withLeadingSlash(options.rawPrefix || '/raw'))
     const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
       .map(route => typeof route === 'string' ? { path: route } : route)
-    const userAgents = options.userAgents?.replace || [...AGENT_USER_AGENTS, ...(options.userAgents?.extend || [])]
+    // Copied, not aliased. `agent-discovery:extend` lets a site push onto this
+    // list, and a `replace` array comes straight from the site's config, which
+    // in a monorepo can be one const imported by two apps.
+    const userAgents = options.userAgents?.replace
+      ? [...options.userAgents.replace]
+      : [...AGENT_USER_AGENTS, ...(options.userAgents?.extend || [])]
 
     // Mutated until `modules:done`, then read by the runtime and the presets.
     const config: NegotiationConfig = {
@@ -177,7 +182,11 @@ export default defineNuxtModule<ModuleOptions>({
       rawPrefix,
       routes,
       userAgents,
-      excludePrefixes: options.excludePrefixes || EXCLUDE_PREFIXES,
+      // Copied for the same reason, and one more: `defu` hands back the
+      // `defaults` entry itself when a site configures nothing, so pushing
+      // `/sitemap.md` below would land on the module-level const and leak into
+      // the next Nuxt instance built in the same process.
+      excludePrefixes: [...(options.excludePrefixes || EXCLUDE_PREFIXES)],
       links: [],
       cachedRoutes: [],
       sitemapSections: {
