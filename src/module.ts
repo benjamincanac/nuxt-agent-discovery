@@ -320,57 +320,85 @@ export {}
     /* ------------------------------- robots ------------------------------- */
 
     if (options.robots?.aiPolicy) {
-      if (hasNuxtModule('@nuxtjs/robots')) {
-        // Feed the shared user-agent list into the robots module instead of
-        // competing for the `/robots.txt` route.
-        //
-        // Through its hook, not `nuxt.options.robots`: that module reads its
-        // options during its own setup, so a site listing it first (which
-        // `@nuxtjs/sitemap` asks for) would silently get none of this.
-        const contentSignal = options.robots.contentSignal
-        const onRobotsConfig = nuxt.hook as unknown as (
-          name: 'robots:config',
-          cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void
-        ) => void
-        onRobotsConfig('robots:config', (robotsConfig) => {
-          // `Content-Signal` belongs on the wildcard group, which this module's
-          // own `robots.txt` route emits too. Without it the directive would be
-          // lost the moment a site adds `@nuxtjs/robots`.
-          if (contentSignal) {
-            for (const group of robotsConfig.groups) {
-              if (group.userAgent.includes('*')) {
-                group.contentSignal = [contentSignal]
-              }
+      // Feed the shared user-agent list into the robots module instead of
+      // competing for the `/robots.txt` route.
+      //
+      // Registered whether or not `@nuxtjs/robots` is installed, since the
+      // hook simply never fires without it. Waiting for detection would be too
+      // late: that module calls `robots:config` from its own `modules:done`,
+      // which runs before ours whenever it is listed first.
+      //
+      // Through its hook, not `nuxt.options.robots`: that module reads its
+      // options during its own setup, so a site listing it first (which
+      // `@nuxtjs/sitemap` asks for) would silently get none of this.
+      const contentSignal = options.robots.contentSignal
+      const onRobotsConfig = nuxt.hook as unknown as (
+        name: 'robots:config',
+        cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void
+      ) => void
+      onRobotsConfig('robots:config', (robotsConfig) => {
+        // `Content-Signal` belongs on the wildcard group, which this module's
+        // own `robots.txt` route emits too. Without it the directive would be
+        // lost the moment a site adds `@nuxtjs/robots`.
+        if (contentSignal) {
+          for (const group of robotsConfig.groups) {
+            if (group.userAgent.includes('*')) {
+              group.contentSignal = [contentSignal]
             }
           }
-          robotsConfig.groups.push(...userAgents.map(userAgent => ({
-            userAgent: [userAgent],
-            allow: ['/'],
-            disallow: [],
-            comment: []
-          })))
-        })
-      } else if (existsSync(join(nuxt.options.rootDir, nuxt.options.dir?.public || 'public', 'robots.txt'))) {
-        logger.warn('A static `public/robots.txt` exists, so the AI robots policy is not applied to it. Align its agent list with `agentDiscovery.userAgents` or remove the file.')
-      } else {
-        nuxt.options.runtimeConfig.agentDiscoveryRobots = {
-          contentSignal: options.robots.contentSignal || ''
         }
+        robotsConfig.groups.push(...userAgents.map(userAgent => ({
+          userAgent: [userAgent],
+          allow: ['/'],
+          disallow: [],
+          comment: []
+        })))
+      })
+
+      // Whether to serve `/robots.txt` ourselves is decided at `modules:done`,
+      // not here: `@nuxtjs/seo` pulls `@nuxtjs/robots` in through Nuxt's
+      // declarative `moduleDependencies`, which are installed after this
+      // `setup()` runs. `hasNuxtModule` says no at this point, and the handler
+      // we would register is dead code behind theirs.
+      nuxt.hook('modules:done', () => {
+        if (hasNuxtModule('@nuxtjs/robots')) {
+          return
+        }
+        // The name check above covers the modules we know. Anything else
+        // serving that route wins it at runtime, and ours would be dead code
+        // whose agent groups never reach a crawler, so say so rather than
+        // registering it.
+        if (nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')) {
+          logger.warn('Another module already serves `/robots.txt`, so the AI robots policy is not applied to it. Contribute the `agentDiscovery.userAgents` list through that module instead.')
+          return
+        }
+        if (existsSync(join(nuxt.options.rootDir, nuxt.options.dir?.public || 'public', 'robots.txt'))) {
+          logger.warn('A static `public/robots.txt` exists, so the AI robots policy is not applied to it. Align its agent list with `agentDiscovery.userAgents` or remove the file.')
+          return
+        }
+        runtimeConfig.agentDiscoveryRobots = { contentSignal: contentSignal || '' }
         addServerHandler({ route: '/robots.txt', handler: resolve('./runtime/server/routes/robots.txt') })
-      }
+      })
     }
 
     /* ------------------------------- sitemap ------------------------------ */
 
-    if (hasNuxtModule('@nuxtjs/sitemap')) {
-      // The raw markdown twins are alternate representations of pages already
-      // in the sitemap, not pages of their own, so they must never be listed
-      // as separate URLs. Every site that pairs a sitemap module with a raw
-      // markdown route needs this, so the module does it rather than leaving
-      // each one to remember.
-      const sitemapOptions = nuxt.options as { sitemap?: { exclude?: string[] } }
-      sitemapOptions.sitemap = defu(sitemapOptions.sitemap, { exclude: [`${rawPrefix}/**`] })
-    }
+    // The raw markdown twins are alternate representations of pages already in
+    // the sitemap, not pages of their own, so they must never be listed as
+    // separate URLs. Every site that pairs a sitemap module with a raw markdown
+    // route needs this, so the module does it rather than leaving each one to
+    // remember.
+    //
+    // Through the module's runtime hook rather than `sitemap.exclude`:
+    // `@nuxtjs/sitemap` resolves its options during its own setup and bakes
+    // them into a virtual module, so mutating `nuxt.options.sitemap` afterwards
+    // does nothing unless the site happens to list this module first. Detection
+    // waits for `modules:done` for the `moduleDependencies` reason above.
+    nuxt.hook('modules:done', () => {
+      if (hasNuxtModule('@nuxtjs/sitemap')) {
+        addServerPlugin(resolve('./runtime/server/plugins/sitemap'))
+      }
+    })
 
     /* ------------------------------- skills ------------------------------- */
 

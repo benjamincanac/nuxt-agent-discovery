@@ -301,10 +301,10 @@ useCanonical(() => `${route.path}.md`)
 
 ## Companion modules
 
-Detected automatically, never a dependency:
+Detected automatically, never a dependency. Detection happens at `modules:done`, so a site that gets them through `@nuxtjs/seo` rather than listing them itself is covered too: that module installs both through Nuxt's declarative `moduleDependencies`, which land after every listed module's `setup()`.
 
 - **`@nuxtjs/robots`** takes over `robots.txt`, and the shared user-agent list is contributed through its `robots:config` hook instead of this module registering a competing route. `robots.contentSignal` rides along on the wildcard group, so the directive survives the handoff.
-- **`@nuxtjs/sitemap`** owns `sitemap.xml`, and the raw markdown prefix is added to its `exclude`. The raw twins are alternate representations of pages already in the sitemap, not pages of their own, so listing them separately would be wrong on every site that pairs the two.
+- **`@nuxtjs/sitemap`** owns `sitemap.xml`, and the raw markdown twins are dropped from every sitemap it builds through its `sitemap:input` hook. They are alternate representations of pages already listed, not pages of their own, so listing them separately would be wrong on every site that pairs the two.
 
 ## Deployment
 
