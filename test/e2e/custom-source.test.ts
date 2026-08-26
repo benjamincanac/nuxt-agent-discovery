@@ -99,6 +99,11 @@ describe('discovery documents', () => {
   // fixture hides that because `/sitemap.md` is prerendered there and Nitro
   // serves public assets ahead of user middleware, so this is the fixture
   // that covers it for every adapter-backed site.
+  //
+  // Only the case where the module owns the route, though. A site serving its
+  // own `/sitemap.md` needs the same exclusion, which is keyed on the
+  // registered link rather than on this branch: see the `sitemap.md exclusion`
+  // unit tests.
   it('serves `/sitemap.md` from the adapter', async () => {
     const response = await fetch('/sitemap.md')
 

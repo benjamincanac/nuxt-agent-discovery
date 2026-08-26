@@ -233,3 +233,36 @@ describe('module setup: companion modules', () => {
     expect((nuxt.options.nitro.plugins || []).some(plugin => String(plugin).includes('plugins/sitemap'))).toBe(false)
   })
 })
+
+describe('module setup: sitemap.md exclusion', () => {
+  const link = { href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown', title: 'Sitemap' }
+
+  it('excludes the path when the site serves `/sitemap.md` itself', async () => {
+    // `sitemap.markdown` off, the route served by the site's own handler and
+    // advertised through `discovery.links`. Without the exclusion the
+    // negotiation middleware reads it as the `.md` twin of a page called
+    // `/sitemap`, rewrites to `/raw/sitemap.md` and 404s.
+    const config = await setupModule({ sitemap: { markdown: false }, discovery: { links: [link] } })
+
+    expect(config.excludePrefixes).toContain('/sitemap.md')
+  })
+
+  it('still excludes it when the module owns the route', async () => {
+    const config = await setupModule()
+
+    expect(config.excludePrefixes.filter(prefix => prefix === '/sitemap.md')).toHaveLength(1)
+  })
+
+  it('leaves `/sitemap` negotiable when nothing serves a markdown sitemap', async () => {
+    // No link, so a real page at `/sitemap` keeps its `.md` twin.
+    const config = await setupModule({ sitemap: { markdown: false } })
+
+    expect(config.excludePrefixes).not.toContain('/sitemap.md')
+  })
+
+  it('does not add it twice when the site already listed it', async () => {
+    const config = await setupModule({ excludePrefixes: ['/_', '/sitemap.md'] })
+
+    expect(config.excludePrefixes.filter(prefix => prefix === '/sitemap.md')).toHaveLength(1)
+  })
+})

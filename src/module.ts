@@ -256,10 +256,6 @@ export default defineNuxtModule<ModuleOptions>({
       addServerHandler({ route: `${rawPrefix}/**`, handler: resolve('./runtime/server/routes/raw') })
       if (options.sitemap?.markdown) {
         addServerHandler({ route: '/sitemap.md', handler: resolve('./runtime/server/routes/sitemap.md') })
-        // Not a page twin: without this, a catch-all route pattern would
-        // rewrite it to `${rawPrefix}/sitemap.md` at the edge and in the
-        // middleware, shadowing the handler.
-        config.excludePrefixes.push('/sitemap.md')
       }
     }
     if (options.discovery?.apiCatalog) {
@@ -552,6 +548,18 @@ export {}
         }
       }
       config.links.push(...links)
+
+      // `/sitemap.md` is not a page twin: without this a catch-all route
+      // pattern rewrites it to `${rawPrefix}/sitemap.md` at the edge and in the
+      // middleware, shadowing whatever serves it, and the request 404s.
+      //
+      // Keyed on the registered link, not on this module owning the route. A
+      // site that serves its own `/sitemap.md` with `sitemap.markdown` off and
+      // registers it through `discovery.links` needs the exclusion just as
+      // much, and was left broken by the narrower check.
+      if (config.links.some(link => link.href === '/sitemap.md') && !config.excludePrefixes.includes('/sitemap.md')) {
+        config.excludePrefixes.push('/sitemap.md')
+      }
 
       /* ----------------------------- route rules ---------------------------- */
 
