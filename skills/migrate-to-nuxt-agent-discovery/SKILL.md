@@ -43,7 +43,7 @@ Record:
 - **i18n locales**, which become a wildcard segment in a `routes` pattern rather than one pattern per locale.
 - **Companion modules**: `@nuxtjs/robots` and `@nuxtjs/sitemap` take over `robots.txt` and `sitemap.xml`, and the module hands off to them automatically.
 - **Every existing agent-facing file**: negotiation utils, an `md-rewrite` module, a raw route, `.well-known` routes, `sitemap.md`, a static `public/robots.txt`, `vercel.json` rewrites, an error handler chained in `nitro:config`, a `useCanonical` composable, skills served from `publicAssets`, and any `index.md` handler.
-- **Standalone `.md` documents the site serves itself** (`/design.md` and friends). These need `excludePrefixes` or the rewrites will send them to a raw twin that does not exist.
+- **Standalone `.md` documents the site serves itself** (`/design.md` and friends). These need `excludePrefixes.extend` or the rewrites will send them to a raw twin that does not exist.
 
 ## Step 2: install
 
@@ -70,7 +70,7 @@ agentDiscovery: {
 
 - **`routes`** is the decision that matters. One pattern per negotiated tree, `*` for a single segment (a locale), `**` for a subtree. The generated route table is O(patterns), so a site that enumerates pages here has misunderstood the option. Pages outside the patterns keep serving HTML to agents, which is the right answer for marketing pages, pricing, and anything without a markdown representation.
 - **`raw`** is only honoured on exact patterns. Use it for `/` when the landing page is a Vue page rather than a document.
-- **`excludePrefixes`** gets every standalone `.md` route and any API surface not already covered by the defaults.
+- **`excludePrefixes.extend`** gets every standalone `.md` route and any API surface the defaults do not already cover. `replace` is only for dropping a default.
 - **`discovery.links`** carries what only the site knows: its OpenAPI document, its docs entry point, recovery links for error bodies (`header: false` keeps them out of the `Link` header). Rels are validated against the IANA registry and an invented one fails the build. Sites migrating off `rel="llms"`, `rel="llms-full"`, `rel="mcp"` or `rel="design"` do not need replacements: `llms.txt` and `llms-full.txt` are pushed into the registry by the module, the MCP endpoint belongs in `discovery.mcpServerCard`, and a design document is `describedby` or `related`.
 - **`sitemap.markdown`** takes `expand` and `labels` to control grouping. `expand: ['/docs']` turns one Docs section into one section per area.
 - **`skills.dir`** replaces serving a skills directory through `publicAssets`, and generates the index from the files on disk.

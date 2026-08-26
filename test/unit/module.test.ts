@@ -107,12 +107,27 @@ describe('module setup: shared defaults', () => {
   })
 
   it('does not leak a site-specific exclusion into the next instance', async () => {
-    const configured = await setupModule({ excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/', '/openapi.json'] })
+    const configured = await setupModule({ excludePrefixes: { extend: ['/openapi.json'] } })
     const plain = await setupModule()
 
     expect(configured.excludePrefixes).toContain('/openapi.json')
     // Exactly the defaults, so a second `/sitemap.md` cannot creep in either.
     expect(plain.excludePrefixes).toEqual([...EXCLUDE_PREFIXES, '/sitemap.md'])
+  })
+
+  it('appends what a site extends instead of concatenating the defaults twice', async () => {
+    const config = await setupModule({ excludePrefixes: { extend: ['/api/', '/openapi.json'] } })
+
+    // `/api/` is already a default. The whole default list used to be appended
+    // to the site's, which doubled every alternative of the generated CDN
+    // lookahead and left a site no way to drop one.
+    expect(config.excludePrefixes).toEqual([...EXCLUDE_PREFIXES, '/openapi.json', '/sitemap.md'])
+  })
+
+  it('drops the defaults entirely for a `replace` list', async () => {
+    const config = await setupModule({ excludePrefixes: { replace: ['/_'] } })
+
+    expect(config.excludePrefixes).toEqual(['/_', '/sitemap.md'])
   })
 
   it('copies a `userAgents.replace` list rather than working on the site\'s array', async () => {
@@ -263,7 +278,7 @@ describe('module setup: sitemap.md exclusion', () => {
   })
 
   it('does not add it twice when the site already listed it', async () => {
-    const config = await setupModule({ excludePrefixes: ['/_', '/sitemap.md'] })
+    const config = await setupModule({ excludePrefixes: { replace: ['/_', '/sitemap.md'] } })
 
     expect(config.excludePrefixes.filter(prefix => prefix === '/sitemap.md')).toHaveLength(1)
   })

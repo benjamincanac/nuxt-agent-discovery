@@ -71,8 +71,12 @@ export interface ModuleOptions {
    * CDN route table stays O(patterns) in page count.
    */
   routes?: (string | AgentRoute)[]
-  /** Path prefixes that never negotiate and keep their JSON/HTML errors. */
-  excludePrefixes?: string[]
+  excludePrefixes?: {
+    /** Extra prefixes on top of the defaults. */
+    extend?: string[]
+    /** Replaces the default list entirely. */
+    replace?: string[]
+  }
   userAgents?: {
     /** Extra user agents on top of the defaults. */
     extend?: string[]
@@ -159,7 +163,7 @@ export default defineNuxtModule<ModuleOptions>({
     // Option arrays merge by concatenation, so the routes default is applied
     // in setup instead: a site defining its own patterns replaces it.
     routes: [],
-    excludePrefixes: EXCLUDE_PREFIXES,
+    excludePrefixes: { extend: [] },
     userAgents: { extend: [] },
     discovery: {
       link: true,
@@ -194,6 +198,12 @@ export default defineNuxtModule<ModuleOptions>({
     const userAgents = options.userAgents?.replace
       ? [...options.userAgents.replace]
       : [...AGENT_USER_AGENTS, ...(options.userAgents?.extend || [])]
+    // Same shape, same copy, and deduped on top: this list becomes an
+    // alternation in the generated CDN lookahead, so a site spelling out a
+    // default it also extends would double it there for nothing.
+    const excludePrefixes = [...new Set(options.excludePrefixes?.replace
+      ? options.excludePrefixes.replace
+      : [...EXCLUDE_PREFIXES, ...(options.excludePrefixes?.extend || [])])]
 
     // Mutated until `modules:done`, then read by the runtime and the presets.
     const config: NegotiationConfig = {
@@ -202,11 +212,7 @@ export default defineNuxtModule<ModuleOptions>({
       rawPrefix,
       routes,
       userAgents,
-      // Copied for the same reason, and one more: `defu` hands back the
-      // `defaults` entry itself when a site configures nothing, so pushing
-      // `/sitemap.md` below would land on the module-level const and leak into
-      // the next Nuxt instance built in the same process.
-      excludePrefixes: [...(options.excludePrefixes || EXCLUDE_PREFIXES)],
+      excludePrefixes,
       links: [],
       cachedRoutes: [],
       sitemapSections: {

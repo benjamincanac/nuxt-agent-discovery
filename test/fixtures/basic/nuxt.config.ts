@@ -24,7 +24,7 @@ export default defineNuxtConfig({
     siteName: 'Basic',
     // `/agent-resources.md` is served by its own handler, so it has to be
     // excluded or the catch-all route pattern would rewrite it to its raw twin.
-    excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/', '/agent-resources.md', '/openapi.json'],
+    excludePrefixes: { extend: ['/agent-resources.md', '/openapi.json'] },
     sitemap: {
       markdown: {
         // `/docs/**` splits into a section per area; anything else stays whole.
