@@ -30,6 +30,9 @@ describe('generated /raw/index.md', () => {
     expect(body).toContain('title: "Landing"')
     expect(body).toContain(`canonical_url: "${SITE_URL}"`)
     expect(body).toContain('# Landing')
+    // The generated index has no description, so the key is left out rather
+    // than emitted empty.
+    expect(body).not.toContain('description:')
   })
 
   it('carries the discovery resources, so an agent can recover from it', async () => {

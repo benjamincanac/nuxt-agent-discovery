@@ -81,10 +81,14 @@ export default defineEventHandler(async (event) => {
 
   const index = page ? undefined : await generatedIndex(event, siteUrl)
 
+  // An empty key reads as a value the page deliberately set to nothing, so a
+  // missing title or description is left out rather than emitted as `""`.
+  const title = page?.title || index?.title
+  const description = page?.description
   const frontmatter = [
     '---',
-    `title: ${JSON.stringify(page?.title || index?.title || '')}`,
-    `description: ${JSON.stringify(page?.description || '')}`,
+    ...(title ? [`title: ${JSON.stringify(title)}`] : []),
+    ...(description ? [`description: ${JSON.stringify(description)}`] : []),
     `canonical_url: ${JSON.stringify(canonicalUrl)}`,
     '---',
     ''
