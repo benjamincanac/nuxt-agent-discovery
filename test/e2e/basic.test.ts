@@ -121,17 +121,39 @@ describe('sitemap.md sections', () => {
 })
 
 describe('mcp server card', () => {
-  it('serves the configured card, enriched through the hook', async () => {
+  it('serves the configured card, listing what the MCP server exposes', async () => {
     const response = await fetch('/.well-known/mcp/server-card.json')
 
     expect(response.status).toBe(200)
 
-    const card = (await response.json()) as { serverInfo: Record<string, string>, endpoints: unknown[], tools: unknown[] }
+    const card = (await response.json()) as {
+      serverInfo: Record<string, string>
+      endpoints: unknown[]
+      capabilities: Record<string, unknown>
+      tools: { name: string, description?: string }[]
+    }
     expect(card.serverInfo.name).toBe('Basic')
     expect(card.serverInfo.documentation).toBe(`${SITE_URL}/docs/getting-started`)
     expect(card.endpoints).toEqual([{ type: 'streamable-http', url: `${SITE_URL}/mcp` }])
-    // Contributed by the site, which is the only thing that knows its tools.
-    expect(card.tools).toEqual([{ name: 'search', description: 'Search the fixture.' }])
+
+    // Read off `@nuxtjs/mcp-toolkit`, not hand-maintained, so the card cannot
+    // advertise a tool the server dropped.
+    expect(card.capabilities).toHaveProperty('tools')
+    expect(card.tools).toContainEqual({ name: 'search', description: 'Search the fixture.' })
+  })
+
+  it('keeps an admin group off the public card', async () => {
+    const card = (await (await fetch('/.well-known/mcp/server-card.json')).json()) as { tools: { name: string }[] }
+
+    // `server/mcp/tools/admin/purge.ts` is on the server and reachable with
+    // the right credentials; the card is a public document.
+    expect(card.tools.map(tool => tool.name)).not.toContain('purge')
+  })
+
+  it('still lets the site add to the card through the hook', async () => {
+    const card = (await (await fetch('/.well-known/mcp/server-card.json')).json()) as { tools: { name: string }[] }
+
+    expect(card.tools.map(tool => tool.name)).toContain('external')
   })
 })
 

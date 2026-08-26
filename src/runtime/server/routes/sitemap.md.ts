@@ -1,6 +1,6 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
-import source from '#agent-discovery/source'
-import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { listAgentPages } from '../utils/pages'
 
 const escapeLabel = (label: string) => label
   .replace(/\\/g, '\\\\')
@@ -21,11 +21,7 @@ export default defineEventHandler(async (event) => {
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
 
-  const entries = source
-    ? (source.list
-        ? (await source.list(event)) || []
-        : (await source.routes(event)).map(route => ({ route, title: undefined as string | undefined })))
-    : []
+  const entries = await listAgentPages(event)
 
   const { expand, labels } = config.sitemapSections
 
@@ -42,7 +38,7 @@ export default defineEventHandler(async (event) => {
   const sections = new Map<string, { title: string, href: string }[]>()
   for (const entry of entries) {
     const key = sectionKey(entry.route)
-    const href = rawUrl(event, entry.route)
+    const href = entry.rawUrl
     if (!sections.has(key)) {
       sections.set(key, [])
     }

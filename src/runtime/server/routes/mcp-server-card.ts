@@ -1,6 +1,7 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import { useRuntimeConfig } from '#imports'
+import { listMcpDefinitions } from '#agent-discovery/mcp'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
 
 interface McpServerCardConfig {
@@ -12,22 +13,30 @@ interface McpServerCardConfig {
   repository?: string
   license?: string
   version?: string
+  excludeGroups?: string[]
+}
+
+/** What the toolkit's listing API returns per definition, of what we use. */
+interface McpDefinition {
+  name: string
+  description?: string
+  uri?: string
+  group?: string
 }
 
 /**
- * MCP server card. The static half comes from `discovery.mcpServerCard`; a
- * site that knows its live tools, resources and prompts fills the rest in
- * through the `agent-discovery:mcp-server-card` hook:
+ * MCP server card.
  *
- * ```ts
- * nitroApp.hooks.hook('agent-discovery:mcp-server-card', async (event, card) => {
- *   const { tools } = await listMcpDefinitions({ event })
- *   card.tools = tools.map(tool => ({ name: tool.name, description: tool.description }))
- * })
- * ```
+ * The static half comes from `discovery.mcpServerCard`. The live half, what
+ * the server actually exposes, is read from `@nuxtjs/mcp-toolkit` when the
+ * site runs it: every adopter was otherwise writing the same plugin to copy
+ * `listMcpDefinitions()` onto the card, and a card listing tools the server
+ * no longer has is worse than no card.
  *
- * Detecting an MCP module directly would make this module depend on one, which
- * is exactly the coupling it exists to avoid.
+ * Detected, never depended on. Without the toolkit the import resolves to a
+ * stub and the card is exactly what config declares. Either way
+ * `agent-discovery:mcp-server-card` runs last, so a site can add or correct
+ * anything.
  */
 export default defineEventHandler(async (event) => {
   const card = useRuntimeConfig(event).agentDiscoveryMcp as McpServerCardConfig
@@ -55,6 +64,28 @@ export default defineEventHandler(async (event) => {
     authentication: {
       required: false
     }
+  }
+
+  if (listMcpDefinitions) {
+    const { tools, resources, prompts } = await listMcpDefinitions({ event }) as {
+      tools: McpDefinition[]
+      resources: McpDefinition[]
+      prompts: McpDefinition[]
+    }
+    // Groups come from the subdirectory a definition sits in, which is how a
+    // site separates its admin tools from the ones anybody may call.
+    const excluded = new Set(card.excludeGroups ?? ['admin'])
+    const isPublic = (definition: McpDefinition) => !definition.group || !excluded.has(definition.group)
+
+    serverCard.capabilities = {
+      tools: { listChanged: false },
+      resources: { listChanged: false, subscribe: false },
+      prompts: { listChanged: false },
+      logging: {}
+    }
+    serverCard.tools = tools.filter(isPublic).map(tool => ({ name: tool.name, description: tool.description }))
+    serverCard.resources = resources.filter(isPublic).map(resource => ({ name: resource.name, uri: resource.uri, description: resource.description }))
+    serverCard.prompts = prompts.filter(isPublic).map(prompt => ({ name: prompt.name, description: prompt.description }))
   }
 
   await useNitroApp().hooks.callHook('agent-discovery:mcp-server-card', event, serverCard)

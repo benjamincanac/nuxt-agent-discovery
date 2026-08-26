@@ -16,7 +16,8 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, `comark` through a factory, or your own
 - A `nuxt-llms` bridge: `/llms.txt` and `/llms-full.txt` stay owned by `nuxt-llms`, this module never registers them, but their sections, links and full document all come from the content adapter, so a page reads the same whichever backend serves it and whichever URL an agent fetches it from
 - Markdown error bodies with recovery links for agents hitting a 404 or other error
-- `/.well-known/api-catalog` (RFC 9727) and an optional MCP server card
+- `/.well-known/api-catalog` (RFC 9727) and an optional MCP server card, which lists what the site's MCP server actually exposes when it runs `@nuxtjs/mcp-toolkit`
+- `listAgentPages()`, `getAgentDocument()` and `extractSections()`, the three pieces an MCP docs tool is built from, so a site's tools return exactly what its raw markdown URLs do
 - `/sitemap.md`, a markdown index of every page, grouped into sections you control
 - A generated `/raw/index.md` for sites whose landing page is a Vue page rather than a document, built from the discovery registry
 - Agent Skills served under `/.well-known/skills/`, with the index generated from the directory on disk instead of hand-maintained
@@ -248,17 +249,18 @@ The module doesn't do this for you: it would turn both documents dynamic for eve
 
 A few Nitro hooks and helpers let a site contribute what only it knows, without the module depending on its tooling.
 
-**`agent-discovery:mcp-server-card`** enriches the served card with live tools, resources and prompts:
+**`agent-discovery:mcp-server-card`** adds to the served card. With `@nuxtjs/mcp-toolkit` installed the module already fills in `capabilities` and lists the server's tools, resources and prompts, so this is for what the toolkit can't know. The hook runs last, so assigning to `card.tools` replaces that list rather than adding to it:
 
 ```ts
 // server/plugins/agent-discovery.ts
 export default defineNitroPlugin((nitroApp) => {
-  nitroApp.hooks.hook('agent-discovery:mcp-server-card', async (event, card) => {
-    const { tools } = await listMcpDefinitions({ event })
-    card.tools = tools.map(tool => ({ name: tool.name, description: tool.description }))
+  nitroApp.hooks.hook('agent-discovery:mcp-server-card', (event, card) => {
+    card.tools = [...(card.tools ?? []), { name: 'external', description: 'Served elsewhere.' }]
   })
 })
 ```
+
+Tools in a group the card shouldn't advertise, `server/mcp/tools/admin/*.ts`, are left out. `discovery.mcpServerCard.excludeGroups` sets which groups those are, `['admin']` by default.
 
 **`renderAgentResources()`** renders the discovery registry as a markdown block, for sites that hand-write an agent-facing homepage. It is the same list the `Link` header and the api-catalog are built from, so a resource can't be advertised in one place and missed in another. Pass `{ heading }` to change the default `## Resources for Agents` title:
 
@@ -324,11 +326,49 @@ useCanonical(() => `${route.path}.md`)
 
 **`agent-discovery:document`** transforms a page before it is stringified, covered under [Content sources](#content-sources).
 
+## Agent tooling
+
+Sites running an MCP server all write the same three pieces underneath their tools: list the pages, read one page's markdown, narrow it to a section. Doing that against `queryCollection()` ties the tool to one content backend, and re-deriving the raw URL drifts from the CDN rewrites the first time `rawPrefix` or `routes` changes. All three are exported from `#agent-discovery`, backed by the same content adapter and the same route config as everything else.
+
+The module ships no tools of its own. Descriptions are prompt engineering each site tunes, and tool names collide.
+
+```ts
+// server/mcp/tools/list-pages.ts
+import { listAgentPages } from '#agent-discovery'
+
+export default defineMcpTool({
+  description: 'List the documentation pages.',
+  inputSchema: { search: z.string().optional() },
+  handler: async ({ search }) => listAgentPages(useEvent(), { search })
+})
+```
+
+```ts
+// server/mcp/tools/get-page.ts
+import { getAgentDocument } from '#agent-discovery'
+
+export default defineMcpTool({
+  description: 'Read a documentation page as markdown.',
+  inputSchema: { path: z.string(), sections: z.array(z.string()).optional() },
+  handler: async ({ path, sections }) => {
+    const document = await getAgentDocument(useEvent(), path, { sections })
+    if (!document) throw createError({ statusCode: 404, message: `No page at ${path}` })
+    if ('redirect' in document) throw createError({ statusCode: 404, message: `${path} is a section, try ${document.redirect}` })
+    return document.markdown
+  }
+})
+```
+
+- **`listAgentPages(event, { search, prefix })`** returns every page with its title, description, section, page URL and raw markdown URL. `search` keeps pages matching every whitespace-separated term across title, path and description. Without `list()` on the adapter it falls back to bare `routes()`, with no metadata.
+- **`getAgentDocument(event, route, { sections })`** returns the exact bytes `/raw/<route>.md` serves, frontmatter and sitemap footer included, resolved in-process. `null` for a route with no markdown, `{ redirect }` for one that names a section rather than a page. Sites do this today by `$fetch`ing their own raw route from inside a serverless function.
+- **`extractSections(markdown, titles)`** narrows a document to the `##` sections named, keeping the frontmatter, title and description. Falls back to the whole document when none of them match, since handing back a title alone just makes the agent ask again.
+
 ## Companion modules
 
 Detected automatically, never a dependency. Detection happens at `modules:done`, so a site that gets them through `@nuxtjs/seo` rather than listing them itself is covered too: that module installs both through Nuxt's declarative `moduleDependencies`, which land after every listed module's `setup()`.
 
 - **`@nuxtjs/robots`** takes over `robots.txt`, and the shared user-agent list is contributed through its `robots:config` hook instead of this module registering a competing route. `robots.contentSignal` rides along on the wildcard group, so the directive survives the handoff.
+- **`@nuxtjs/mcp-toolkit`** owns `/mcp` and the tools. The MCP server card reads what it exposes through `listMcpDefinitions()`, so the card can't advertise a tool the server dropped. Skipped when the toolkit is disabled or running under `nuxt generate`, where it registers nothing to read.
 - **`@nuxtjs/sitemap`** owns `sitemap.xml`, and the raw markdown twins are dropped from every sitemap it builds through its `sitemap:input` hook. They are alternate representations of pages already listed, not pages of their own, so listing them separately would be wrong on every site that pairs the two.
 
 ## Deployment

@@ -1,5 +1,5 @@
 export default defineNuxtConfig({
-  modules: ['../../../src/module', '@nuxt/content', 'nuxt-llms'],
+  modules: ['../../../src/module', '@nuxt/content', 'nuxt-llms', '@nuxtjs/mcp-toolkit'],
   devtools: { enabled: false },
   // Multi-theme highlighting makes the highlighter append a `<style>` node
   // carrying the per-document CSS variables, which the raw markdown must not

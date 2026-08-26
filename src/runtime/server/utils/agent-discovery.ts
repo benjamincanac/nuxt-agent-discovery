@@ -72,6 +72,15 @@ export function renderAgentResources(event: H3Event, options: { heading?: string
 
 export { agentDiscoveryOpenApi } from './openapi'
 
+// The pieces an agent-facing tool is built from, so a site's MCP `list-pages`
+// and `get-page` stay one call each and cannot drift from what the raw route
+// and the CDN rewrites do. See the "Agent tooling" section of the README.
+export { listAgentPages } from './pages'
+export type { AgentPageListing, AgentPageListOptions } from './pages'
+export { getAgentDocument, normalizeAgentRoute } from './document'
+export type { AgentDocument, AgentDocumentOptions } from './document'
+export { extractSections } from '../../shared/sections'
+
 // Every backend has to end up with absolute links, so both passes are public.
 // `absolutizeTreeLinks` for an adapter holding a document tree (it sees MDC
 // component props, which the markdown scan cannot), `absolutizeMarkdownLinks`

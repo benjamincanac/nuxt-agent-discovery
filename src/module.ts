@@ -38,6 +38,12 @@ export interface McpServerCardOptions {
   repository?: string
   license?: string
   version?: string
+  /**
+   * Definition groups kept off the public card, by the subdirectory they live
+   * in under `server/mcp/tools`. Admin tools behind a bearer token are on the
+   * server but are not something to advertise.
+   */
+  excludeGroups?: string[]
 }
 
 export interface ModuleOptions {
@@ -236,9 +242,26 @@ export default defineNuxtModule<ModuleOptions>({
       sourcePath = await resolvePath(options.source)
     }
 
+    // The MCP server card lists whatever the site's MCP server exposes, which
+    // only `@nuxtjs/mcp-toolkit` knows. Detected, never depended on, the same
+    // way `@nuxtjs/robots` and `@nuxtjs/sitemap` are.
+    //
+    // `hasNuxtModule` alone is not enough: the toolkit's own setup returns
+    // early when it is disabled or running under `nuxt generate`, registering
+    // none of the `#nuxt-mcp-toolkit/*` virtual modules its listing API
+    // imports. Aliasing the real re-export in that state fails the Nitro
+    // build on an unresolvable id, so the same three conditions are mirrored
+    // here.
+    const mcpOptions = (nuxt.options as { mcp?: { enabled?: boolean } }).mcp
+    const mcpToolkit = hasNuxtModule('@nuxtjs/mcp-toolkit')
+      && mcpOptions?.enabled !== false
+      && !nuxt.options.nitro?.static
+      && (nuxt.options as { _generate?: boolean })._generate !== true
+
     const aliases = {
       '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
+      '#agent-discovery/mcp': resolve(mcpToolkit ? './runtime/server/mcp/definitions' : './runtime/server/mcp/none'),
       '#agent-discovery': resolve('./runtime/server/utils/agent-discovery')
     }
     nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
