@@ -1,15 +1,18 @@
 /**
- * The documents both content backends have to produce, byte for byte.
+ * The documents every content backend has to produce, byte for byte.
  *
- * The `basic` fixture serves these from `@nuxt/content` through the built-in
- * adapter; `custom-source` serves them from a hand-written in-memory adapter.
- * Same `llms.domain`, same `siteName`, same three pages, so a site swapping
- * content backend must see no difference at all. That is the migration
- * insurance from the design's acceptance criteria.
+ * `basic` serves these from `@nuxt/content` through the built-in adapter,
+ * `custom-source` from a hand-written in-memory adapter, and `comark` from
+ * `comark-content` through `createComarkSource()`. Same `llms.domain`, same
+ * `siteName`, same pages, so a site swapping content backend must see no
+ * difference at all. That is the migration insurance from the design's
+ * acceptance criteria.
  *
- * The frontmatter is added by `runtime/server/routes/raw.ts`, not by either
- * adapter, and the `## Sitemap` footer by the same handler when `/sitemap.md`
- * is registered.
+ * Split in two on purpose. The `*_BODY` half is what an adapter returns, which
+ * `test/unit/comark.test.ts` asserts directly with no Nuxt build in the way.
+ * The `*_MARKDOWN` half is the document the raw route serves, body plus the
+ * frontmatter and `## Sitemap` footer `runtime/server/routes/raw.ts` wraps it
+ * in.
  */
 
 export const SITE_URL = 'https://basic.example.com'
@@ -17,29 +20,16 @@ export const SITE_URL = 'https://basic.example.com'
 export const MARKDOWN_CONTENT_TYPE = 'text/markdown; charset=utf-8'
 export const MARKDOWN_VARY = 'Accept, User-Agent'
 
-export const INDEX_MARKDOWN = `---
-title: "Basic"
-description: "Fixture site for the nuxt-agent-discovery e2e tests."
-canonical_url: "https://basic.example.com"
----
-# Basic
+/* ------------------------------ adapter output ----------------------------- */
+
+export const INDEX_BODY = `# Basic
 
 > Fixture site for the nuxt-agent-discovery e2e tests.
 
-Browse the [documentation](https://basic.example.com/docs/getting-started).
-
-
-## Sitemap
-
-See the full [sitemap](https://basic.example.com/sitemap.md) for all pages.
+Browse the [documentation](${SITE_URL}/docs/getting-started).
 `
 
-export const GETTING_STARTED_MARKDOWN = `---
-title: "Getting Started"
-description: "How to get started with the fixture."
-canonical_url: "https://basic.example.com/docs/getting-started"
----
-# Getting Started
+export const GETTING_STARTED_BODY = `# Getting Started
 
 > How to get started with the fixture.
 
@@ -50,19 +40,9 @@ Install the module and add it to your \`nuxt.config.ts\`.
 ## Usage
 
 Request any page with \`Accept: text/markdown\` to receive this document as markdown.
-
-
-## Sitemap
-
-See the full [sitemap](https://basic.example.com/sitemap.md) for all pages.
 `
 
-export const BUTTON_MARKDOWN = `---
-title: "Button"
-description: "A button component page used to test nested routes."
-canonical_url: "https://basic.example.com/docs/components/button"
----
-# Button
+export const BUTTON_BODY = `# Button
 
 > A button component page used to test nested routes.
 
@@ -73,12 +53,71 @@ Use the button.
 ## Theme
 
 Style the button.
-
-
-## Sitemap
-
-See the full [sitemap](https://basic.example.com/sitemap.md) for all pages.
 `
+
+export const BADGE_BODY = `# Badge
+
+> A page exercising code fences and related links.
+
+## Usage
+
+A fenced code block, which both renderers must emit identically.
+
+\`\`\`ts
+const label = 'Badge'
+\`\`\`
+
+---
+
+- [Reka UI](https://reka-ui.com/docs/components/badge)
+- [GitHub](https://github.com/nuxt/ui)
+`
+
+/* ----------------------------- served documents ---------------------------- */
+
+/**
+ * What the raw route wraps a body in: the frontmatter it builds from the
+ * page's own title and description, and the sitemap footer it appends while
+ * `/sitemap.md` is registered. Kept here rather than pasted into each constant
+ * so a change to the envelope fails every suite at once, loudly, instead of
+ * being copied into four literals.
+ */
+function rawDocument(page: { title: string, description: string, path: string }, body: string): string {
+  const frontmatter = [
+    '---',
+    `title: ${JSON.stringify(page.title)}`,
+    `description: ${JSON.stringify(page.description)}`,
+    `canonical_url: ${JSON.stringify(`${SITE_URL}${page.path}`)}`,
+    '---',
+    ''
+  ].join('\n')
+
+  return `${frontmatter}${body}\n\n## Sitemap\n\nSee the full [sitemap](${SITE_URL}/sitemap.md) for all pages.\n`
+}
+
+export const INDEX_MARKDOWN = rawDocument({
+  title: 'Basic',
+  description: 'Fixture site for the nuxt-agent-discovery e2e tests.',
+  path: ''
+}, INDEX_BODY)
+
+export const GETTING_STARTED_MARKDOWN = rawDocument({
+  title: 'Getting Started',
+  description: 'How to get started with the fixture.',
+  path: '/docs/getting-started'
+}, GETTING_STARTED_BODY)
+
+export const BUTTON_MARKDOWN = rawDocument({
+  title: 'Button',
+  description: 'A button component page used to test nested routes.',
+  path: '/docs/components/button'
+}, BUTTON_BODY)
+
+export const BADGE_MARKDOWN = rawDocument({
+  title: 'Badge',
+  description: 'A page exercising code fences and related links.',
+  path: '/docs/components/badge'
+}, BADGE_BODY)
 
 /** `Link` the raw markdown handler sets on a dynamically served document. */
 export const GETTING_STARTED_LINK = `<${SITE_URL}/docs/getting-started>; rel="canonical", <${SITE_URL}/docs/getting-started>; rel="alternate"; type="text/html"`

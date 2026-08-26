@@ -1,7 +1,11 @@
 import type { H3Event } from 'h3'
+import { useNitroApp } from 'nitropack/runtime'
 import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
-import { absolutizeMarkdownLinks } from '../../shared/negotiation'
+import { absolutizeTreeLinks } from '../../shared/negotiation'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
+
+/** Same shape minimark uses: `[tag, props, ...children]`. */
+type ComarkNode = [string, Record<string, unknown>, ...unknown[]]
 
 interface ComarkNavigationItem {
   title?: string
@@ -11,9 +15,22 @@ interface ComarkNavigationItem {
   children?: ComarkNavigationItem[]
 }
 
+interface ComarkContentFile {
+  data?: Record<string, unknown>
+  meta: { kind: string }
+  nodes: unknown[]
+}
+
 interface ComarkLikeContent {
-  get: (key: string, opts?: { fresh?: boolean }) => Promise<{ data?: Record<string, unknown>, meta: { kind: string }, nodes: unknown[] } | null | undefined>
+  get: (key: string, opts?: { fresh?: boolean }) => Promise<ComarkContentFile | null | undefined>
   navigation: () => Promise<ComarkNavigationItem[]>
+}
+
+function requireEvent(event?: H3Event): H3Event {
+  if (!event) {
+    throw new Error('[nuxt-agent-discovery] the comark source needs the request event')
+  }
+  return event
 }
 
 /** What a `llms.sections` entry may name for this adapter. */
@@ -125,6 +142,12 @@ export function createComarkSource(getContent: (event?: H3Event) => Promise<Coma
       return (node.children?.length ? firstPage(node.children) : undefined) || null
     },
 
+    /**
+     * Step for step what the `@nuxt/content` adapter does to a minimark tree,
+     * on a comark one. The two have to come out byte-identical: a site moving
+     * backend changes the adapter and nothing else, and `test/e2e/expected.ts`
+     * is what holds them to it.
+     */
     async get(route: string, event?: H3Event) {
       const content = await getContent(event)
       const path = route === '/index' ? '/' : route
@@ -133,17 +156,76 @@ export function createComarkSource(getContent: (event?: H3Event) => Promise<Coma
         return null
       }
 
-      const { renderMarkdown } = await import('comark/render')
-      const frontmatter = (item.data || {}) as { title?: string, description?: string }
-      const lead = [
-        frontmatter.title ? `# ${frontmatter.title}` : '',
-        frontmatter.description ? `> ${frontmatter.description}` : ''
-      ].filter(Boolean).join('\n\n')
+      // Copied before anything touches it. The hook below hands this to a
+      // site's own transformer, and the link pass bakes a per-request origin
+      // into every href, which with `siteUrl: ''` differs between requests.
+      // Whether comark's cache hands back a shared object is its business.
+      const page = { ...item, nodes: structuredClone(item.nodes) }
 
-      const body = await renderMarkdown({ nodes: item.nodes as never, frontmatter: item.data as never })
-      const markdown = [lead, body].filter(Boolean).join('\n\n')
+      // Lets sites transform the document (MDC components → plain markdown)
+      // without replacing the whole source. Called before the nodes are read,
+      // so a transformer can swap them wholesale.
+      await useNitroApp().hooks.callHook('agent-discovery:document', requireEvent(event), page)
+
+      const nodes = page.nodes as ComarkNode[]
+      const frontmatter = (page.data || {}) as { title?: string, description?: string, links?: unknown }
+
+      // comark 0.6 declares `removeLastStyle` and reads it nowhere, so a
+      // highlighter's `<style>` node would render into the markdown verbatim.
+      // Dropped here rather than at the end for the same reason as the other
+      // adapter: the related links below would strand it mid-document.
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        if (nodes[i]?.[0] === 'style') {
+          nodes.splice(i, 1)
+        }
+      }
+
+      // Pushed as nodes, not as a `# ${title}` string, so the title and the
+      // description go through the same escaper the body does.
+      if (!(Array.isArray(nodes[0]) && nodes[0][0] === 'h1')) {
+        if (frontmatter.description) {
+          nodes.unshift(['blockquote', {}, frontmatter.description])
+        }
+        if (frontmatter.title) {
+          nodes.unshift(['h1', {}, frontmatter.title])
+        }
+      }
+
+      // comark keeps all frontmatter in `data`, with no `meta` split.
+      const links = frontmatter.links
+      if (Array.isArray(links) && links.length > 0) {
+        const items = links
+          .filter((link: { label?: string, to?: string }) => link.label && link.to)
+          .map((link: { label: string, to: string }) => ['li', {}, ['a', { href: link.to }, link.label]] as ComarkNode)
+        if (items.length > 0) {
+          nodes.push(['hr', {}])
+          nodes.push(['ul', {}, ...items])
+        }
+      }
+
+      absolutizeTreeLinks(nodes, getAgentSiteUrl(requireEvent(event)))
+
+      // `render`, not `renderMarkdown`: the latter routes through
+      // `renderFrontmatter`, which re-emits `data` as a YAML block the raw
+      // route already writes, and trims the trailing newline the documents
+      // are built around. `markdown/html` is the format the minimark
+      // stringifier uses, and the one the two agree on.
+      //
+      // Imported dynamically, so this resolves the site's own comark rather
+      // than a copy of ours: the same guarantee the module buys for
+      // `minimark/stringify` by aliasing it.
+      const { render } = await import('comark/render')
+      const markdown = await render({ nodes: nodes as never }, { format: 'markdown/html' })
+
+      // An empty render means a document with no body, the structured-page
+      // case the other adapter 404s. With a title there is still a document
+      // to serve, the lead above.
+      if (markdown.trim() === '' && !frontmatter.title) {
+        return null
+      }
+
       return {
-        markdown: event ? absolutizeMarkdownLinks(markdown, getAgentSiteUrl(event)) : markdown,
+        markdown,
         title: frontmatter.title,
         description: frontmatter.description
       }

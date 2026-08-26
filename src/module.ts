@@ -54,7 +54,7 @@ export interface ModuleOptions {
    * Content adapter feeding the raw markdown route, `sitemap.md` and the
    * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content`; a path points at a
    * file exporting an `AgentContentSource` (build one for comark with
-   * `createComarkSource()` from `#agent-discovery`); `false` disables every
+   * `createComarkSource()` from `#agent-discovery/comark`); `false` disables every
    * content-backed feature and leaves negotiation and discovery running
    * against whatever already serves the raw markdown.
    */

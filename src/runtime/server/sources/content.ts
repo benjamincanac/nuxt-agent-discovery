@@ -1,4 +1,4 @@
-import { withBase, withLeadingSlash } from 'ufo'
+import { withLeadingSlash } from 'ufo'
 import { stringify } from 'minimark/stringify'
 import { queryCollection } from '@nuxt/content/server'
 import type { Collections, PageCollectionItemBase } from '@nuxt/content'
@@ -6,6 +6,7 @@ import type { H3Event } from 'h3'
 import collections from '#content/manifest'
 import { useNitroApp } from 'nitropack/runtime'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
+import { absolutizeTreeLinks } from '../../shared/negotiation'
 import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
 
 type MinimarkNode = [string, Record<string, unknown>, ...unknown[]]
@@ -28,35 +29,6 @@ function titleCase(value: string): string {
     .replace(/[-_]+/g, ' ')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/\b\w/g, char => char.toUpperCase())
-}
-
-const LINK_PROPS = ['href', 'src', 'to']
-
-/**
- * Rewrites site-relative links to absolute ones, in place. `@nuxt/content`'s
- * llms feature did this for `llms-full.txt` and nothing did it for the raw
- * route, so the same page linked differently depending on where it was read.
- * Both come through here now: a markdown file is read detached from the site,
- * so a relative href in it points nowhere.
- */
-function absolutizeLinks(nodes: unknown[], siteUrl: string): void {
-  for (const node of nodes) {
-    if (!Array.isArray(node)) {
-      continue
-    }
-    const props = node[1] as Record<string, unknown> | undefined
-    if (props && typeof props === 'object') {
-      for (const prop of LINK_PROPS) {
-        const value = props[prop]
-        // Only site-relative paths. Protocol-relative, absolute and in-page
-        // anchors already resolve on their own.
-        if (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')) {
-          props[prop] = withBase(value, siteUrl)
-        }
-      }
-    }
-    absolutizeLinks(node.slice(2), siteUrl)
-  }
 }
 
 function requireEvent(event?: H3Event): H3Event {
@@ -208,7 +180,7 @@ const source: AgentContentSource = {
       }
     }
 
-    absolutizeLinks(value, getAgentSiteUrl(requireEvent(event)))
+    absolutizeTreeLinks(value, getAgentSiteUrl(requireEvent(event)))
 
     return {
       markdown: stringify({ ...page.body, type: 'minimark' }, { format: 'markdown/html' }),

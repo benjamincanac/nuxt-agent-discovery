@@ -72,9 +72,11 @@ export function renderAgentResources(event: H3Event, options: { heading?: string
 
 export { agentDiscoveryOpenApi } from './openapi'
 
-// For adapters that render straight to markdown: `@nuxt/content` rewrites its
-// tree instead, but every backend has to end up with absolute links.
-export { absolutizeMarkdownLinks } from '../../shared/negotiation'
+// Every backend has to end up with absolute links, so both passes are public.
+// `absolutizeTreeLinks` for an adapter holding a document tree (it sees MDC
+// component props, which the markdown scan cannot), `absolutizeMarkdownLinks`
+// for one that renders straight to a string.
+export { absolutizeMarkdownLinks, absolutizeTreeLinks } from '../../shared/negotiation'
 
 /** Identity helper for typed custom content sources. */
 export function defineAgentContentSource(source: AgentContentSource): AgentContentSource {

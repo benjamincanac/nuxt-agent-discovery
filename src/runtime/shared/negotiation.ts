@@ -404,6 +404,40 @@ export function absolutizeMarkdownLinks(markdown: string, siteUrl: string): stri
   }).join('\n')
 }
 
+const LINK_PROPS = ['href', 'src', 'to']
+
+/**
+ * The same rewrite, one level earlier: on the document tree, before it is
+ * stringified. Both built-in backends hand back `[tag, props, ...children]`
+ * nodes, minimark for `@nuxt/content` and comark for `comark-content`, so one
+ * walker serves both.
+ *
+ * Preferred over the string pass wherever a tree is available: it sees the
+ * props of MDC components, which carry links a markdown-level scan cannot
+ * find, and it can never touch prose that merely looks like a link.
+ */
+export function absolutizeTreeLinks(nodes: unknown[], siteUrl: string): void {
+  const base = siteUrl.replace(/\/$/, '')
+
+  for (const node of nodes) {
+    if (!Array.isArray(node)) {
+      continue
+    }
+    const props = node[1] as Record<string, unknown> | undefined
+    if (props && typeof props === 'object') {
+      for (const prop of LINK_PROPS) {
+        const value = props[prop]
+        // Only site-relative paths. Protocol-relative, absolute and in-page
+        // anchors already resolve on their own.
+        if (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')) {
+          props[prop] = base + value
+        }
+      }
+    }
+    absolutizeTreeLinks(node.slice(2), siteUrl)
+  }
+}
+
 /* ------------------------------- Link header ------------------------------ */
 
 /** RFC 8288 serialization of the discovery links, relative hrefs kept as-is. */

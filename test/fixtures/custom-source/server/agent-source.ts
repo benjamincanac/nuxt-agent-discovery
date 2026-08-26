@@ -51,6 +51,30 @@ Use the button.
 
 Style the button.
 `
+  },
+  '/docs/components/badge': {
+    title: 'Badge',
+    description: 'A page exercising code fences and related links.',
+    // The related links the `@nuxt/content` adapter builds from `links`
+    // frontmatter are just part of the body here, which is the point: the
+    // seam is the document, not how a backend arrives at it.
+    markdown: `# Badge
+
+> A page exercising code fences and related links.
+
+## Usage
+
+A fenced code block, which both renderers must emit identically.
+
+\`\`\`ts
+const label = 'Badge'
+\`\`\`
+
+---
+
+- [Reka UI](https://reka-ui.com/docs/components/badge)
+- [GitHub](https://github.com/nuxt/ui)
+`
   }
 }
 

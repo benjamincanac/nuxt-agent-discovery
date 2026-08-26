@@ -124,7 +124,7 @@ export default defineNuxtConfig({
 
 `/llms.txt` and `/llms-full.txt` are not in there, and there's no option to add them. They belong to `nuxt-llms`, which every site already configures, so a second module claiming the route would be last-write-wins with no detection.
 
-With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, and the crawler picks up the twins `llms.txt` links. Skill files are prerendered whatever the source.
+With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered. Skill files are prerendered whatever the source. Nothing else under the raw prefix is: a wildcard pattern has no build-time page list, so those twins are rendered per request. On a source that is not the built-in one, that goes for every twin, including the ones `llms.txt` links.
 
 ### The raw route
 
@@ -159,7 +159,7 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
-**comark**, via `createComarkSource()`. comark sites construct their own content instance, so pass an accessor:
+**comark**, via `createComarkSource()`, with `comark` installed. comark sites construct their own content instance (its sources, plugins, cache and, in production, the commit it is pinned to), so there is none the module could build for you. Pass an accessor:
 
 ```ts
 // server/utils/agent-source.ts
@@ -175,6 +175,10 @@ export default defineNuxtConfig({
   }
 })
 ```
+
+It produces the same document the `@nuxt/content` adapter does, byte for byte, which is what makes swapping backend a one-file change. Same rendering format, the `# title` / `> description` lead added only when the body doesn't already open on an `h1`, the related links from `links` frontmatter appended the same way, site-relative links absolutized on the tree, and a highlighter's `<style>` node dropped rather than rendered (comark declares `removeLastStyle` and doesn't implement it). `test/e2e/shared.ts` holds all three adapters to the same expected bytes.
+
+`agent-discovery:document` fires here too. The `page` it receives is comark's own `ContentFile`, so a transformer mutates `page.nodes` rather than `page.body.value`.
 
 **Custom**, any other source file, exporting an `AgentContentSource` as its default export. `defineAgentContentSource()` from `#agent-discovery` is an identity helper for typing it:
 
@@ -195,10 +199,10 @@ export default defineAgentContentSource({
 
 `routes()` lists every markdown-representable route, `get()` resolves one to its markdown. Two optional methods:
 
-- **`list(event, selector)`** returns routes with metadata in one call, used by `sitemap.md` and the `nuxt-llms` bridge to avoid a `get()` per page; both fall back to `routes()` + `get()` when it's absent. With a `selector` (a `llms.sections` entry, handed over verbatim) return only the pages it names, or `null` when the selector isn't one you understand. An entry can carry a `section` label, which becomes the section title in `llms.txt` when the site declares no sections of its own.
+- **`list(event, selector)`** returns routes with metadata in one call, used by `sitemap.md` and the `nuxt-llms` bridge to avoid a `get()` per page. Without it, `sitemap.md` and the `llms.txt` link list fall back to bare `routes()` and label each page by its path, while `llms-full.txt` falls back to `routes()` + a `get()` per page, since it needs the bodies anyway. With a `selector` (a `llms.sections` entry, handed over verbatim) return only the pages it names, or `null` when the selector isn't one you understand. An entry can carry a `section` label, which becomes the section title in `llms.txt` when the site declares no sections of its own.
 - **`firstLeaf(route, event)`** returns the first page under a section path, so a URL naming a directory rather than a page (`/raw/getting-started.md` with no index document) redirects to its first document instead of 404ing, the same as the HTML page does.
 
-A markdown document is read detached from the site it came from, so site-relative links in it point nowhere. The `@nuxt/content` adapter rewrites its tree before stringifying; an adapter rendering straight to markdown should call `absolutizeMarkdownLinks()` from `#agent-discovery`, which leaves fenced blocks and inline code spans alone:
+A markdown document is read detached from the site it came from, so site-relative links in it point nowhere. Both built-in adapters rewrite their document tree before rendering, with `absolutizeTreeLinks()`, which also catches the links in MDC component props. An adapter rendering straight to markdown should call `absolutizeMarkdownLinks()` instead, which leaves fenced blocks and inline code spans alone. Both are exported from `#agent-discovery`:
 
 ```ts
 import { absolutizeMarkdownLinks, defineAgentContentSource, getAgentSiteUrl } from '#agent-discovery'
@@ -224,6 +228,21 @@ Existing `llms.sections` config keeps working: each section is handed to the ada
 A section that already carries its own `links` is left alone, and every same-origin link, hand-written or resolved, is rewritten to its `/raw/**.md` twin. Declare no sections at all and pages are grouped by the `section` label the adapter returns.
 
 A section whose selector no adapter recognises, and that has no description of its own, is dropped rather than left as a dangling heading, which is what config that outlived a backend swap turns into. When nothing links `/`, an `Overview` section pointing at the landing page goes in first, since a site whose homepage is a Vue page has no `/` entry to resolve.
+
+#### Request-time backends
+
+`nuxt-llms` prerenders `/llms.txt` and `/llms-full.txt` unconditionally, so on a backend that resolves content per request (comark reading from GitHub, a CMS) both documents are frozen at build time and go stale when the content moves without a redeploy. That is [nuxt-llms#24](https://github.com/nuxtlabs/nuxt-llms/issues/24). Until it lands, opt the two routes out yourself:
+
+```ts
+export default defineNuxtConfig({
+  routeRules: {
+    '/llms.txt': { prerender: false },
+    '/llms-full.txt': { prerender: false }
+  }
+})
+```
+
+The module doesn't do this for you: it would turn both documents dynamic for every custom source, including the ones whose content is as static as `@nuxt/content`'s.
 
 ## Extending
 

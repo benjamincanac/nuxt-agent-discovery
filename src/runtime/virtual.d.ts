@@ -15,5 +15,6 @@ declare module '#agent-discovery/source' {
 }
 
 declare module 'comark/render' {
+  export function render(document: { nodes: unknown[] }, options?: Record<string, unknown>): Promise<string>
   export function renderMarkdown(document: { nodes: unknown[], frontmatter?: unknown }, options?: Record<string, unknown>): Promise<string>
 }

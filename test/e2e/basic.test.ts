@@ -1,17 +1,8 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup } from '@nuxt/test-utils/e2e'
-import {
-  BROWSER_ACCEPT,
-  BUTTON_MARKDOWN,
-  CLAUDE_BOT,
-  GETTING_STARTED_LINK,
-  GETTING_STARTED_MARKDOWN,
-  INDEX_MARKDOWN,
-  MARKDOWN_CONTENT_TYPE,
-  MARKDOWN_VARY,
-  SITE_URL
-} from './expected'
+import { BROWSER_ACCEPT, CLAUDE_BOT, MARKDOWN_VARY, SITE_URL } from './expected'
+import { describeSharedDocuments } from './shared'
 
 /**
  * The `@nuxt/content` fixture, built and served on the Node preset. Covers the
@@ -25,63 +16,9 @@ await setup({
   setupTimeout: 300000
 })
 
+describeSharedDocuments()
+
 describe('content negotiation', () => {
-  it('serves markdown for an explicit `Accept: text/markdown`', async () => {
-    const response = await fetch('/docs/getting-started', { headers: { Accept: 'text/markdown' } })
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
-
-    const body = await response.text()
-    expect(body).toContain('# Getting Started')
-    expect(body).toContain(`canonical_url: "${SITE_URL}/docs/getting-started"`)
-    expect(body).toBe(GETTING_STARTED_MARKDOWN)
-  })
-
-  it('serves markdown to a known agent user agent without an `Accept` header', async () => {
-    const response = await fetch('/docs/getting-started', { headers: { 'User-Agent': CLAUDE_BOT } })
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
-    expect(await response.text()).toBe(GETTING_STARTED_MARKDOWN)
-  })
-
-  it('serves markdown for the explicit `.md` twin URL', async () => {
-    const response = await fetch('/docs/getting-started.md')
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
-    expect(response.headers.get('link')).toBe(GETTING_STARTED_LINK)
-    expect(await response.text()).toBe(GETTING_STARTED_MARKDOWN)
-  })
-
-  it('serves the raw markdown route directly', async () => {
-    const response = await fetch('/raw/docs/getting-started.md')
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
-    expect(await response.text()).toBe(GETTING_STARTED_MARKDOWN)
-  })
-
-  it('negotiates nested pages too', async () => {
-    const response = await fetch('/docs/components/button', { headers: { Accept: 'text/markdown' } })
-
-    expect(response.status).toBe(200)
-    expect(await response.text()).toBe(BUTTON_MARKDOWN)
-  })
-
-  it('maps the homepage to its `/raw/index.md` twin', async () => {
-    const response = await fetch('/', { headers: { Accept: 'text/markdown' } })
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-    expect(await response.text()).toBe(INDEX_MARKDOWN)
-  })
-
   it('keeps HTML for a browser `Accept`', async () => {
     const response = await fetch('/docs/getting-started', { headers: { Accept: BROWSER_ACCEPT } })
 
@@ -105,20 +42,6 @@ describe('content negotiation', () => {
 })
 
 describe('errors', () => {
-  it('answers an unknown page with markdown for an agent', async () => {
-    const response = await fetch('/docs/nonexistent', { headers: { 'User-Agent': CLAUDE_BOT } })
-
-    expect(response.status).toBe(404)
-    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
-
-    const body = await response.text()
-    expect(body).toContain('# 404 Page Not Found')
-    expect(body).toContain('/docs/nonexistent')
-    expect(body).toContain(`${SITE_URL}/llms.txt`)
-    expect(body).toContain(`${SITE_URL}/sitemap.md`)
-  })
-
   it('answers an unknown page with HTML for a browser', async () => {
     const response = await fetch('/docs/nonexistent', {
       headers: { 'Accept': BROWSER_ACCEPT, 'Sec-Fetch-Mode': 'navigate' }
@@ -130,12 +53,6 @@ describe('errors', () => {
 })
 
 describe('@nuxt/content source', () => {
-  it('appends the page related links, like `@nuxt/content`\'s own raw route', async () => {
-    const body = await (await fetch('/raw/docs/components/badge.md')).text()
-
-    expect(body).toContain('\n---\n\n- [Reka UI](https://reka-ui.com/docs/components/badge)\n- [GitHub](https://github.com/nuxt/ui)')
-  })
-
   it('strips the highlighter `<style>` node instead of exposing its CSS', async () => {
     const body = await (await fetch('/raw/docs/components/badge.md')).text()
 
@@ -160,31 +77,6 @@ describe('discovery documents', () => {
     expect(link).toContain('</llms.txt>; rel="describedby"; type="text/plain"')
     expect(link).toContain('</>; rel="alternate"; type="text/markdown"')
     expect(link).toContain('</.well-known/api-catalog>; rel="api-catalog"')
-  })
-
-  it('serves `/sitemap.md` linking every page to its raw markdown twin', async () => {
-    const response = await fetch('/sitemap.md')
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-
-    const body = await response.text()
-    expect(body).toContain('# Basic Sitemap')
-    expect(body).toContain(`[Getting Started](${SITE_URL}/raw/docs/getting-started.md)`)
-    expect(body).toContain(`[Button](${SITE_URL}/raw/docs/components/button.md)`)
-    expect(body).toContain(`[Basic](${SITE_URL}/raw/index.md)`)
-  })
-
-  it('agrees with `llms.txt` on the pages it lists', async () => {
-    // The two documents are read together, so a homepage pointing at the HTML
-    // page in one and at `/raw/index.md` in the other is a real divergence.
-    const sitemap = await (await fetch('/sitemap.md')).text()
-    const llms = await (await fetch('/llms.txt')).text()
-
-    for (const page of ['/raw/index.md', '/raw/docs/getting-started.md', '/raw/docs/components/button.md']) {
-      expect(sitemap).toContain(`${SITE_URL}${page}`)
-      expect(llms).toContain(`${SITE_URL}${page}`)
-    }
   })
 
   it('serves the RFC 9727 api-catalog', async () => {
@@ -385,19 +277,6 @@ describe('pages without a markdown body', () => {
 })
 
 describe('nuxt-llms bridge', () => {
-  it('rewrites the `llms.txt` links to their raw markdown twins', async () => {
-    const response = await fetch('/llms.txt')
-
-    expect(response.status).toBe(200)
-
-    const body = await response.text()
-    expect(body).toContain(`${SITE_URL}/raw/docs/getting-started.md`)
-    expect(body).toContain(`${SITE_URL}/raw/docs/components/button.md`)
-    expect(body).toContain(`${SITE_URL}/raw/index.md`)
-    // Every documentation link points at markdown, never at the HTML page.
-    expect(body).not.toContain(`${SITE_URL}/docs/getting-started)`)
-  })
-
   it('renders only the pages the declared sections name', async () => {
     const body = await (await fetch('/llms-full.txt')).text()
 

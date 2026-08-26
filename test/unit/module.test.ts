@@ -44,13 +44,15 @@ function createNuxt(routeRules: Record<string, unknown> = {}) {
       srcDir: rootDir,
       buildDir: `${rootDir}/.nuxt`,
       dir: {},
+      // `resolvePath()` reads these when the site points `source` at a file.
+      extensions: ['.js', '.mjs', '.ts'],
       modulesDir: [fileURLToPath(new URL('../../node_modules', import.meta.url))],
       modules: [],
       _installedModules: [{ meta: { name: '@nuxt/content' } }],
       _requiredModules: {},
       experimental: {},
       build: { templates: [] },
-      nitro: {} as { plugins?: string[] },
+      nitro: {} as { plugins?: string[], alias?: Record<string, string>, static?: boolean },
       alias: {},
       serverHandlers: [] as { route?: string, handler: string }[],
       routeRules,
@@ -264,5 +266,24 @@ describe('module setup: sitemap.md exclusion', () => {
     const config = await setupModule({ excludePrefixes: ['/_', '/sitemap.md'] })
 
     expect(config.excludePrefixes.filter(prefix => prefix === '/sitemap.md')).toHaveLength(1)
+  })
+})
+
+describe('module setup: content source', () => {
+  it('points a site at the comark factory instead of guessing an instance', async () => {
+    // A comark instance is per-site state: its sources, plugins, cache and,
+    // in production, the commit it is pinned to. There is no instance the
+    // module could construct, so the option is a dead end with directions
+    // rather than a silent fallback to the `@nuxt/content` adapter.
+    await expect(runModule({ source: 'comark' })).rejects.toThrow(/createComarkSource/)
+  })
+
+  it('aliases the comark factory whatever source a site configured', async () => {
+    // Aliased unconditionally: the factory is imported by the site's own
+    // adapter file, which the module resolves as an opaque path.
+    const nuxt = await runModule({ source: '~~/server/agent-source' })
+
+    expect(nuxt.options.nitro.alias?.['#agent-discovery/comark']).toMatch(/sources[\\/]comark$/)
+    expect(nuxt.options.nitro.alias?.['#agent-discovery/source']).toMatch(/agent-source$/)
   })
 })
