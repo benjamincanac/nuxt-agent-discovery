@@ -1,5 +1,5 @@
 ---
-name: migrate-to-agent-discovery
+name: migrate-to-nuxt-agent-discovery
 description: Migrate a Nuxt site to the nuxt-agent-discovery module, replacing a hand-rolled markdown negotiation and agent discovery layer (md-rewrite modules, raw markdown routes, api-catalog, sitemap.md, agent robots.txt, llms.txt bridges) with configuration and hooks. Use when adopting the module in a site, or when asked to remove a site's own agent-discovery code.
 ---
 
