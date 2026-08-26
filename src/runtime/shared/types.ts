@@ -1,5 +1,26 @@
 import type { H3Event } from 'h3'
 
+declare module 'nitropack/types' {
+  interface NitroRuntimeHooks {
+    /**
+     * Transforms a page before the content adapter stringifies it. `page` is
+     * whatever the adapter works on, a minimark tree for `@nuxt/content` and
+     * the backend's own document elsewhere, so it is deliberately `any`: this
+     * module cannot know the shape, and a site should not have to cast to
+     * hand it to its own transformer.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    'agent-discovery:document': (event: H3Event, page: any) => void | Promise<void>
+    /**
+     * Adds body blocks to the generated `/raw/index.md`, for a site whose
+     * landing page is a Vue page rather than a document.
+     */
+    'agent-discovery:index': (event: H3Event, body: string[]) => void | Promise<void>
+    /** Enriches the served MCP server card with live tools, resources and prompts. */
+    'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
+  }
+}
+
 /**
  * A page pattern the module negotiates markdown for.
  *
@@ -71,6 +92,27 @@ export interface AgentPage {
   updatedAt?: string
 }
 
+/** One page in a listing: the route plus whatever metadata is cheap to read. */
+export interface AgentListEntry extends Partial<AgentPage> {
+  route: string
+  /**
+   * Group this page belongs to, used as the section title in `llms.txt` when
+   * the site declares no sections of its own. Adapters that have a natural
+   * grouping set it: the navigation tree for comark, the collection for
+   * `@nuxt/content`. `sitemap.md` does not read it, it groups by path segment
+   * through `sitemapSections`.
+   */
+  section?: string
+}
+
+/**
+ * A `llms.sections` entry, handed to `list()` verbatim. The module never reads
+ * it: `contentCollection`/`contentFilters` mean something to the `@nuxt/content`
+ * adapter and nothing to the others, so each adapter picks out the keys it
+ * declares and returns `null` for a selector that isn't its own.
+ */
+export type AgentSectionSelector = Record<string, unknown>
+
 /**
  * The content adapter seam. The module never serves raw markdown itself, it
  * routes to whatever implements this.
@@ -84,8 +126,17 @@ export interface AgentContentSource {
    * Optional listing with metadata, used by `sitemap.md` and the `nuxt-llms`
    * bridge so they don't have to call `get()` once per page. Falls back to
    * `routes()` + `get()` when absent.
+   *
+   * With a `selector`, return only the pages it names, or `null` when the
+   * selector is not one this adapter understands.
    */
-  list?: (event?: H3Event) => Promise<({ route: string } & Partial<AgentPage>)[]>
+  list?: (event?: H3Event, selector?: AgentSectionSelector) => Promise<AgentListEntry[] | null>
+  /**
+   * Optional: the first page under a section path, for a URL that names a
+   * directory rather than a page (`/getting-started` with no `index`). The raw
+   * route redirects to its markdown twin, mirroring what the HTML page does.
+   */
+  firstLeaf?: (route: string, event?: H3Event) => Promise<string | null>
 }
 
 /** Normalized module state shared by build-time presets and the Nitro runtime. */

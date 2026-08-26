@@ -10,14 +10,15 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 ## Features
 
 - `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110 precedence), so `text/plain` and `q=0` are handled correctly and `text/html` outranks markdown when a client prefers it
-- Vercel Build Output rewrites so prerendered pages negotiate at the edge, before the CDN cache ever sees the request, with a route table that stays O(patterns), never O(pages)
+- Vercel Build Output routes so pages negotiate at the edge, before the CDN cache ever sees the request, with a route table that stays O(patterns), never O(pages): a rewrite where the page is prerendered, a 307 where a response cache would key on the path alone
 - A universal Nitro middleware giving the same behavior in dev and on every other host
 - Correct `Vary` and `Link` headers, including on responses served straight from the CDN rewrite table
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, `comark` through a factory, or your own
-- A `nuxt-llms` bridge: `/llms.txt` and `/llms-full.txt` stay owned by `nuxt-llms`, this module never registers them, but their links get rewritten to the `/raw` twins and the raw route survives a content-backend swap
+- A `nuxt-llms` bridge: `/llms.txt` and `/llms-full.txt` stay owned by `nuxt-llms`, this module never registers them, but their sections, links and full document all come from the content adapter, so a page reads the same whichever backend serves it and whichever URL an agent fetches it from
 - Markdown error bodies with recovery links for agents hitting a 404 or other error
 - `/.well-known/api-catalog` (RFC 9727) and an optional MCP server card
 - `/sitemap.md`, a markdown index of every page, grouped into sections you control
+- A generated `/raw/index.md` for sites whose landing page is a Vue page rather than a document, built from the discovery registry
 - Agent Skills served under `/.well-known/skills/`, with the index generated from the directory on disk instead of hand-maintained
 - `robots.txt` AI policy generated from the same user-agent list negotiation matches, so the two can't drift apart
 - A `useCanonical()` composable for canonical and markdown-alternate `<link>` tags
@@ -157,11 +158,39 @@ export default defineAgentContentSource({
 })
 ```
 
-`routes()` lists every markdown-representable route, `get()` resolves one to its markdown. An optional `list()` returns routes with metadata in one call, used by `sitemap.md` and the `nuxt-llms` bridge to avoid a `get()` per page; both fall back to `routes()` + `get()` when it's absent.
+`routes()` lists every markdown-representable route, `get()` resolves one to its markdown. Two optional methods:
+
+- **`list(event, selector)`** returns routes with metadata in one call, used by `sitemap.md` and the `nuxt-llms` bridge to avoid a `get()` per page; both fall back to `routes()` + `get()` when it's absent. With a `selector` (a `llms.sections` entry, handed over verbatim) return only the pages it names, or `null` when the selector isn't one you understand. An entry can carry a `section` label, which becomes the section title in `llms.txt` when the site declares no sections of its own.
+- **`firstLeaf(route, event)`** returns the first page under a section path, so a URL naming a directory rather than a page (`/raw/getting-started.md` with no index document) redirects to its first document instead of 404ing, the same as the HTML page does.
+
+A markdown document is read detached from the site it came from, so site-relative links in it point nowhere. The `@nuxt/content` adapter rewrites its tree before stringifying; an adapter rendering straight to markdown should call `absolutizeMarkdownLinks()` from `#agent-discovery`, which leaves fenced blocks and inline code spans alone:
+
+```ts
+import { absolutizeMarkdownLinks, defineAgentContentSource, getAgentSiteUrl } from '#agent-discovery'
+
+export default defineAgentContentSource({
+  async get(route, event) {
+    const markdown = await render(route)
+    return { markdown: absolutizeMarkdownLinks(markdown, getAgentSiteUrl(event!)) }
+  }
+})
+```
+
+### llms.txt sections
+
+The module removes `@nuxt/content`'s llms feature and generates `llms.txt` from the adapter instead. That feature rendered `llms-full.txt` through a second markdown pipeline (`toHast` plus `@nuxtjs/mdc`) which disagreed with what `/raw/**.md` returned for the same page, forced sites to register their MDC transform on two different hooks, and had no equivalent for any other backend. Sections and documents both come from `source.list()` and `source.get()` now.
+
+Existing `llms.sections` config keeps working: each section is handed to the adapter, which reads the keys it declares.
+
+- `@nuxt/content`: `contentCollection` and `contentFilters`, the two keys the removed feature owned
+- comark: `navigation`, a navigation path whose subtree the section lists
+- custom adapters: whatever they choose to recognise
+
+A section that already carries its own `links` is left alone, and every same-origin link, hand-written or resolved, is rewritten to its `/raw/**.md` twin. Declare no sections at all and pages are grouped by the `section` label the adapter returns.
 
 ## Extending
 
-Two Nitro hooks and one helper let a site contribute what only it knows, without the module depending on its tooling.
+A few Nitro hooks and helpers let a site contribute what only it knows, without the module depending on its tooling.
 
 **`agent-discovery:mcp-server-card`** enriches the served card with live tools, resources and prompts:
 
@@ -199,6 +228,17 @@ return {
 
 Spreading your own values last means any generated path can be replaced with a richer, site-specific description.
 
+**`agent-discovery:index`** adds the prose only the site knows to the generated `/raw/index.md`. When the content adapter has no `/` entry, because the landing page is a Vue page rather than a document, the module serves a markdown landing page built from the discovery registry: frontmatter, canonical and alternate links, and the resources block. The hook is where the site fills in the rest:
+
+```ts
+// server/plugins/agent-discovery.ts
+export default defineNitroPlugin((nitroApp) => {
+  nitroApp.hooks.hook('agent-discovery:index', (event, body) => {
+    body.push('Nuxt UI is a Vue component library...')
+  })
+})
+```
+
 **`agent-discovery:document`** transforms a page before it is stringified, covered under [Content sources](#content-sources).
 
 ## Companion modules
@@ -216,7 +256,14 @@ On the `vercel` preset (skipped in dev), a Nitro `compiled` hook patches `.verce
 
 The first route sets `Vary: Accept, User-Agent` across every configured pattern (and its `.md` twin, for exact patterns) with `continue: true`. That flag matters: Nitro emits its own header routes from `routeRules` *after* these rewrites and without `continue`, so without it `Vary` would never reach a request that gets rewritten straight to a prerendered `/raw/**.md` file off the CDN. A `Link` route on `/` carries the same `continue: true` for the same reason, the homepage's own `routeRules` entry never runs once a request is rewritten.
 
-Then, per route pattern, negotiated rewrites: a `has` matcher on `Accept: text/markdown`, another on the agent User-Agent list, each with `check: true` so Vercel looks the destination up on the filesystem first, which is where the prerendered raw files live, before falling through to the origin. The table stays O(route patterns): one set of rewrites per configured pattern, not one per page, however many pages the site has.
+Then, per route pattern, two negotiated routes: a `has` matcher on `Accept: text/markdown` and another on the agent User-Agent list. What they do depends on whether the pattern is cached:
+
+- **Prerendered pattern**: a rewrite, with `check: true` so Vercel looks the destination up on the filesystem first, which is where the prerendered raw files live, before falling through to the origin. The page URL is preserved, which is the point of doing this at the CDN rather than redirecting.
+- **Cached pattern** (see [ISR and cached routes](#isr-and-cached-routes)): a 307 to the raw twin, carrying `Vary` itself.
+
+The explicit `.md` twin stays a rewrite either way: that URL only ever serves markdown, so it has no second variant to worry about.
+
+The table stays O(route patterns): one set of routes per configured pattern, not one per page, however many pages the site has.
 
 ### Other hosts
 
@@ -224,7 +271,16 @@ The Nitro middleware runs everywhere, dev included, covering `.md` twin URLs, `A
 
 ### ISR and cached routes
 
-A `routeRules` entry with `isr`, `swr`, or `cache` can't vary its response on `Accept` or `User-Agent`, so the middleware auto-disables request-time negotiation for any configured route that overlaps one (logged at build time). The CDN-level rewrites still apply there, since they run before the cache.
+A `routeRules` entry with `isr`, `swr`, or `cache` can't vary its response on `Accept` or `User-Agent`: the cache is keyed on the request path alone and ignores `Vary`. Rewriting such a page would let its HTML and markdown variants overwrite each other under the same key, and the next visitor gets whichever landed last.
+
+So for any configured pattern overlapping a cached route rule (logged at build time), the module:
+
+- disables request-time negotiation in the Nitro middleware, in production. Dev has no response cache, and a site that caches every page would otherwise never negotiate locally
+- emits a 307 to the raw twin at the CDN instead of a rewrite, so each URL keeps a single variant and the client resolves the twin before any cache lookup
+
+A rule narrower than the pattern covering it, `routeRules['/docs/**']` under the default `/**`, gets its own redirect pair emitted ahead of that pattern's rewrite, so only the cached section is affected and the rest of the site keeps URL-preserving rewrites. Both strategies come out of the same detection, so a route rule added later moves the routes it covers on its own.
+
+The Nitro middleware applies the same rule off Vercel: on a cached route it redirects rather than answering in place, except for an explicit `.md` URL, which has one variant and is served normally.
 
 ## Contributing
 

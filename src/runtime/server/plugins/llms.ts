@@ -4,6 +4,7 @@ import { withBase } from 'ufo'
 import type { NitroApp } from 'nitropack/types'
 import { defineNitroPlugin } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
+import type { AgentListEntry } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { hasFileExtension, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
@@ -30,12 +31,46 @@ function toLocalUrl(href: string, domain: string): { pathname: string, suffix: s
   }
 }
 
+/** A link to a negotiable page, as opposed to `llms-full.txt` or an asset. */
+function isPageLink(href: string, domain: string): boolean {
+  const local = toLocalUrl(href, domain)
+  return !!local && (local.pathname === '/' || !hasFileExtension(local.pathname))
+}
+
+function toLink(entry: AgentListEntry, domain: string) {
+  return {
+    title: entry.title || entry.route,
+    description: entry.description,
+    href: withBase(entry.route, domain)
+  }
+}
+
+/** Entries grouped by their `section` label, in first-seen order. */
+function groupBySection(entries: AgentListEntry[]): Map<string, AgentListEntry[]> {
+  const groups = new Map<string, AgentListEntry[]>()
+  for (const entry of entries) {
+    const key = entry.section || 'Documentation'
+    const group = groups.get(key)
+    if (group) {
+      group.push(entry)
+    } else {
+      groups.set(key, [entry])
+    }
+  }
+  return groups
+}
+
 /**
- * The `nuxt-llms` bridge. This module owns the raw markdown route (so it
- * survives a content-backend swap), which also disables `@nuxt/content`'s
- * llms.txt link rewriting: it is re-done here from the shared route config.
- * For sources `@nuxt/content` doesn't know about (comark, custom adapters),
- * the sections and the full document come from the adapter too.
+ * The `nuxt-llms` bridge, and the only place `llms.txt` gets its pages.
+ *
+ * `@nuxt/content`'s own llms feature is removed by the module (see the bridge
+ * block in `src/module.ts`) because it rendered `llms-full.txt` through a
+ * second markdown pipeline that disagreed with `/raw/**.md` and had no comark
+ * equivalent. Sections and documents both come from the content adapter now, so
+ * every backend produces the same document, and a site's `llms.sections` config
+ * keeps working: the section is handed to the adapter, which reads the keys it
+ * declares (`contentCollection`/`contentFilters` for `@nuxt/content`,
+ * `navigation` for comark).
  */
 export default defineNitroPlugin((nitroApp: NitroApp) => {
   const prerenderPaths = new Set<string>()
@@ -44,26 +79,56 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     const config = useAgentDiscoveryConfig(event)
     const domain = options.domain || getAgentSiteUrl(event)
 
-    // Populate from the adapter when nothing else did: @nuxt/content fills
-    // its collection-backed sections before this hook runs. Only links to
-    // negotiable pages count, so nuxt-llms's own llms-full.txt entry doesn't
-    // mask an otherwise empty document.
-    const hasPageLinks = options.sections.some(section => section.links?.some((link) => {
-      const local = toLocalUrl(link.href, domain)
-      return !!local && (local.pathname === '/' || !hasFileExtension(local.pathname))
-    }))
-    if (source && !hasPageLinks) {
-      const entries = source.list
-        ? await source.list(event)
-        : (await source.routes(event)).map(route => ({ route, title: undefined as string | undefined, description: undefined as string | undefined }))
-      options.sections.push({
-        title: 'Documentation',
-        description: 'Every page below is available as raw markdown.',
-        links: entries.map(entry => ({
-          title: entry.title || entry.route,
-          description: entry.description,
-          href: withBase(entry.route, domain)
-        }))
+    if (source) {
+      // Sections the site declared. One that already carries links is left
+      // alone; otherwise the adapter is asked whether the section names
+      // something it can resolve.
+      const unresolved: LlmsSection[] = []
+      for (const section of options.sections) {
+        if (section.links?.length || !source.list) {
+          continue
+        }
+        const entries = await source.list(event, section as unknown as Record<string, unknown>)
+        if (entries?.length) {
+          section.links = entries.map(entry => toLink(entry, domain))
+        } else if (!section.description) {
+          // A selector no adapter recognises, or one that matched nothing: a
+          // section left with neither links nor prose renders as a dangling
+          // heading. Config that outlived a backend swap is the common case.
+          unresolved.push(section)
+        }
+      }
+      for (const section of unresolved) {
+        options.sections.splice(options.sections.indexOf(section), 1)
+      }
+
+      // Nothing resolved to pages, so list them all. `nuxt-llms` contributes a
+      // "Documentation Sets" section pointing at `llms-full.txt`, which must
+      // not count as an otherwise empty document having content.
+      const hasPageLinks = options.sections.some(section => section.links?.some(link => isPageLink(link.href, domain)))
+      if (!hasPageLinks) {
+        const entries = source.list
+          ? (await source.list(event)) || []
+          : (await source.routes(event)).map(route => ({ route }) as AgentListEntry)
+        for (const [title, group] of groupBySection(entries)) {
+          options.sections.push({
+            title,
+            description: 'Every page below is available as raw markdown.',
+            links: group.map(entry => toLink(entry, domain))
+          })
+        }
+      }
+    }
+
+    // The landing page. An adapter whose pages come from structured data has no
+    // `/` entry (its homepage is a Vue page), but the module still serves
+    // `/raw/index.md` for it, so without this nothing links the document an
+    // agent is most likely to want first.
+    const linked = options.sections.some(section => section.links?.some(link => toLocalUrl(link.href, domain)?.pathname === '/'))
+    if (source && !linked && matchRoute(config.routes, '/')) {
+      options.sections.unshift({
+        title: 'Overview',
+        links: [{ title: config.siteName || 'Landing page', href: withBase('/', domain) }]
       })
     }
 
@@ -97,11 +162,11 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
   }) as never)
 
   nitroApp.hooks.hook('llms:generate:full' as never, (async (event: H3Event, _options: LlmsOptions, contents: string[]) => {
-    // @nuxt/content renders its collection-backed sections before this hook;
-    // only adapter-backed sites reach here with nothing rendered.
-    if (!source || contents.length) {
+    if (!source) {
       return
     }
+    // The same `get()` the raw route calls, so a page reads identically whether
+    // an agent fetches `/raw/**.md` or the single full document.
     for (const route of await source.routes(event)) {
       const page = await source.get(route, event)
       if (page?.markdown) {

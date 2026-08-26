@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
 
   const entries = source
     ? (source.list
-        ? await source.list(event)
+        ? (await source.list(event)) || []
         : (await source.routes(event)).map(route => ({ route, title: undefined as string | undefined })))
     : []
 

@@ -1,12 +1,15 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Nitro } from 'nitropack'
-import { compilePattern, formatLinkHeader, rawDestination, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { compilePattern, formatLinkHeader, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
 export interface VercelRoute {
   src: string
+  /** Rewrite destination. Mutually exclusive with `status` + `headers.Location`. */
   dest?: string
+  /** Redirect status, for the cached-route strategy below. */
+  status?: number
   headers?: Record<string, string>
   has?: { type: string, key: string, value: string }[]
   check?: boolean
@@ -42,6 +45,26 @@ function excludeLookahead(config: NegotiationConfig): string {
 const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
 
 /**
+ * One negotiated route: a rewrite on a prerendered page, a 307 on a cached one.
+ *
+ * A rewrite keeps the page URL, which is the whole point of doing this at the
+ * CDN rather than redirecting like every other implementation does. It is only
+ * safe when the destination is a prerendered file: a response cache keyed on
+ * the request path alone ignores `Vary`, so rewriting an `isr`/`swr` page would
+ * let its HTML and markdown variants overwrite each other under the same key.
+ * Cached patterns get a 307 instead, so each URL keeps a single variant and the
+ * client resolves the twin before any cache lookup.
+ */
+function negotiatedRoute(src: string, dest: string, has: { type: string, key: string, value: string }[], cached: boolean): VercelRoute {
+  if (cached) {
+    return { src, status: 307, headers: { Location: dest, Vary: MARKDOWN_VARY }, has }
+  }
+  // `check: true` looks the destination up in the filesystem first, which is
+  // where prerendered raw files live.
+  return { src, dest, has, check: true }
+}
+
+/**
  * Routes prepended to `.vercel/output/config.json` (Build Output API v3) to
  * serve markdown through content negotiation at the edge, where prerendered
  * pages never reach Nitro. The table stays O(route patterns), never O(pages).
@@ -49,7 +72,8 @@ const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
  * The `Vary` route must come first and carry `continue: true`: Nitro emits its
  * own `routeRules` header routes *after* these rewrites and without
  * `continue`, so they never run for a request that gets rewritten to a
- * prerendered raw markdown file.
+ * prerendered raw markdown file. It covers cached patterns too, even though
+ * their 307 carries `Vary` itself, so the HTML variant is labelled as well.
  */
 export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   const acceptMarkdown = { type: 'header', key: 'accept', value: '(.*)text/markdown(.*)' }
@@ -85,7 +109,36 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     })
   }
 
+  // A cached rule narrower than the pattern covering it, `routeRules['/docs/**']`
+  // under the default `/**`, gets its own 307 pair ahead of that pattern's
+  // rewrite. Marking the whole pattern cached instead would demote every page on
+  // the site to a redirect because one section happens to be cached.
+  for (const rule of config.cachedRoutes) {
+    const covered = config.routes.filter(route => patternsOverlap(rule, route.path))
+    if (!covered.length || !covered.every(route => staticPrefix(rule).length > staticPrefix(route.path).length)) {
+      continue
+    }
+
+    const src = rule.includes('*')
+      ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${compilePattern(rule).source.slice(1, -1)}$`
+      : `^${escapeRegExp(rule)}$`
+    const dest = rule.includes('*')
+      ? `${config.rawPrefix}${patternDest(rule)}.md`
+      : rawDestination(config, matchRoute(config.routes, rule) || { path: rule }, rule)
+
+    routes.push(
+      negotiatedRoute(src, dest, [acceptMarkdown], true),
+      negotiatedRoute(src, dest, [agentUserAgent], true)
+    )
+  }
+
   for (const route of config.routes) {
+    // Cached only when a rule covers the pattern itself. A narrower rule was
+    // handled above, so this pattern keeps its rewrite for everything outside
+    // it. The `.md` twins stay rewrites either way: that URL only ever serves
+    // markdown, so there is no second variant to poison.
+    const cached = config.cachedRoutes.some(rule => patternsOverlap(rule, route.path) && staticPrefix(rule).length <= staticPrefix(route.path).length)
+
     if (route.path.includes('*')) {
       const body = compilePattern(route.path).source.slice(1, -1)
       const dest = `${config.rawPrefix}${patternDest(route.path)}.md`
@@ -95,14 +148,12 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
         src: `^${excluded}${body}\\.md$`,
         dest
       })
-      // Negotiated rewrites. The dotted-last-segment lookahead keeps `.md`
-      // URLs on the rewrite above and assets (`_payload.json`, images) out.
-      // `check: true` looks the destination up in the filesystem first, which
-      // is where prerendered raw files live.
+      // The dotted-last-segment lookahead keeps `.md` URLs on the rewrite above
+      // and assets (`_payload.json`, images) out.
       const negotiatedSrc = `^${NO_DOTTED_LAST_SEGMENT}${excluded}${body}$`
       routes.push(
-        { src: negotiatedSrc, dest, has: [acceptMarkdown], check: true },
-        { src: negotiatedSrc, dest, has: [agentUserAgent], check: true }
+        negotiatedRoute(negotiatedSrc, dest, [acceptMarkdown], cached),
+        negotiatedRoute(negotiatedSrc, dest, [agentUserAgent], cached)
       )
     } else {
       const dest = rawDestination(config, route, route.path)
@@ -111,8 +162,8 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
         routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, dest })
       }
       routes.push(
-        { src, dest, has: [acceptMarkdown], check: true },
-        { src, dest, has: [agentUserAgent], check: true }
+        negotiatedRoute(src, dest, [acceptMarkdown], cached),
+        negotiatedRoute(src, dest, [agentUserAgent], cached)
       )
     }
   }

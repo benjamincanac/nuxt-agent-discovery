@@ -124,7 +124,7 @@ function discoveryDocument(summary: string, description: string, response: Json)
   return { get: { tags: ['Discovery'], summary, description, responses: { 200: response } } }
 }
 
-export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Json, components: Json } {
+export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
   const config = useAgentDiscoveryConfig(event)
   const has = (href: string) => config.links.some(link => link.href === href)
 

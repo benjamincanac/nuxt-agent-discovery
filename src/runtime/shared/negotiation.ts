@@ -77,6 +77,49 @@ export function matchRoute(routes: AgentRoute[], pathname: string): AgentRoute |
   return routes.find(route => patternRegExp(route.path).test(pathname))
 }
 
+/** Everything before the first wildcard: `/docs/**` → `/docs/`, `/` → `/`. */
+export function staticPrefix(pattern: string): string {
+  return pattern.split('*')[0]!
+}
+
+/** `/docs/` → `/docs`, so a prefix compares equal to the exact path it covers. */
+function trimSlash(value: string): string {
+  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+/**
+ * Whether `path` is `prefix` or sits under it, on a segment boundary. A plain
+ * `startsWith` would put `/toolsx` under `/tools`.
+ */
+function isUnder(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(prefix === '/' ? '/' : `${prefix}/`)
+}
+
+/**
+ * Whether two patterns can match the same path. Used to decide whether a route
+ * rule's response cache covers a negotiated pattern, so it errs towards `true`:
+ * a false positive costs a redirect where a rewrite would have done, a false
+ * negative lets two representations share one cache entry.
+ *
+ * Static prefixes alone are too loose in two directions: an exact pattern
+ * matches exactly one path, so a `/docs/**` rule says nothing about `/`, and a
+ * bare string prefix crosses segment boundaries.
+ */
+export function patternsOverlap(a: string, b: string): boolean {
+  const left = trimSlash(staticPrefix(a))
+  const right = trimSlash(staticPrefix(b))
+  if (!isUnder(left, right) && !isUnder(right, left)) {
+    return false
+  }
+  if (!a.includes('*')) {
+    return patternRegExp(b).test(a) || isUnder(a, right)
+  }
+  if (!b.includes('*')) {
+    return patternRegExp(a).test(b) || isUnder(b, left)
+  }
+  return true
+}
+
 /**
  * The raw markdown destination for a matched page. `raw` is only honoured on
  * exact patterns; wildcard patterns always map to `rawPrefix + path + '.md'`.
@@ -287,6 +330,78 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
   // `*/*`, an empty `Accept`, curl, or any other non-browser client asking for
   // a page: markdown is the most useful thing we can hand back.
   return true
+}
+
+/* ------------------------------ markdown links ---------------------------- */
+
+/** Link destinations in prose: `](/x)` and `]: /x`. */
+const MARKDOWN_LINK = /(\]\(|\]:[ \t]*)(\/(?!\/)[^\s)>]*)/g
+
+/**
+ * The `</x>` autolink form, which the resource lists in the raw documents use.
+ *
+ * The path has to carry a second `/` or a `.` somewhere, or every HTML closing
+ * tag in the document is one: `</div>` and `</Callout>` are indistinguishable
+ * from an autolink otherwise, and rewriting them destroys the markup. The cost
+ * is that a single-segment autolink like `</blog>` is left relative, which is
+ * a great deal better than mangling every tag.
+ */
+const MARKDOWN_AUTOLINK = /<(\/(?!\/)[^\s<>]*)>/g
+
+/** A second `/` or a `.` past the leading slash: a path, not a tag name. */
+const AUTOLINK_PATH = /[/.]/
+
+/** Runs of backticks and everything between them: an inline code span. */
+const INLINE_CODE = /(`+)[\s\S]*?\1/g
+
+const OPEN_FENCE = /^ {0,3}(`{3,}|~{3,})/
+
+function absolutizeProse(text: string, siteUrl: string): string {
+  return text
+    .replace(MARKDOWN_LINK, (_match, prefix: string, path: string) => `${prefix}${siteUrl}${path}`)
+    .replace(MARKDOWN_AUTOLINK, (match, path: string) => AUTOLINK_PATH.test(path.slice(1)) ? `<${siteUrl}${path}>` : match)
+}
+
+function absolutizeLine(line: string, siteUrl: string): string {
+  let result = ''
+  let index = 0
+  INLINE_CODE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = INLINE_CODE.exec(line))) {
+    result += absolutizeProse(line.slice(index, match.index), siteUrl) + match[0]
+    index = match.index + match[0].length
+  }
+  return result + absolutizeProse(line.slice(index), siteUrl)
+}
+
+/**
+ * Rewrites site-relative markdown links to absolute ones. A markdown document
+ * is read detached from the site it came from, so a relative href in it points
+ * nowhere.
+ *
+ * Every adapter has to do this or the same page reads differently depending on
+ * which backend served it, so it lives here rather than in each one. Fenced
+ * blocks and inline code spans are left alone: a docs site writing about
+ * markdown must keep its examples verbatim.
+ */
+export function absolutizeMarkdownLinks(markdown: string, siteUrl: string): string {
+  const base = siteUrl.replace(/\/$/, '')
+  let fence: string | undefined
+
+  return markdown.split('\n').map((line) => {
+    const opening = OPEN_FENCE.exec(line)?.[1]
+    if (fence) {
+      if (opening && opening.startsWith(fence[0]!) && opening.length >= fence.length) {
+        fence = undefined
+      }
+      return line
+    }
+    if (opening) {
+      fence = opening
+      return line
+    }
+    return absolutizeLine(line, base)
+  }).join('\n')
 }
 
 /* ------------------------------- Link header ------------------------------ */

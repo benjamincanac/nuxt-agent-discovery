@@ -69,6 +69,10 @@ export function renderAgentResources(event: H3Event, options: { heading?: string
 
 export { agentDiscoveryOpenApi } from './openapi'
 
+// For adapters that render straight to markdown: `@nuxt/content` rewrites its
+// tree instead, but every backend has to end up with absolute links.
+export { absolutizeMarkdownLinks } from '../../shared/negotiation'
+
 /** Identity helper for typed custom content sources. */
 export function defineAgentContentSource(source: AgentContentSource): AgentContentSource {
   return source

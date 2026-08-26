@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   MARKDOWN_VARY,
+  absolutizeMarkdownLinks,
   acceptQuality,
   acceptsMarkdown,
   compilePattern,
@@ -11,8 +12,10 @@ import {
   negotiatedRawPath,
   normalizePathname,
   parseAccept,
+  patternsOverlap,
   prefersMarkdownError,
-  rawDestination
+  rawDestination,
+  staticPrefix
 } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
@@ -456,5 +459,137 @@ describe('formatLinkHeader', () => {
 describe('MARKDOWN_VARY', () => {
   it('varies on Accept and User-Agent', () => {
     expect(MARKDOWN_VARY).toBe('Accept, User-Agent')
+  })
+})
+
+describe('staticPrefix', () => {
+  it('cuts at the first wildcard', () => {
+    expect(staticPrefix('/docs/**')).toBe('/docs/')
+    expect(staticPrefix('/*/docs/**')).toBe('/')
+    expect(staticPrefix('/changelog')).toBe('/changelog')
+    expect(staticPrefix('/')).toBe('/')
+  })
+})
+
+describe('patternsOverlap', () => {
+  it('is true for patterns sharing a prefix', () => {
+    expect(patternsOverlap('/docs/**', '/docs/**')).toBe(true)
+    expect(patternsOverlap('/docs/**', '/docs/*/api')).toBe(true)
+    expect(patternsOverlap('/**', '/docs/**')).toBe(true)
+  })
+
+  it('is false for disjoint prefixes', () => {
+    expect(patternsOverlap('/docs/**', '/blog/**')).toBe(false)
+    expect(patternsOverlap('/changelog', '/docs/**')).toBe(false)
+  })
+
+  it('does not let a nested rule cover the root', () => {
+    // The regression the cached-route detection had: `/docs/**` marking `/`
+    // cached turned every rewrite on the site into a redirect.
+    expect(patternsOverlap('/docs/**', '/')).toBe(false)
+    expect(patternsOverlap('/', '/docs/**')).toBe(false)
+  })
+
+  it('covers the exact path a wildcard rule sits on', () => {
+    // `routeRules['/tools/**'] = { isr }` alongside a `/tools` page pattern.
+    expect(patternsOverlap('/tools/**', '/tools')).toBe(true)
+    expect(patternsOverlap('/tools', '/tools/**')).toBe(true)
+    expect(patternsOverlap('/**', '/')).toBe(true)
+  })
+
+  it('respects segment boundaries', () => {
+    // `/toolsx` is not under `/tools`, so an ISR rule on one says nothing
+    // about the other.
+    expect(patternsOverlap('/tools/**', '/toolsx')).toBe(false)
+    expect(patternsOverlap('/tools', '/toolsx')).toBe(false)
+    expect(patternsOverlap('/tools/**', '/tools/x')).toBe(true)
+  })
+
+  it('is symmetric', () => {
+    const pairs = [['/docs/**', '/'], ['/tools/**', '/tools'], ['/docs/**', '/blog/**'], ['/**', '/docs/x']]
+    for (const [a, b] of pairs) {
+      expect(patternsOverlap(a!, b!)).toBe(patternsOverlap(b!, a!))
+    }
+  })
+})
+
+describe('absolutizeMarkdownLinks', () => {
+  const site = 'https://example.com'
+  const run = (markdown: string) => absolutizeMarkdownLinks(markdown, site)
+
+  it('rewrites inline links, images and reference definitions', () => {
+    expect(run('See the [docs](/docs/guide).')).toBe('See the [docs](https://example.com/docs/guide).')
+    expect(run('![Logo](/img/logo.png)')).toBe('![Logo](https://example.com/img/logo.png)')
+    expect(run('[docs]: /docs/guide')).toBe('[docs]: https://example.com/docs/guide')
+  })
+
+  it('rewrites autolinks, which is how the raw documents list resources', () => {
+    expect(run('- Sitemap: </sitemap.md>')).toBe('- Sitemap: <https://example.com/sitemap.md>')
+  })
+
+  it('keeps a link title and any query or hash', () => {
+    expect(run('[a](/docs "Title")')).toBe('[a](https://example.com/docs "Title")')
+    expect(run('[a](/docs#usage)')).toBe('[a](https://example.com/docs#usage)')
+  })
+
+  it('leaves anything already resolvable alone', () => {
+    const untouched = [
+      '[a](https://other.com/x)',
+      '[a](//cdn.example.com/x)',
+      '[a](#anchor)',
+      '[a](relative/path)'
+    ]
+    for (const markdown of untouched) {
+      expect(run(markdown)).toBe(markdown)
+    }
+  })
+
+  it('is idempotent', () => {
+    expect(run(run('[a](/docs)'))).toBe('[a](https://example.com/docs)')
+  })
+
+  it('leaves fenced code blocks verbatim', () => {
+    // A docs site writing about markdown must keep its examples intact.
+    const markdown = ['Before [a](/x).', '', '```md', '[a](/x)', '```', '', 'After [b](/y).'].join('\n')
+    expect(run(markdown)).toBe([
+      'Before [a](https://example.com/x).',
+      '',
+      '```md',
+      '[a](/x)',
+      '```',
+      '',
+      'After [b](https://example.com/y).'
+    ].join('\n'))
+  })
+
+  it('handles tilde fences and longer fences', () => {
+    expect(run(['~~~', '[a](/x)', '~~~'].join('\n'))).toBe(['~~~', '[a](/x)', '~~~'].join('\n'))
+    expect(run(['````', '```', '[a](/x)', '````'].join('\n'))).toBe(['````', '```', '[a](/x)', '````'].join('\n'))
+  })
+
+  it('leaves raw HTML alone: a closing tag is not an autolink', () => {
+    // `</div>` is indistinguishable from `</path>` by shape, and the
+    // `@nuxt/content` adapter stringifies with `format: 'markdown/html'`, so
+    // getting this wrong corrupts the markup of every document.
+    const untouched = ['<div class="x">hi</div>', '<Callout>text</Callout>', '</p>', '<br />']
+    for (const markdown of untouched) {
+      expect(run(markdown)).toBe(markdown)
+    }
+  })
+
+  it('rewrites an autolink that carries a path, not a bare word', () => {
+    expect(run('</sitemap.md>')).toBe('<https://example.com/sitemap.md>')
+    expect(run('</docs/guide>')).toBe('<https://example.com/docs/guide>')
+    // A single-segment autolink is left relative rather than risk a tag.
+    expect(run('</blog>')).toBe('</blog>')
+  })
+
+  it('leaves inline code spans verbatim', () => {
+    expect(run('Write `[a](/x)` for a link, like [this](/x).')).toBe('Write `[a](/x)` for a link, like [this](https://example.com/x).')
+    expect(run('Use ``[a](/x)`` here.')).toBe('Use ``[a](/x)`` here.')
+  })
+
+  it('drops a trailing slash on the site URL', () => {
+    expect(absolutizeMarkdownLinks('[a](/docs)', 'https://example.com/')).toBe('[a](https://example.com/docs)')
   })
 })

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import {
   addImports,
+  addTypeTemplate,
   addPrerenderRoutes,
   addServerHandler,
   addServerPlugin,
@@ -18,10 +19,13 @@ import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, matchRoute, rawDestination, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { formatLinkHeader, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentPage, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+
+/** `@nuxt/content`'s llms nitro plugin, by the path its feature registers. */
+const CONTENT_LLMS_PLUGIN = /features[\\/]llms[\\/]runtime[\\/]server[\\/]content-llms\.plugin/
 
 export interface McpServerCardOptions {
   /** MCP endpoint the card describes, e.g. `/mcp`. */
@@ -256,6 +260,40 @@ export default defineNuxtModule<ModuleOptions>({
 
     addImports({ name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') })
 
+    // The Nitro runtime hooks, declared where a site's server code can see
+    // them. Without this every `nitroApp.hooks.hook('agent-discovery:*')` call
+    // needs a cast, which is a poor API to document.
+    const hookTypes = addTypeTemplate({
+      filename: 'agent-discovery/hooks.d.ts',
+      getContents: () => `
+import type { H3Event } from 'h3'
+
+declare module 'nitropack/types' {
+  interface NitroRuntimeHooks {
+    /**
+     * Transforms a page before the content adapter stringifies it. The second
+     * argument is whatever the adapter works on: a minimark tree for
+     * \`@nuxt/content\`, the backend's own document elsewhere.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    'agent-discovery:document': (event: H3Event, page: any) => void | Promise<void>
+    /**
+     * Adds body blocks to the generated \`/raw/index.md\`, for a site whose
+     * landing page is a Vue page rather than a document.
+     */
+    'agent-discovery:index': (event: H3Event, body: string[]) => void | Promise<void>
+    /** Enriches the served MCP server card with live tools, resources and prompts. */
+    'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
+  }
+}
+
+export {}
+`,
+      write: true
+    }, { node: true }).dst
+
+    nuxt.options.nitro.typescript = defu(nuxt.options.nitro.typescript, { tsConfig: { include: [hookTypes] } })
+
     /* ------------------------------- robots ------------------------------- */
 
     if (options.robots?.aiPolicy) {
@@ -355,6 +393,22 @@ export default defineNuxtModule<ModuleOptions>({
       }
 
       if (hasLlms && sourcePath) {
+        // `@nuxt/content` installs its llms feature from inside its own setup,
+        // so the supported off switch (`nuxt.options['content.llms'] = false`,
+        // the literal key its `configKey` declares) is already too late unless
+        // this module happens to be listed first. Drop what the feature
+        // registered instead, which does not depend on module order:
+        //
+        // - the raw markdown handler, because this module serves that route
+        //   from the adapter so it survives a content-backend swap
+        // - the nitro plugin, because it builds `llms.txt` sections and renders
+        //   `llms-full.txt` through a second markdown pipeline (`toHast` plus
+        //   `@nuxtjs/mdc`), which disagrees with what `/raw/**.md` returns and
+        //   has no comark equivalent. Both now come from the adapter.
+        //
+        // Reversible upstream: gating that `installModule` on `@nuxt/content`'s
+        // own `options.llms !== false` would make `content: { llms: false }`
+        // work and let all of this go.
         const handlers = nuxt.options.serverHandlers
         for (let i = handlers.length - 1; i >= 0; i--) {
           const handler = handlers[i]!
@@ -362,6 +416,29 @@ export default defineNuxtModule<ModuleOptions>({
             handlers.splice(i, 1)
           }
         }
+
+        // At `nitro:config` rather than here: `@nuxt/content` does not await
+        // that `installModule`, so the plugin is registered by a floating
+        // promise with no ordering guarantee against `modules:done`. It has
+        // always landed in time in practice, but `nitro:config` fires later and
+        // receives the same array, so there is nothing to gain by relying on it.
+        nuxt.hook('nitro:config', (nitroConfig) => {
+          const plugins = nitroConfig.plugins || []
+          const index = plugins.findIndex(plugin => CONTENT_LLMS_PLUGIN.test(String(plugin)))
+          if (index !== -1) {
+            plugins.splice(index, 1)
+            return
+          }
+
+          // Only a feature that actually ran must have left a plugin behind. A
+          // site setting `nuxt.options['content.llms'] = false` itself, or a
+          // future `@nuxt/content` without the feature, is not a problem.
+          const feature = (nuxt.options._installedModules || []).find(module => module.meta?.configKey === 'content.llms')
+          if (feature && !(feature.meta as { disabled?: boolean } | undefined)?.disabled) {
+            logger.warn('`@nuxt/content`\'s llms plugin is installed but could not be found to remove it, so `llms.txt` may come out with duplicate sections. Please report this with the `@nuxt/content` version.')
+          }
+        })
+
         addServerPlugin(resolve('./runtime/server/plugins/llms'))
       }
 
@@ -441,7 +518,6 @@ export default defineNuxtModule<ModuleOptions>({
       // A cached response cannot vary on Accept/User-Agent, so request-time
       // negotiation is disabled there. The CDN rewrites still cover those
       // pages because they run before the cache.
-      const staticPrefix = (pattern: string) => pattern.split('*')[0]!
       for (const [key, rule] of Object.entries(nuxt.options.routeRules || {})) {
         if (!rule || !(rule.isr || rule.swr || 'cache' in rule)) {
           continue
@@ -450,10 +526,9 @@ export default defineNuxtModule<ModuleOptions>({
         if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
           continue
         }
-        const overlaps = routes.some(route => staticPrefix(key).startsWith(staticPrefix(route.path)) || staticPrefix(route.path).startsWith(staticPrefix(key)))
-        if (overlaps) {
+        if (routes.some(route => patternsOverlap(key, route.path))) {
           config.cachedRoutes.push(key)
-          logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there and only applies at the CDN level.`)
+          logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
         }
       }
 

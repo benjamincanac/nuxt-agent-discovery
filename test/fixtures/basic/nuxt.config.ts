@@ -47,6 +47,21 @@ export default defineNuxtConfig({
     full: {
       title: 'Basic',
       description: 'The full fixture documentation.'
-    }
+    },
+    // `contentCollection` / `contentFilters` are `@nuxt/content`'s own section
+    // keys. The module removes that feature and resolves them through the
+    // content adapter instead, so this config has to keep working untouched.
+    sections: [{
+      title: 'Components',
+      contentCollection: 'docs',
+      contentFilters: [{ field: 'path', operator: 'LIKE', value: '/docs/components/%' }]
+    }, {
+      title: 'Everything',
+      contentCollection: 'docs'
+    }, {
+      // Hand-written links are left alone, but still rewritten to raw twins.
+      title: 'Handwritten',
+      links: [{ title: 'Getting Started', href: '/docs/getting-started' }]
+    }]
   }
 })

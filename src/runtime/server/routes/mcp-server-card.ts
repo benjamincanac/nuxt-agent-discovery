@@ -57,8 +57,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const hooks = useNitroApp().hooks as unknown as { callHook: (name: string, ...args: unknown[]) => Promise<void> }
-  await hooks.callHook('agent-discovery:mcp-server-card', event, serverCard)
+  await useNitroApp().hooks.callHook('agent-discovery:mcp-server-card', event, serverCard)
 
   setResponseHeader(event, 'Content-Type', 'application/json; charset=utf-8')
   return serverCard

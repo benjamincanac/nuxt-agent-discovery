@@ -1,7 +1,7 @@
-import { appendResponseHeader, createError, defineEventHandler, getRequestHeader, setResponseHeader, setResponseStatus } from 'h3'
+import { appendResponseHeader, createError, defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader, setResponseStatus } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { matchRoute, negotiatedRawPath, MARKDOWN_VARY } from '../../shared/negotiation'
+import { matchRoute, negotiatedRawPath, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves markdown through content negotiation on the Nitro server.
@@ -37,10 +37,18 @@ export default defineEventHandler(async (event) => {
     return
   }
 
-  // A cached response cannot vary on Accept/User-Agent: leave those routes to
-  // the CDN-level rewrites, which run before the cache.
-  if (config.cachedRoutes.length && matchRoute(config.cachedRoutes.map(path => ({ path })), event.path.split('?')[0]!)) {
-    return
+  // A cached response cannot vary on Accept/User-Agent, so in production a
+  // negotiated page is redirected to its raw twin rather than answered in
+  // place, the same thing the CDN routes do. An explicit `.md` URL is not
+  // negotiated (it has one variant, so its cache entry is safe) and is served
+  // normally. Dev has no response cache, and a site that caches every page
+  // (ISR on Vercel) would otherwise never negotiate locally.
+  const pathname = normalizePathname(event.path)
+  if (!import.meta.dev && !pathname.endsWith('.md') && config.cachedRoutes.length
+    && matchRoute(config.cachedRoutes.map(path => ({ path })), pathname)) {
+    const query = event.path.slice(event.path.indexOf('?') + 1)
+    setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+    return sendRedirect(event, event.path.includes('?') ? `${rawPath}?${query}` : rawPath, 307)
   }
 
   // Forward the host headers so the raw handler resolves the same site URL
@@ -60,6 +68,14 @@ export default defineEventHandler(async (event) => {
   // client asked for and keeps its `Cache-Control: no-cache`.
   if (response.status >= 500) {
     throw createError({ statusCode: response.status, statusMessage: response.statusText })
+  }
+
+  // The raw route redirects a section path to its first document. Replaying the
+  // status alone would hand the client a 3xx with no `Location` to follow.
+  const location = response.headers.get('location')
+  if (response.status >= 300 && response.status < 400 && location) {
+    setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+    return sendRedirect(event, location, response.status)
   }
 
   setResponseStatus(event, response.status)

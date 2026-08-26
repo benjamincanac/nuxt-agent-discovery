@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import type { VercelRoute } from '../../src/presets/vercel'
-import { formatLinkHeader } from '../../src/runtime/shared/negotiation'
+import { formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -160,6 +160,102 @@ describe('vercelMarkdownRoutes: negotiated rewrites', () => {
     expect(rewrite(localeTwin, '/fr/docs/guide.md')).toBe('/raw/fr/docs/guide.md')
     expect(rewrite(localeNegotiated, '/fr/docs/guide')).toBe('/raw/fr/docs/guide.md')
     expect(matches(localeNegotiated, '/docs/guide')).toBe(false)
+  })
+})
+
+describe('vercelMarkdownRoutes: cached routes', () => {
+  // Everything under `/docs` is ISR, the root is prerendered.
+  const config = createConfig({ cachedRoutes: ['/docs/**'] })
+  const routes = vercelMarkdownRoutes(config)
+  const docs = routes.filter(route => route.headers?.Location === '/raw/docs/$1.md')
+  const root = routes.filter(route => route.dest === '/raw/index.md')
+
+  it('redirects instead of rewriting on a cached pattern', () => {
+    expect(docs).toHaveLength(2)
+    for (const route of docs) {
+      expect(route.status).toBe(307)
+      expect(route.dest).toBeUndefined()
+      expect(route.check).toBeUndefined()
+      expect(route.headers?.Vary).toBe(MARKDOWN_VARY)
+    }
+    expect(docs[0]?.has?.[0]?.key).toBe('accept')
+    expect(docs[1]?.has?.[0]?.key).toBe('user-agent')
+  })
+
+  it('expands the wildcard captures into `Location`', () => {
+    const route = docs[0]!
+    expect(matches(route, '/docs/foo')).toBe(true)
+    expect('/docs/3.x/guide'.replace(new RegExp(route.src), route.headers!.Location!)).toBe('/raw/docs/3.x/guide.md')
+  })
+
+  it('leaves the uncached patterns rewriting', () => {
+    expect(root).toHaveLength(2)
+    expect(root.every(route => route.check && !route.status)).toBe(true)
+  })
+
+  it('keeps the `.md` twin a rewrite: one variant per URL, nothing to poison', () => {
+    const twin = routes.find(route => route.dest === '/raw/docs/$1.md')
+    expect(twin).toBeDefined()
+    expect(twin!.has).toBeUndefined()
+    expect(twin!.status).toBeUndefined()
+    expect(rewrite(twin!, '/docs/foo.md')).toBe('/raw/docs/foo.md')
+  })
+
+  it('still labels cached pages with `Vary` through the leading continue route', () => {
+    expect(routes[0]?.continue).toBe(true)
+    expect(matches(routes[0]!, '/docs/foo')).toBe(true)
+  })
+
+  it('matches a route rule by static prefix, whatever the wildcards are', () => {
+    // `/docs/**` the rule, `/docs/*/api` the pattern: same prefix, still cached.
+    const nested = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/docs/*/api' }],
+      cachedRoutes: ['/docs/**']
+    }))
+    expect(nested.filter(route => route.status === 307)).toHaveLength(2)
+  })
+
+  it('does not redirect a pattern that no rule overlaps', () => {
+    const other = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/blog/**' }],
+      cachedRoutes: ['/docs/**']
+    }))
+    expect(other.filter(route => route.status === 307)).toHaveLength(0)
+  })
+
+  it('does not demote a broad pattern because one narrow rule is cached', () => {
+    // The default route set with a single ISR section. Marking `/**` cached
+    // would turn every page on the site into a redirect.
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/docs/**']
+    }))
+
+    const catchAll = routes.filter(route => route.dest === '/raw/$1.md')
+    expect(catchAll.every(route => !route.status)).toBe(true)
+    expect(routes.filter(route => route.dest === '/raw/index.md').every(route => !route.status)).toBe(true)
+
+    // The cached section gets its own redirect pair, ahead of that rewrite.
+    const cached = routes.filter(route => route.status === 307)
+    expect(cached).toHaveLength(2)
+    expect(cached.every(route => route.headers?.Location === '/raw/docs/$1.md')).toBe(true)
+    expect(routes.indexOf(cached[0]!)).toBeLessThan(routes.indexOf(catchAll[0]!))
+    expect(matches(cached[0]!, '/docs/guide')).toBe(true)
+    expect(matches(cached[0]!, '/about')).toBe(false)
+  })
+
+  it('redirects the whole pattern when the rule covers it', () => {
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/docs/**' }],
+      cachedRoutes: ['/**']
+    }))
+
+    expect(routes.filter(route => route.status === 307)).toHaveLength(2)
+    expect(routes.filter(route => route.dest === '/raw/docs/$1.md')).toHaveLength(1)
+  })
+
+  it('keeps the table the same size either way', () => {
+    expect(routes.length).toBe(vercelMarkdownRoutes(createConfig()).length)
   })
 })
 

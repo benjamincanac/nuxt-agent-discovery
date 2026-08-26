@@ -26,12 +26,12 @@ canonical_url: "https://basic.example.com"
 
 > Fixture site for the nuxt-agent-discovery e2e tests.
 
-Browse the [documentation](/docs/getting-started).
+Browse the [documentation](https://basic.example.com/docs/getting-started).
 
 
 ## Sitemap
 
-See the full [sitemap](/sitemap.md) for all pages.
+See the full [sitemap](https://basic.example.com/sitemap.md) for all pages.
 `
 
 export const GETTING_STARTED_MARKDOWN = `---
@@ -54,7 +54,7 @@ Request any page with \`Accept: text/markdown\` to receive this document as mark
 
 ## Sitemap
 
-See the full [sitemap](/sitemap.md) for all pages.
+See the full [sitemap](https://basic.example.com/sitemap.md) for all pages.
 `
 
 export const BUTTON_MARKDOWN = `---
@@ -77,7 +77,7 @@ Style the button.
 
 ## Sitemap
 
-See the full [sitemap](/sitemap.md) for all pages.
+See the full [sitemap](https://basic.example.com/sitemap.md) for all pages.
 `
 
 /** `Link` the raw markdown handler sets on a dynamically served document. */

@@ -355,4 +355,47 @@ describe('nuxt-llms bridge', () => {
     expect(response.status).toBe(200)
     expect(await response.text()).toContain('# Getting Started')
   })
+
+  it('resolves `contentCollection` / `contentFilters` sections through the adapter', async () => {
+    // `@nuxt/content`'s llms feature owned these two keys. The module removes
+    // that feature, so a site's existing `llms.sections` has to keep working.
+    const body = await (await fetch('/llms.txt')).text()
+
+    const components = body.split('## Components')[1]!.split('\n## ')[0]!
+    expect(components).toContain(`${SITE_URL}/raw/docs/components/button.md`)
+    expect(components).toContain(`${SITE_URL}/raw/docs/components/badge.md`)
+    // The filter is applied, so the section is not just every page again.
+    expect(components).not.toContain(`${SITE_URL}/raw/docs/getting-started.md`)
+
+    const everything = body.split('## Everything')[1]!.split('\n## ')[0]!
+    expect(everything).toContain(`${SITE_URL}/raw/docs/getting-started.md`)
+  })
+
+  it('leaves a hand-written section its own links, still rewritten to raw twins', async () => {
+    const body = await (await fetch('/llms.txt')).text()
+    const handwritten = body.split('## Handwritten')[1]!.split('\n## ')[0]!
+
+    expect(handwritten).toContain(`[Getting Started](${SITE_URL}/raw/docs/getting-started.md)`)
+    expect(handwritten.split('\n').filter(line => line.startsWith('- '))).toHaveLength(1)
+  })
+
+  it('emits each section once: `@nuxt/content`\'s llms plugin is gone', async () => {
+    const body = await (await fetch('/llms.txt')).text()
+    const headings = body.split('\n').filter(line => line.startsWith('## '))
+
+    expect(headings).toEqual([...new Set(headings)])
+    // The auto-generated fallback must stay out once sections resolve.
+    expect(headings).not.toContain('## Docs')
+  })
+
+  it('renders `llms-full.txt` through the same adapter as `/raw/**.md`', async () => {
+    // The divergence that motivated the takeover: the same page rendered by two
+    // pipelines. Both call `source.get()` now, so the bodies have to match.
+    const raw = await (await fetch('/raw/docs/getting-started.md')).text()
+    const full = await (await fetch('/llms-full.txt')).text()
+
+    // The raw route wraps the body in frontmatter and a sitemap footer.
+    const body = raw.split('---\n')[2]!.split('\n\n## Sitemap')[0]!
+    expect(full).toContain(body.trim())
+  })
 })
