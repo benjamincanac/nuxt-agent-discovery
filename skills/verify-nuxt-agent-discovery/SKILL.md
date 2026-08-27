@@ -58,7 +58,10 @@ Establish and write down:
 - **The raw prefix.** Read it off the links in `sitemap.md`, which point at raw twins. `/raw` is the default, and every command below uses `$RAW` rather than assuming it:
 
 ```sh
-RAW=$(curl -sS "$PREVIEW/sitemap.md" | grep -oE '\]\(https?://[^)]+' | sed 's|.*://[^/]*||' | grep -oE '^/[^/]+' | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
+# The longest common leading path of the twins, so a multi-segment prefix like
+# `/docs/raw` survives. Stripping only the first segment would target `/docs`.
+RAW=$(curl -sS "$PREVIEW/sitemap.md" | grep -oE '\]\(https?://[^)]+\.md' | sed 's|.*://[^/]*||' \
+  | awk -F/ 'NR==1{n=NF; for(i=1;i<NF;i++) p[i]=$i; next} {if(NF<n) n=NF; for(i=1;i<n;i++) if(p[i]!=$i){n=i; break}} END{s=""; for(i=2;i<n;i++) s=s "/" p[i]; print s}')
 RAW=${RAW:-/raw}
 echo "$RAW"
 ```
@@ -101,7 +104,7 @@ Run every row against `$HOME` and `$DOC`, plus one page from each class the swee
 | `show -A "$BOT" "$PREVIEW$DOC"` | same markdown, no `Accept` header needed |
 | `probe -A "$GPT" "$PREVIEW$DOC"` | same as ClaudeBot |
 | `show "$PREVIEW$DOC.md"` | markdown, 200, a rewrite even on a cached pattern |
-| `probe -H 'Accept: text/markdown;q=0.5, text/html;q=0.9' "$PREVIEW$DOC"` | HTML **when the twin is not prerendered**, markdown when it is. A CDN matcher cannot rank q-values, so on a prerendered twin the edge answers before the origin can. Documented in the README, not a bug. Pick a `$DOC` whose twin is rendered per request if you want a deterministic row |
+| `probe -H 'Accept: text/markdown;q=0.5, text/html;q=0.9' "$PREVIEW$DOC"` | HTML **on an uncached pattern whose twin is not prerendered**, which is the only deterministic case: pick that `$DOC`. A CDN matcher cannot rank q-values, so a prerendered twin answers markdown at the edge and a cached pattern answers 307, both before the origin can rank anything. Documented in the README, not a bug |
 | `probe -H 'Accept: text/markdown;q=0.9, text/html;q=0.5' "$PREVIEW$DOC"` | markdown |
 | `probe -H 'Accept: text/markdown;q=0' "$PREVIEW$DOC"` | HTML |
 | `probe -H 'Accept: */*' "$PREVIEW$DOC"` | HTML, a wildcard never counts as asking |
@@ -208,9 +211,12 @@ curl -sS "$PREVIEW/robots.txt"
 ```sh
 # Fail loudly when the index itself is missing: an empty pipeline below would
 # otherwise report a clean pass on a site that serves no index at all.
-curl -fsS "$PREVIEW/.well-known/skills/index.json" > /tmp/skills.json || echo 'NO SKILLS INDEX'
-jq -r '.skills[] | .name as $n | .files[] | "\($n)/\(.)"' /tmp/skills.json \
-  | while read -r p; do printf '%s %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' "$PREVIEW/.well-known/skills/$p")" "$p"; done
+if ! curl -fsS "$PREVIEW/.well-known/skills/index.json" > /tmp/skills.json; then
+  echo 'FAIL: no skills index'   # a finding whenever the site ships skills
+else
+  jq -r '.skills[] | .name as $n | .files[] | "\($n)/\(.)"' /tmp/skills.json \
+    | while read -r p; do printf '%s %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' "$PREVIEW/.well-known/skills/$p")" "$p"; done
+fi
 ```
 
 - `robots.txt` names the agents negotiation actually matches. Cross-check it: every user agent named there gets markdown on `$DOC`, and the list is not shorter than the 18 defaults unless the site replaced it.
@@ -231,8 +237,11 @@ grep -oE '\]\([^)]+\)' /tmp/llms.txt | grep -v '\.md)' | head       # same-origi
 - The link set matches the inventory. A section that lost its links, or a page that fell out, is a finding:
 
 ```sh
-grep -oE 'https?://[^)]+\.md' /tmp/llms.txt | sed "s|.*$RAW||;s|\.md$||" | sort -u > /tmp/llms-pages
-diff <(sed 's|/$||' /tmp/pages | sort -u) /tmp/llms-pages | head -40
+# The homepage is `/` in the sitemap and `/index` in a raw twin, so both sides
+# are folded to `/` before the diff. Without that a correct site reports one.
+home() { sed -e 's|^/index$|/|' -e 's|^$|/|' -e 's|\(.\)/$|\1|' | sort -u; }
+grep -oE 'https?://[^)]+\.md' /tmp/llms.txt | sed "s|.*$RAW||;s|\.md$||" | home > /tmp/llms-pages
+diff <(home < /tmp/pages) /tmp/llms-pages | head -40
 ```
 
 - A page's body inside `llms-full.txt` is byte-identical to the **body** of `/raw/<page>.md`, which is that document minus its frontmatter block and its `## Sitemap` footer. They come from one pipeline now, so any difference beyond that envelope is a bug. Check three pages from different sections.
