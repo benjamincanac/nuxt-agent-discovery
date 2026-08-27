@@ -155,6 +155,25 @@ export default defineNuxtModule<ModuleOptions>({
       nuxt: '>=3.0.0'
     }
   },
+  /**
+   * `@nuxt/content` is optional, so this never installs it: with
+   * `optional: true` Nuxt validates the version when the package is there and
+   * skips the entry entirely when it is not.
+   *
+   * Worth declaring because this module reaches into v3 internals rather than a
+   * public API, and every one of those failures is silent. It imports
+   * `@nuxt/content/server` and `#content/manifest`, resolves `minimark/stringify`
+   * out of the installed copy, and removes the llms feature's nitro plugin by
+   * matching the path it registers. A major bump moves any of those and the
+   * site keeps building, with `llms.txt` quietly carrying duplicate sections.
+   *
+   * Nothing else here gets a constraint: the other peers are reached through
+   * documented hooks, and capping a 0.x range would cost every adopter a
+   * release for a breakage that has not happened.
+   */
+  moduleDependencies: {
+    '@nuxt/content': { version: '^3.0.0', optional: true }
+  },
   defaults: {
     siteUrl: '',
     siteName: '',
