@@ -77,15 +77,14 @@ export { agentDiscoveryOpenApi } from './openapi'
 // and the CDN rewrites do. See the "Agent tooling" section of the README.
 export { listAgentPages } from './pages'
 export type { AgentPageListing, AgentPageListOptions } from './pages'
-export { getAgentDocument, normalizeAgentRoute } from './document'
+export { getAgentDocument } from './document'
 export type { AgentDocument, AgentDocumentOptions } from './document'
 export { extractSections } from '../../shared/sections'
 
-// Every backend has to end up with absolute links, so both passes are public.
-// `absolutizeTreeLinks` for an adapter holding a document tree (it sees MDC
-// component props, which the markdown scan cannot), `absolutizeMarkdownLinks`
-// for one that renders straight to a string.
-export { absolutizeMarkdownLinks, absolutizeTreeLinks } from '../../shared/negotiation'
+// The absolutization passes are deliberately not exported: the module runs one
+// over whatever `get()` returns, so an adapter that forgets cannot emit
+// relative links, and one that does it anyway is unaffected because the pass is
+// idempotent.
 
 /** Identity helper for typed custom content sources. */
 export function defineAgentContentSource(source: AgentContentSource): AgentContentSource {

@@ -1,6 +1,10 @@
 /**
  * The documents every content backend has to produce, byte for byte.
  *
+ * Prose only. The two stringifiers disagree on the blank lines inside a
+ * component block, so nothing here carries one: `test/unit/comark.test.ts`
+ * pins that difference instead of pretending it away.
+ *
  * `basic` serves these from `@nuxt/content` through the built-in adapter,
  * `custom-source` from a hand-written in-memory adapter, and `comark` from
  * `comark-content` through `createComarkSource()`. Same `llms.domain`, same

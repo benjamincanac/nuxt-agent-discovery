@@ -26,13 +26,6 @@ interface ComarkLikeContent {
   navigation: () => Promise<ComarkNavigationItem[]>
 }
 
-function requireEvent(event?: H3Event): H3Event {
-  if (!event) {
-    throw new Error('[nuxt-agent-discovery] the comark source needs the request event')
-  }
-  return event
-}
-
 /** What a `llms.sections` entry may name for this adapter. */
 interface ComarkSelector {
   /** Navigation path whose subtree the section lists, e.g. `/getting-started`. */
@@ -78,20 +71,13 @@ function findNode(items: ComarkNavigationItem[], path: string): ComarkNavigation
  * export default createComarkSource(() => getProdContent())
  * ```
  */
-export function createComarkSource(getContent: (event?: H3Event) => Promise<ComarkLikeContent> | ComarkLikeContent): AgentContentSource {
+export function createComarkSource(getContent: (event: H3Event) => Promise<ComarkLikeContent> | ComarkLikeContent): AgentContentSource {
   return {
-    async routes(event?: H3Event) {
-      const content = await getContent(event)
-      const entries: AgentListEntry[] = []
-      collect(await content.navigation(), entries)
-      return [...new Set(entries.map(entry => entry.route))]
-    },
-
     /**
      * With no selector, every page grouped by its top-level navigation node.
      * With `{ navigation: '/path' }`, that subtree only.
      */
-    async list(event?: H3Event, selector?: AgentSectionSelector) {
+    async list(selector: AgentSectionSelector | undefined, event: H3Event) {
       const { navigation } = (selector || {}) as ComarkSelector
       if (selector && !navigation) {
         return null
@@ -118,7 +104,7 @@ export function createComarkSource(getContent: (event?: H3Event) => Promise<Coma
      * A directory node's first page, so `/raw/getting-started.md` redirects to
      * the section's first document the way the HTML page does.
      */
-    async firstLeaf(route: string, event?: H3Event) {
+    async firstLeaf(route: string, event: H3Event) {
       const content = await getContent(event)
       const node = findNode(await content.navigation(), route)
       if (!node) {
@@ -148,7 +134,7 @@ export function createComarkSource(getContent: (event?: H3Event) => Promise<Coma
      * backend changes the adapter and nothing else, and `test/e2e/expected.ts`
      * is what holds them to it.
      */
-    async get(route: string, event?: H3Event) {
+    async get(route: string, event: H3Event) {
       const content = await getContent(event)
       const path = route === '/index' ? '/' : route
       const item = await content.get(path)
@@ -165,7 +151,7 @@ export function createComarkSource(getContent: (event?: H3Event) => Promise<Coma
       // Lets sites transform the document (MDC components → plain markdown)
       // without replacing the whole source. Called before the nodes are read,
       // so a transformer can swap them wholesale.
-      await useNitroApp().hooks.callHook('agent-discovery:document', requireEvent(event), page)
+      await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
 
       const nodes = page.nodes as ComarkNode[]
       const frontmatter = (page.data || {}) as { title?: string, description?: string, links?: unknown }
@@ -203,7 +189,7 @@ export function createComarkSource(getContent: (event?: H3Event) => Promise<Coma
         }
       }
 
-      absolutizeTreeLinks(nodes, getAgentSiteUrl(requireEvent(event)))
+      absolutizeTreeLinks(nodes, getAgentSiteUrl(event))
 
       // `render`, not `renderMarkdown`: the latter routes through
       // `renderFrontmatter`, which re-emits `data` as a YAML block the raw

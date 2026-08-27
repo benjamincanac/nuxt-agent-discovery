@@ -31,13 +31,6 @@ function titleCase(value: string): string {
     .replace(/\b\w/g, char => char.toUpperCase())
 }
 
-function requireEvent(event?: H3Event): H3Event {
-  if (!event) {
-    throw new Error('[nuxt-agent-discovery] the @nuxt/content source needs the request event')
-  }
-  return event
-}
-
 /**
  * Built-in `@nuxt/content` v3 adapter: `queryCollection()` over
  * `type: 'page'` collections, stringified with minimark. Mirrors the raw
@@ -45,25 +38,13 @@ function requireEvent(event?: H3Event): H3Event {
  * swapping to this module changes nothing for agents.
  */
 const source: AgentContentSource = {
-  async routes(event?: H3Event) {
-    const paths: string[] = []
-    for (const collection of pageCollections()) {
-      const pages = await queryCollection(requireEvent(event), collection)
-        .select('path')
-        .where('path', 'NOT LIKE', '%/.navigation')
-        .all() as { path: string }[]
-      paths.push(...pages.map(page => page.path))
-    }
-    return [...new Set(paths)]
-  },
-
   /**
    * Reads `contentCollection` and `contentFilters` off the section, the same
    * two keys `@nuxt/content`'s llms feature declared, so a site's existing
    * `llms.sections` config keeps working after this module takes the feature
    * over. A selector naming anything else is not ours.
    */
-  async list(event?: H3Event, selector?: AgentSectionSelector) {
+  async list(selector: AgentSectionSelector | undefined, event: H3Event) {
     const { contentCollection, contentFilters } = (selector || {}) as ContentSelector
     if (selector && !contentCollection) {
       return null
@@ -76,7 +57,7 @@ const source: AgentContentSource = {
 
     const entries: AgentListEntry[] = []
     for (const collection of names) {
-      const query = queryCollection(requireEvent(event), collection)
+      const query = queryCollection(event, collection)
         .select('path', 'title', 'description')
         .where('path', 'NOT LIKE', '%/.navigation')
       for (const filter of contentFilters || []) {
@@ -101,10 +82,18 @@ const source: AgentContentSource = {
    * already dropped, so this lands where the site's own navigation does rather
    * than on whatever sorts first alphabetically.
    */
-  async firstLeaf(route: string, event?: H3Event) {
+  async firstLeaf(route: string, event: H3Event) {
     const prefix = `${withLeadingSlash(route).replace(/\/$/, '')}/`
+    // `%` is a `LIKE` wildcard and the prefix comes from the URL, so `/raw/%.md`
+    // would match every page in every collection and materialize them all
+    // before the check below throws them away. `_` is a wildcard too but only
+    // for a single character, which is a real path character and barely widens
+    // anything, so it stays.
+    if (prefix.includes('%')) {
+      return null
+    }
     for (const collection of pageCollections()) {
-      const pages = await queryCollection(requireEvent(event), collection)
+      const pages = await queryCollection(event, collection)
         .select('path', 'stem')
         .where('path', 'LIKE', `${prefix}%`)
         .where('path', 'NOT LIKE', '%/.navigation')
@@ -122,7 +111,7 @@ const source: AgentContentSource = {
     return null
   },
 
-  async get(route: string, event?: H3Event) {
+  async get(route: string, event: H3Event) {
     let path = withLeadingSlash(route)
     if (path.endsWith('/index')) {
       path = path.slice(0, -6) || '/'
@@ -130,7 +119,7 @@ const source: AgentContentSource = {
 
     let page: PageCollectionItemBase | null = null
     for (const collection of pageCollections()) {
-      page = await queryCollection(requireEvent(event), collection).path(path).first() as PageCollectionItemBase | null
+      page = await queryCollection(event, collection).path(path).first() as PageCollectionItemBase | null
       if (page) {
         break
       }
@@ -145,7 +134,7 @@ const source: AgentContentSource = {
 
     // Lets sites transform the minimark tree (MDC components → plain
     // markdown) without replacing the whole source.
-    await useNitroApp().hooks.callHook('agent-discovery:document', requireEvent(event), page)
+    await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
 
     const value = page.body.value as unknown as MinimarkNode[]
 
@@ -180,7 +169,7 @@ const source: AgentContentSource = {
       }
     }
 
-    absolutizeTreeLinks(value, getAgentSiteUrl(requireEvent(event)))
+    absolutizeTreeLinks(value, getAgentSiteUrl(event))
 
     return {
       markdown: stringify({ ...page.body, type: 'minimark' }, { format: 'markdown/html' }),

@@ -1,7 +1,7 @@
 import { createError, defineEventHandler, sendRedirect, setResponseHeader } from 'h3'
 import source from '#agent-discovery/source'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { getAgentDocument, normalizeAgentRoute } from '../utils/document'
+import { getAgentDocument } from '../utils/document'
 import { normalizePathname } from '../../shared/negotiation'
 
 /**
@@ -25,7 +25,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Page Not Found', data: { path: event.path } })
   }
 
-  const path = normalizeAgentRoute(slug.slice(0, -3))
+  // Left unnormalized: `getAgentDocument` owns that, and decoding here as well
+  // would decode a doubly-encoded path twice, resolving it to a different page.
+  const path = slug.slice(0, -3)
   const document = await getAgentDocument(event, path)
 
   if (!document) {

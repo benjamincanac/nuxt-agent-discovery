@@ -3,7 +3,8 @@ import { useNitroApp } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
 import { extractSections } from '../../shared/sections'
-import type { AgentIndex } from '../../shared/types'
+import { absolutizeMarkdownLinks, normalizeAgentRoute } from '../../shared/negotiation'
+import type { AgentIndex, AgentPage } from '../../shared/types'
 
 /** A resolved markdown document, or where to go instead. */
 export interface AgentDocument {
@@ -64,14 +65,23 @@ async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentInd
 }
 
 /**
- * `/foo/index` and `/index` both name `/`, whichever way the URL spelled it.
+ * `source.get()` plus the link absolutization every adapter would otherwise
+ * have to remember.
+ *
+ * A markdown document is read detached from the site it came from, so a
+ * site-relative link in it points nowhere. The built-in adapters already
+ * rewrite their document tree, where they can also see the links in MDC
+ * component props; this pass is idempotent over that, because it only matches a
+ * destination starting with a single slash and those are already absolute.
+ * Doing it here rather than in each adapter is what keeps a custom source from
+ * silently emitting relative links.
  */
-export function normalizeAgentRoute(route: string): string {
-  let path = route
-  if (path.endsWith('/index')) {
-    path = path.slice(0, -6) || '/'
+export async function getSourcePage(route: string, event: H3Event): Promise<AgentPage | null> {
+  const page = await source?.get(route, event)
+  if (!page) {
+    return null
   }
-  return path === '/index' || path === '' ? '/' : path
+  return { ...page, markdown: absolutizeMarkdownLinks(page.markdown, getAgentSiteUrl(event)) }
 }
 
 /**
@@ -96,7 +106,7 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
   const siteUrl = getAgentSiteUrl(event)
   const canonicalUrl = `${siteUrl}${path === '/' ? '' : path}` || siteUrl
 
-  const page = await source?.get(path, event)
+  const page = await getSourcePage(path, event)
   if (!page) {
     // A path that names a section rather than a page (`/getting-started` with
     // no index) resolves to the section's first document, the same as the

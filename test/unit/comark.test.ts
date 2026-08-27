@@ -117,7 +117,7 @@ describe('comark source', () => {
 
 describe('comark listing', () => {
   it('lists every page in the navigation', async () => {
-    const routes = await source.routes(event)
+    const routes = ((await source.list(undefined, event)) || []).map(entry => entry.route)
 
     expect(routes).toContain('/')
     expect(routes).toContain('/about')
@@ -126,7 +126,7 @@ describe('comark listing', () => {
   })
 
   it('carries the title and the navigation group into the listing', async () => {
-    const entries = await source.list?.(event)
+    const entries = await source.list(undefined, event)
     const button = entries?.find(entry => entry.route === '/docs/components/button')
 
     expect(button?.title).toBe('Button')
@@ -134,7 +134,7 @@ describe('comark listing', () => {
   })
 
   it('scopes a listing to the subtree a `navigation` selector names', async () => {
-    const entries = await source.list?.(event, { navigation: '/docs' })
+    const entries = await source.list({ navigation: '/docs' }, event)
 
     expect(entries?.length).toBeGreaterThan(0)
     expect(entries?.every(entry => entry.route.startsWith('/docs'))).toBe(true)
@@ -144,7 +144,7 @@ describe('comark listing', () => {
     // A site swapping backend keeps its `llms.sections` config, so the
     // `@nuxt/content` keys arrive here. Claiming them would list the wrong
     // pages; the bridge drops the section instead.
-    expect(await source.list?.(event, { contentCollection: 'docs' })).toBe(null)
+    expect(await source.list({ contentCollection: 'docs' }, event)).toBe(null)
   })
 
   it('resolves a section path to its first document', async () => {
@@ -153,5 +153,42 @@ describe('comark listing', () => {
     expect(leaf).toBeTruthy()
     expect(leaf).not.toBe('/docs')
     expect(await source.get(leaf!, event)).toBeTruthy()
+  })
+})
+
+/**
+ * Where the two backends stop agreeing.
+ *
+ * The rest of this file, and `test/e2e/shared.ts`, assert that comark and
+ * `@nuxt/content` serve the same bytes. That holds for prose and stops holding
+ * at component blocks: the two stringifiers put different blank lines around a
+ * component's children. Both parse back to the same document and no adopter is
+ * affected yet, since the sites running this module use `@nuxt/content` or a
+ * custom source, so the divergence is pinned here rather than papered over.
+ *
+ * Pinned, not asserted as correct. If either stringifier changes its spacing
+ * this fails, which is the point: it should surface here and not halfway
+ * through migrating a comark site full of MDC.
+ */
+describe('comark vs minimark: the known divergence', () => {
+  const nodes = [['callout', { type: 'warning' }, ['p', {}, 'Careful.']]] as never[]
+
+  it('agrees on prose', async () => {
+    const { render } = await import('comark/render')
+    const { stringify } = await import('minimark/stringify')
+    const prose = [['p', {}, 'Just prose.']] as never[]
+
+    expect(await render({ nodes: prose }, { format: 'markdown/html' }))
+      .toBe(stringify({ type: 'minimark', value: prose }, { format: 'markdown/html' }))
+  })
+
+  it('differs on the blank lines inside a component block', async () => {
+    const { render } = await import('comark/render')
+    const { stringify } = await import('minimark/stringify')
+
+    expect(await render({ nodes }, { format: 'markdown/html' }))
+      .toBe('<callout type="warning">\nCareful.\n</callout>\n')
+    expect(stringify({ type: 'minimark', value: nodes }, { format: 'markdown/html' }))
+      .toBe('<callout type="warning">\n\nCareful.\n\n\n\n</callout>\n')
   })
 })

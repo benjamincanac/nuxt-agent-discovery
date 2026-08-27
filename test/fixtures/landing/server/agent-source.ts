@@ -22,10 +22,6 @@ const pages: Record<string, { title: string, description: string, markdown: stri
 }
 
 export default defineAgentContentSource({
-  async routes() {
-    return Object.keys(pages)
-  },
-
   async list() {
     return Object.entries(pages).map(([route, page]) => ({
       route,

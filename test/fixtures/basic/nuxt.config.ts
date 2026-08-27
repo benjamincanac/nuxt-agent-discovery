@@ -1,5 +1,5 @@
 export default defineNuxtConfig({
-  modules: ['../../../src/module', '@nuxt/content', 'nuxt-llms', '@nuxtjs/mcp-toolkit'],
+  modules: ['../../../src/module', '@nuxt/content', 'nuxt-llms', '@nuxtjs/mcp-toolkit', '@nuxtjs/sitemap'],
   devtools: { enabled: false },
   // Multi-theme highlighting makes the highlighter append a `<style>` node
   // carrying the per-document CSS variables, which the raw markdown must not
@@ -17,6 +17,13 @@ export default defineNuxtConfig({
         }
       }
     }
+  },
+  // One cached section under an uncached catch-all, which is the split the
+  // Build Output table has to get right: `/docs/components/**` redirects to its
+  // raw twin because a path-keyed cache cannot hold two variants, while every
+  // other page keeps a URL-preserving rewrite.
+  routeRules: {
+    '/docs/components/**': { isr: 60 }
   },
   compatibilityDate: '2026-01-01',
 
@@ -63,5 +70,10 @@ export default defineNuxtConfig({
       title: 'Handwritten',
       links: [{ title: 'Getting Started', href: '/docs/getting-started' }]
     }]
+  },
+  sitemap: {
+    // Hands the filter a raw twin to drop, which a default sitemap never
+    // contains, so the assertion cannot pass vacuously.
+    sources: ['/api/__sitemap__/urls']
   }
 })

@@ -22,6 +22,11 @@ declare module 'nitropack/types' {
     'agent-discovery:index': (event: H3Event, index: AgentIndex) => void | Promise<void>
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
+    /**
+     * Adds to `sitemap.md` before it is rendered. The map is keyed by section,
+     * in the order the sections appear.
+     */
+    'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
 }
 
@@ -140,25 +145,23 @@ export type AgentSectionSelector = Record<string, unknown>
  * routes to whatever implements this.
  */
 export interface AgentContentSource {
-  /** Site-relative routes of every markdown-representable page. */
-  routes: (event?: H3Event) => Promise<string[]>
-  /** Resolve one route to its markdown representation, `null` when unknown. */
-  get: (route: string, event?: H3Event) => Promise<AgentPage | null>
   /**
-   * Optional listing with metadata, used by `sitemap.md` and the `nuxt-llms`
-   * bridge so they don't have to call `get()` once per page. Falls back to
-   * `routes()` + `get()` when absent.
+   * Every markdown-representable page, with whatever metadata the backend has.
+   * `sitemap.md`, the `nuxt-llms` bridge and `listAgentPages()` all read it.
    *
-   * With a `selector`, return only the pages it names, or `null` when the
-   * selector is not one this adapter understands.
+   * With a `selector`, a `llms.sections` entry handed over verbatim, return
+   * only the pages it names, or `null` when the selector is not one this
+   * adapter understands.
    */
-  list?: (event?: H3Event, selector?: AgentSectionSelector) => Promise<AgentListEntry[] | null>
+  list: (selector: AgentSectionSelector | undefined, event: H3Event) => Promise<AgentListEntry[] | null>
+  /** Resolve one route to its markdown representation, `null` when unknown. */
+  get: (route: string, event: H3Event) => Promise<AgentPage | null>
   /**
    * Optional: the first page under a section path, for a URL that names a
    * directory rather than a page (`/getting-started` with no `index`). The raw
    * route redirects to its markdown twin, mirroring what the HTML page does.
    */
-  firstLeaf?: (route: string, event?: H3Event) => Promise<string | null>
+  firstLeaf?: (route: string, event: H3Event) => Promise<string | null>
 }
 
 /** Normalized module state shared by build-time presets and the Nitro runtime. */
@@ -172,6 +175,12 @@ export interface NegotiationConfig {
   /** Path prefixes that never negotiate and keep their JSON/HTML errors. */
   excludePrefixes: string[]
   links: DiscoveryLink[]
+  /**
+   * Whether the discovery `Link` header is emitted on `/`. Carried here rather
+   * than read off the module options, because the deploy presets emit that
+   * header themselves and only ever see this config.
+   */
+  linkHeader: boolean
   /** How `sitemap.md` groups pages into sections. */
   sitemapSections: SitemapSections
   /**

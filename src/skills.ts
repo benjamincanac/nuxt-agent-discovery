@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join } from 'pathe'
 import { parse as parseYaml } from 'yaml'
 import type { ConsolaInstance } from 'consola'
@@ -71,6 +71,13 @@ async function listFiles(dir: string, base = ''): Promise<string[]> {
   const files: string[] = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = base ? `${base}/${entry.name}` : entry.name
+    // A symlink reports neither directory nor regular file here, so listing it
+    // would publish whatever it points at: the catalog is the allowlist the
+    // runtime route checks against, so a link to `../../.env` would be served.
+    // Skipped rather than resolved, because a skill has no reason to hold one.
+    if (entry.isSymbolicLink()) {
+      continue
+    }
     if (entry.isDirectory()) {
       files.push(...await listFiles(join(dir, entry.name), path))
     } else {
@@ -94,7 +101,11 @@ export async function scanSkills(dir: string, logger: ConsolaInstance): Promise<
 
     const skillDir = join(dir, entry.name)
     const skillMd = join(skillDir, 'SKILL.md')
-    if (!existsSync(skillMd)) {
+    // `lstat`, not `existsSync`, which follows the link: `SKILL.md` is added to
+    // the catalog unconditionally below, so a symlinked one would publish
+    // whatever it points at. The reference files are filtered the same way.
+    const stats = await lstat(skillMd).catch(() => null)
+    if (!stats?.isFile()) {
       continue
     }
 

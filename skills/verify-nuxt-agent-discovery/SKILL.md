@@ -55,11 +55,20 @@ curl -sS "$PREVIEW/.well-known/api-catalog" | jq .
 Establish and write down:
 
 - **Host.** `x-vercel-id` means Vercel, where negotiation happens at the edge from the Build Output route table and everything in this skill applies. Anything else means only the Nitro middleware runs, and Nitro serves prerendered files ahead of user handlers, so **a prerendered page keeps returning HTML to an agent**. That is a documented limitation, not a regression: expect negotiation on never-prerendered pages and on explicit `.md` URLs, and say so in the report.
-- **The raw prefix.** Read it off the links in `sitemap.md`, which point at raw twins. `/raw` is the default.
+- **The raw prefix.** Read it off the links in `sitemap.md`, which point at raw twins. `/raw` is the default, and every command below uses `$RAW` rather than assuming it:
+
+```sh
+# Taken from the homepage twin, which is always `<prefix>/index.md`. Inferring
+# a common prefix instead collapses on a site whose pages all share a section:
+# `/raw/docs/a.md` and `/raw/docs/b.md` would give `/raw/docs`.
+RAW=$(curl -sS "$PREVIEW/sitemap.md" | grep -oE 'https?://[^)]+/index\.md' | head -1 | sed -e 's|.*://[^/]*||' -e 's|/index\.md$||')
+RAW=${RAW:-/raw}
+echo "$RAW"
+```
 - **The production URL**, baked into every prerendered document by `siteUrl`:
 
 ```sh
-PROD=$(curl -sS "$PREVIEW/raw/index.md" | grep -oE 'https?://[^/)]+' | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
+PROD=$(curl -sS "$PREVIEW$RAW/index.md" | grep -oE 'https?://[^/)]+' | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
 echo "$PROD"
 ```
 
@@ -95,14 +104,14 @@ Run every row against `$HOME` and `$DOC`, plus one page from each class the swee
 | `show -A "$BOT" "$PREVIEW$DOC"` | same markdown, no `Accept` header needed |
 | `probe -A "$GPT" "$PREVIEW$DOC"` | same as ClaudeBot |
 | `show "$PREVIEW$DOC.md"` | markdown, 200, a rewrite even on a cached pattern |
-| `probe -H 'Accept: text/markdown;q=0.5, text/html;q=0.9' "$PREVIEW$DOC"` | HTML, html outranks markdown |
+| `probe -H 'Accept: text/markdown;q=0.5, text/html;q=0.9' "$PREVIEW$DOC"` | HTML **on an uncached pattern whose twin is not prerendered**, which is the only deterministic case: pick that `$DOC`. A CDN matcher cannot rank q-values, so a prerendered twin answers markdown at the edge and a cached pattern answers 307, both before the origin can rank anything. Documented in the README, not a bug |
 | `probe -H 'Accept: text/markdown;q=0.9, text/html;q=0.5' "$PREVIEW$DOC"` | markdown |
 | `probe -H 'Accept: text/markdown;q=0' "$PREVIEW$DOC"` | HTML |
 | `probe -H 'Accept: */*' "$PREVIEW$DOC"` | HTML, a wildcard never counts as asking |
 | `probe -H 'Accept: text/plain' "$PREVIEW$DOC"` | HTML, only `text/markdown` counts |
 | `probe -A "$BOT" "$PREVIEW$UNCOVERED"` | HTML, an unconfigured page must not start negotiating |
 | `probe -A "$BOT" "$PREVIEW$DOC?ref=x"` | markdown, and if it is a 307 the `location` keeps `?ref=x` |
-| `probe -A "$BOT" -X HEAD "$PREVIEW$DOC"` | same status and headers as the GET |
+| `probe -A "$BOT" -I "$PREVIEW$DOC"` | same status and headers as the GET. `-I`, not `-X HEAD`, which makes curl wait for a body that never comes |
 
 Two things that fail quietly, so check them explicitly:
 
@@ -112,7 +121,7 @@ Two things that fail quietly, so check them explicitly:
 ```sh
 curl -sS -H 'Accept: text/markdown' "$PREVIEW$DOC" > /tmp/a.md
 curl -sS "$PREVIEW$DOC.md" > /tmp/b.md
-curl -sS "$PREVIEW/raw${DOC}.md" > /tmp/c.md
+curl -sS "$PREVIEW$RAW${DOC}.md" > /tmp/c.md
 diff /tmp/a.md /tmp/b.md && diff /tmp/b.md /tmp/c.md
 ```
 
@@ -127,7 +136,7 @@ p="$1"
 agent=$(curl -sS -o /dev/null -w '%{http_code} %{content_type} %{redirect_url}' -A "$BOT" "$PREVIEW$p")
 html=$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' -A "$BROWSER" -H "Accept: $HTML" "$PREVIEW$p")
 twin=$([ "$p" = "/" ] && echo skip || curl -sS -o /dev/null -w '%{http_code} %{content_type}' "$PREVIEW${p%/}.md")
-raw=$(curl -sS -o /dev/null -w '%{http_code}' "$PREVIEW/raw$([ "$p" = "/" ] && echo /index || echo "${p%/}").md")
+raw=$(curl -sS -o /dev/null -w '%{http_code}' "$PREVIEW$RAW$([ "$p" = "/" ] && echo /index || echo "${p%/}").md")
 echo "$p | agent: $agent | html: $html | twin: $twin | raw: $raw"
 EOF
 chmod +x /tmp/sweep.sh
@@ -156,22 +165,22 @@ Also sweep for empty or truncated documents, which return 200 and look fine:
 
 ```sh
 while read -r p; do
-  n=$(curl -sS "$PREVIEW/raw$([ "$p" = "/" ] && echo /index || echo "${p%/}").md" | wc -c)
+  n=$(curl -sS "$PREVIEW$RAW$([ "$p" = "/" ] && echo /index || echo "${p%/}").md" | wc -c)
   [ "$n" -lt 200 ] && echo "THIN $n $p"
 done < /tmp/pages
 ```
 
 ## Step 4: the raw route
 
-- `show "$PREVIEW/raw${DOC}.md"` returns 200, `text/markdown`, and a `Link` header with both `rel="canonical"` and `rel="alternate"; type="text/html"` pointing at the page URL.
-- `probe "$PREVIEW/raw${SECTION}.md"` returns 302 to the first document under that section, not a 404.
-- `show "$PREVIEW/raw/does-not-exist.md"` returns 404 with a markdown body.
-- `curl -sS "$PREVIEW/raw/index.md" | head -30` returns the homepage document, or the generated landing page: frontmatter, canonical and alternate links, and a resources block.
+- `show "$PREVIEW$RAW${DOC}.md"` returns 200, `text/markdown`, and a `Link` header with both `rel="canonical"` and `rel="alternate"; type="text/html"` pointing at the page URL.
+- `probe "$PREVIEW$RAW${SECTION}.md"` returns 302 to the first document under that section, not a 404.
+- `show "$PREVIEW$RAW/does-not-exist.md"` returns 404 with a markdown body.
+- `curl -sS "$PREVIEW$RAW/index.md" | head -30` returns the homepage document, or the generated landing page: frontmatter, canonical and alternate links, and a resources block.
 - Site-relative links are absolutised. Every `](/` outside a fenced block is a bug, across the whole inventory:
 
 ```sh
 while read -r p; do
-  curl -sS "$PREVIEW/raw$([ "$p" = "/" ] && echo /index || echo "${p%/}").md" \
+  curl -sS "$PREVIEW$RAW$([ "$p" = "/" ] && echo /index || echo "${p%/}").md" \
     | awk '/^ {0,3}(```|~~~)/{f=!f} !f' | grep -q '](/' && echo "RELATIVE $p"
 done < /tmp/pages
 ```
@@ -195,14 +204,19 @@ curl -sS "$PREVIEW/robots.txt"
 - The `Link` header on `/` carries only IANA-registered rels. Any `rel="llms"`, `rel="mcp"`, `rel="design"` or other invented relation means something outside the module is emitting headers, since the module rejects them at build time.
 - Every href in the `Link` header and the api-catalog resolves. Fetch each one and record the status.
 - `api-catalog` answers `application/linkset+json`, parses, and every `anchor` and `href` is absolute.
-- The server card carries `endpoint` and `name`, and lists live tools where the site hooks `agent-discovery:mcp-server-card`. The endpoint it names answers: POST an MCP `initialize` to it.
-- `sitemap.md` covers the same pages as `/tmp/pages` and every link points at a raw twin rather than the HTML page.
+- The server card carries `serverInfo.name` and an `endpoints` array (`endpoint` and `name` are the config keys, not the served fields), and lists live tools where the site runs `@nuxtjs/mcp-toolkit`. The endpoint it names answers: POST an MCP `initialize` to it. There is no `$schema`: the MCP spec has no server card yet.
+- `sitemap.md` links point at a raw twin for every page a `routes` pattern covers. A page outside those patterns correctly links to its HTML URL, and a path under `excludePrefixes` is left out entirely, so compare against the negotiated set rather than against `sitemap.xml`.
 - The skills index lists skills, and every file it names fetches 200:
 
 ```sh
-curl -sS "$PREVIEW/.well-known/skills/index.json" \
-  | jq -r '.. | .path? // empty' \
-  | while read -r p; do printf '%s %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' "$PREVIEW/$p")" "$p"; done
+# Fail loudly when the index itself is missing: an empty pipeline below would
+# otherwise report a clean pass on a site that serves no index at all.
+if ! curl -fsS "$PREVIEW/.well-known/skills/index.json" > /tmp/skills.json; then
+  echo 'FAIL: no skills index'   # a finding whenever the site ships skills
+else
+  jq -r '.skills[] | .name as $n | .files[] | "\($n)/\(.)"' /tmp/skills.json \
+    | while read -r p; do printf '%s %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' "$PREVIEW/.well-known/skills/$p")" "$p"; done
+fi
 ```
 
 - `robots.txt` names the agents negotiation actually matches. Cross-check it: every user agent named there gets markdown on `$DOC`, and the list is not shorter than the 18 defaults unless the site replaced it.
@@ -223,11 +237,14 @@ grep -oE '\]\([^)]+\)' /tmp/llms.txt | grep -v '\.md)' | head       # same-origi
 - The link set matches the inventory. A section that lost its links, or a page that fell out, is a finding:
 
 ```sh
-grep -oE 'https?://[^)]+\.md' /tmp/llms.txt | sed "s|.*/raw||;s|\.md$||" | sort -u > /tmp/llms-pages
-diff <(sed 's|/$||' /tmp/pages | sort -u) /tmp/llms-pages | head -40
+# The homepage is `/` in the sitemap and `/index` in a raw twin, so both sides
+# are folded to `/` before the diff. Without that a correct site reports one.
+home() { sed -e 's|\(.\)/$|\1|' -e 's|^/index$|/|' -e 's|^$|/|' | sort -u; }
+grep -oE 'https?://[^)]+\.md' /tmp/llms.txt | sed "s|.*$RAW||;s|\.md$||" | home > /tmp/llms-pages
+diff <(home < /tmp/pages) /tmp/llms-pages | head -40
 ```
 
-- A page's body inside `llms-full.txt` is byte-identical to `/raw/<page>.md`. They come from one pipeline now, so any difference is a bug. Check three pages from different sections.
+- A page's body inside `llms-full.txt` is byte-identical to the **body** of `/raw/<page>.md`, which is that document minus its frontmatter block and its `## Sitemap` footer. They come from one pipeline now, so any difference beyond that envelope is a bug. Check three pages from different sections.
 
 ## Step 7: error bodies
 
@@ -274,7 +291,7 @@ When production still runs a prior implementation, this is the strongest check a
 ```sh
 for p in $(awk 'NR % 18 == 1' /tmp/pages); do        # every 18th page, spread across the inventory
   curl -sS "$PROD/raw${p%/}.md"    | sed "s|$PROD||g" > /tmp/prod.md
-  curl -sS "$PREVIEW/raw${p%/}.md" | sed "s|$PREVIEW||g;s|$PROD||g" > /tmp/prev.md
+  curl -sS "$PREVIEW$RAW${p%/}.md" | sed "s|$PREVIEW||g;s|$PROD||g" > /tmp/prev.md
   echo "== $p"; diff /tmp/prod.md /tmp/prev.md || true
 done
 ```

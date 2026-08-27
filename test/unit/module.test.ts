@@ -159,6 +159,54 @@ describe('module setup: cached routes', () => {
     '/tools/**': { isr: 3600 }
   }
 
+  // Which route-rule shapes Nitro actually turns into a response cache. Pinned
+  // because it is otherwise folklore about `deprecateSWR` and
+  // `normalizeRouteRules`, and because guessing wrong in either direction is a
+  // bug: a missed cache gets a rewrite that poisons it, a false positive costs
+  // a redirect where a rewrite would have done.
+  it('reads a route rule the way Nitro reads it', async () => {
+    const cached = async (rule: Record<string, unknown>) => {
+      const config = await setupModule({ routes: ['/docs/**'] }, { '/docs/**': rule })
+      return config.cachedRoutes.includes('/docs/**')
+    }
+
+    expect(await cached({ isr: 3600 })).toBe(true)
+    expect(await cached({ isr: true })).toBe(true)
+    expect(await cached({ swr: 60 })).toBe(true)
+    expect(await cached({ cache: { maxAge: 60 } })).toBe(true)
+    // `deprecateSWR` turns `static` into `isr: !static`, so this really is ISR.
+    expect(await cached({ static: false })).toBe(true)
+
+    expect(await cached({ isr: false })).toBe(false)
+    expect(await cached({ swr: false })).toBe(false)
+    expect(await cached({ static: true })).toBe(false)
+    expect(await cached({ prerender: true })).toBe(false)
+    // An opt-out, which `'cache' in rule` used to read as a cache.
+    expect(await cached({ cache: false })).toBe(false)
+    // The Vercel builder skips a falsy `isr` outright, and `normalizeRouteRules`
+    // only configures a cache for a truthy `swr`, so neither is one.
+    expect(await cached({ isr: 0 })).toBe(false)
+    expect(await cached({ swr: 0 })).toBe(false)
+  })
+
+  // `experimental.inlineRouteRules` merges a page's `defineRouteRules({ isr })`
+  // in after every module has set up, so the pass at `modules:done` never sees
+  // it. Missing it emits a URL-preserving rewrite onto a route that really is
+  // cached, which is the one error in this area that poisons a cache.
+  it('picks up a route rule that lands after `modules:done`', async () => {
+    const nuxt = await runModule({ routes: ['/', '/**'] }, { '/tools': { isr: 3600 } })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+
+    expect(config.cachedRoutes).toEqual(['/tools'])
+
+    // What `nitro.updateConfig` does with an inline page rule, then the hook
+    // the preset reads the config from.
+    nuxt.options.routeRules['/docs/late'] = { isr: 60 }
+    await nuxt.hooks.callHook('nitro:init' as never, { options: { dev: false, preset: 'node-server' } } as never)
+
+    expect(config.cachedRoutes).toEqual(['/tools', '/docs/late'])
+  })
+
   it('only lists a rule the routes actually negotiate', async () => {
     const config = await setupModule({ routes }, routeRules)
 
@@ -327,5 +375,25 @@ describe('module setup: content source', () => {
 
     expect(nuxt.options.nitro.alias?.['#agent-discovery/comark']).toMatch(/sources[\\/]comark$/)
     expect(nuxt.options.nitro.alias?.['#agent-discovery/source']).toMatch(/agent-source$/)
+  })
+})
+
+describe('module setup: api-catalog', () => {
+  // The catalog groups links carrying an `anchor` with a `service-desc` or
+  // `service-doc` rel. A site with no `nuxt-llms`, no skills and no MCP card
+  // has none, so the route answered `{"linkset":[]}` while the `Link` header
+  // on `/` still pointed agents at it.
+  it('is not advertised when nothing would be in it', async () => {
+    const config = await setupModule()
+
+    expect(config.links.some(link => link.href === '/.well-known/api-catalog')).toBe(false)
+  })
+
+  it('is advertised once a site contributes an anchored service link', async () => {
+    const config = await setupModule({
+      discovery: { links: [{ href: '/openapi.json', rel: 'service-desc', anchor: '/', title: 'OpenAPI' }] }
+    })
+
+    expect(config.links.some(link => link.href === '/.well-known/api-catalog')).toBe(true)
   })
 })

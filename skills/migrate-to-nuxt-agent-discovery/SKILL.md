@@ -7,7 +7,7 @@ description: Migrate a Nuxt site to the nuxt-agent-discovery module, replacing a
 
 Replace a site's hand-rolled agent-discovery layer with the module. The reference migration is [nuxt/ui#6883](https://github.com/nuxt/ui/pull/6883): a negotiation core, a CDN rewrite module, a request middleware, an error handler and six route handlers deleted, replaced by one config block and one Nitro plugin holding three hooks. Almost every file it touches is a deletion.
 
-Read the module's README first, and `.claude/DESIGN.md` in the module repo when a decision needs the reasoning behind it.
+Read the module's README first. It is the only document that ships with the package and the only one guaranteed to match the installed version.
 
 The shape of the work: **configuration replaces routing code, hooks replace site-specific code, everything else gets deleted.** A migration that keeps a file the module owns is not finished, and one that pushes site knowledge into the module is wrong in the other direction.
 
@@ -51,7 +51,7 @@ Record:
 pnpm add -D nuxt-agent-discovery
 ```
 
-Add `'nuxt-agent-discovery'` to `modules`. Order does not matter: the module detects `@nuxt/content`, `nuxt-llms`, `@nuxtjs/robots` and `@nuxtjs/sitemap` at `modules:done`.
+Add `'nuxt-agent-discovery'` to `modules`. Order does not matter for anything listed in `modules`, which the module reads directly. `@nuxtjs/robots`, `@nuxtjs/sitemap` and `@nuxtjs/mcp-toolkit` are detected later still, at `modules:done`, so a site getting them through `@nuxtjs/seo` is covered too. `@nuxt/content` and `nuxt-llms` are read during setup, so a content module pulled in as another module's dependency rather than listed is not seen: set `agentDiscovery.source` explicitly if the build warns that no content source resolved.
 
 ## Step 3: configure
 
@@ -162,7 +162,7 @@ curl -sS http://localhost:3000/.well-known/api-catalog | jq .
 curl -sS -A ClaudeBot http://localhost:3000/nope | head
 ```
 
-Then build, and read the log rather than skimming it. The module warns when a cached route rule overlaps a negotiated pattern, when a static `robots.txt` shadows the generated one, and throws on an invented link rel. Compare the prerendered route count against the old build.
+Then build, and read the log rather than skimming it. The module logs at info when a cached route rule covers a negotiated pattern, so grep for `response cache` rather than for warnings. It warns when no content source resolves, when a static `robots.txt` shadows the generated one, and when `extend` and `replace` are both set, and it throws on an invented link rel or a `siteUrl` carrying a path. Compare the prerendered route count against the old build.
 
 Then deploy a preview and run the `verify-nuxt-agent-discovery` skill against it. Local checks cannot exercise `Vary`, the `Link` header or the CDN rewrites, which is where the interesting failures live.
 

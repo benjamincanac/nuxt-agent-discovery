@@ -22,6 +22,31 @@ export function normalizePathname(path: string): string {
   return pathname || '/'
 }
 
+/**
+ * A raw route slug as the content backends spell it: decoded, without a
+ * trailing slash, and with `/index` folded into the directory it indexes.
+ *
+ * The URL arrives percent-encoded while every backend stores decoded paths, so
+ * without this `/docs/caf%C3%A9` has no markdown twin at all while its HTML
+ * page renders. A malformed escape is left as it came: it matches nothing
+ * either way, and throwing would turn a 404 into a 500.
+ */
+export function normalizeAgentRoute(route: string): string {
+  let path = route
+  try {
+    path = decodeURIComponent(path)
+  } catch {
+    // Not a valid escape sequence, so there is nothing to decode.
+  }
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.slice(0, -1)
+  }
+  if (path.endsWith('/index')) {
+    path = path.slice(0, -6) || '/'
+  }
+  return path === '/index' || path === '' ? '/' : path
+}
+
 /** Whether the last path segment is dotted: an asset, not a page. */
 export function hasFileExtension(pathname: string): boolean {
   const segment = pathname.slice(pathname.lastIndexOf('/') + 1)
@@ -40,6 +65,12 @@ const REGEX_SPECIALS = /[.+?^${}()|[\]\\]/
 /**
  * Compiles a route pattern to a regex source with one capture group per
  * wildcard: `*` matches one segment, `**` one or more.
+ *
+ * A trailing slash is matched but never captured. The runtime strips it in
+ * `normalizePathname` before matching, but the CDN tests this pattern against
+ * the raw request path, and a captured slash lands in the rewrite destination:
+ * `/docs/x/` becoming `/raw/docs/x/.md`, which 404s. The `**` capture is lazy
+ * so it yields the slash to that optional suffix rather than swallowing it.
  */
 export function compilePattern(pattern: string): { source: string, captures: number } {
   let source = ''
@@ -48,7 +79,7 @@ export function compilePattern(pattern: string): { source: string, captures: num
     const char = pattern[i]!
     if (char === '*') {
       if (pattern[i + 1] === '*') {
-        source += '(.+)'
+        source += '(.+?)'
         i++
       } else {
         source += '([^/]+)'
@@ -58,7 +89,7 @@ export function compilePattern(pattern: string): { source: string, captures: num
       source += REGEX_SPECIALS.test(char) ? `\\${char}` : char
     }
   }
-  return { source: `^${source}$`, captures }
+  return { source: `^${source}/?$`, captures }
 }
 
 const patternCache = new Map<string, RegExp>()
@@ -118,6 +149,52 @@ export function patternsOverlap(a: string, b: string): boolean {
     return patternRegExp(a).test(b) || isUnder(b, left)
   }
   return true
+}
+
+/**
+ * Whether a `routeRules` key covers a path, read the way Nitro reads it rather
+ * than the way this module's own patterns are read.
+ *
+ * Route rules are matched by radix3, where `**` stands for zero or more
+ * segments: `/docs/**` applies to `/docs` itself, and `/**` applies to `/`.
+ * `compilePattern` compiles `**` to `(.+)`, one or more, which is what a page
+ * pattern needs (the capture feeds `/raw/$1.md`) and not what a cache rule
+ * means. Reading a rule with the pattern matcher silently leaves the section
+ * root uncached, which is where a rewrite poisons a cache that really exists.
+ */
+export function ruleMatchesPath(rule: string, pathname: string): boolean {
+  if (rule.endsWith('**')) {
+    return isUnder(pathname, trimSlash(staticPrefix(rule)))
+  }
+  return patternRegExp(rule).test(pathname)
+}
+
+/**
+ * Whether a cached rule covers *every* path a negotiated pattern matches, the
+ * only condition under which the whole pattern may be demoted from a rewrite
+ * to a 307. Anything narrower gets its own pair of routes emitted ahead of the
+ * pattern instead.
+ *
+ * Errs towards `false`, the opposite bias to `patternsOverlap`: a pattern
+ * wrongly left uncovered still gets that rule's own 307, while a pattern
+ * wrongly covered turns every page under it into a redirect.
+ *
+ * A rule carrying a wildcard before its last segment, a locale prefix say,
+ * reports `true` for anything under its static prefix, because `staticPrefix`
+ * cuts at the first wildcard. That is the fail-safe direction and matches what
+ * the preset did before, so it is left alone deliberately.
+ */
+export function ruleCoversPattern(rule: string, pattern: string): boolean {
+  if (rule === pattern) {
+    return true
+  }
+  // A `**` rule owns its whole subtree, so it covers any pattern rooted in it.
+  if (rule.endsWith('**')) {
+    return isUnder(trimSlash(staticPrefix(pattern)), trimSlash(staticPrefix(rule)))
+  }
+  // Anything else matches a bounded set of paths, so it can only cover a
+  // pattern that is itself a single path the rule matches.
+  return !pattern.includes('*') && ruleMatchesPath(rule, pattern)
 }
 
 /**
@@ -240,7 +317,9 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
   }
 
   // An explicit `.md` twin URL is a markdown request, whatever the headers
-  // say. A bare `/.md` is not a twin, matching the CDN rewrites.
+  // say. A bare `/.md` is not a twin, matching the CDN rewrites. Handled here
+  // rather than through `negotiableRoute`, whose dotted-segment rule would
+  // read the suffix as an asset.
   if (pathname.endsWith('.md')) {
     const base = pathname.slice(0, -3)
     if (base.length <= 1) {
@@ -254,17 +333,40 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
     return undefined
   }
 
-  const route = matchRoute(config.routes, pathname)
-  if (!route) {
+  const route = negotiableRoute(config, pathname)
+  return route ? rawDestination(config, route, pathname) : undefined
+}
+
+/**
+ * The route a path negotiates through, whatever the client asked for.
+ * `undefined` when the URL has a single representation: the raw prefix itself,
+ * an excluded prefix, a dotted asset (`_payload.json`, images), or a path no
+ * configured pattern covers.
+ */
+function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRoute | undefined {
+  if (pathname === config.rawPrefix || pathname.startsWith(`${config.rawPrefix}/`)) {
     return undefined
   }
-
-  // Any other dotted path is an asset (`_payload.json`, images), not a page.
+  if (isExcluded(pathname, config)) {
+    return undefined
+  }
   if (hasFileExtension(pathname)) {
     return undefined
   }
+  return matchRoute(config.routes, pathname)
+}
 
-  return rawDestination(config, route, pathname)
+/**
+ * Whether a URL has both an HTML and a markdown representation, so its
+ * response genuinely depends on `Accept` and `User-Agent`.
+ *
+ * This is what `Vary` is set from. Deriving it here rather than from a route
+ * rule glob is the only way to exclude the API surface and the assets: a
+ * `routeRules` key cannot express a negative pattern, so a catch-all pattern
+ * would label every response on the site.
+ */
+export function isNegotiablePath(config: NegotiationConfig, path: string): boolean {
+  return Boolean(negotiableRoute(config, normalizePathname(path)))
 }
 
 /**
@@ -476,8 +578,11 @@ export function errorMarkdown(config: NegotiationConfig, options: { path: string
   const siteUrl = options.siteUrl.replace(/\/$/, '')
   // The pathname is attacker-chosen and lands in a code span of a document
   // written for agents, so drop anything that could close the span or smuggle
-  // markdown in.
-  const pathname = normalizePathname(options.path).replace(/[`\\]/g, '')
+  // markdown in. Newlines most of all: h3 has already decoded `%0A`, so without
+  // this a crafted path ends the paragraph and everything after it renders as
+  // first-class markdown, links included, in a document an agent will act on.
+  // Capped too, so a long path cannot bury the rest of the body.
+  const pathname = normalizePathname(options.path).replace(/[`\\\r\n]+/g, '').slice(0, 200)
   // Server errors never surface their message. Client errors use the status
   // message when there is one, stripped of anything that could break the
   // heading or the frontmatter line.

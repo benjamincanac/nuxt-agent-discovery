@@ -9,7 +9,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 
 ## Features
 
-- `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110 precedence), so `text/plain` and `q=0` are handled correctly and `text/html` outranks markdown when a client prefers it
+- `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110 precedence), so `q=0` is a refusal and `text/html` outranks markdown when a client prefers it
 - Vercel Build Output routes so pages negotiate at the edge, before the CDN cache ever sees the request, with a route table that stays O(patterns), never O(pages): a rewrite where the page is prerendered, a 307 where a response cache would key on the path alone
 - A universal Nitro middleware giving the same behavior in dev and on every other host
 - Correct `Vary` and `Link` headers, including on responses served straight from the CDN rewrite table
@@ -24,7 +24,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 - `robots.txt` AI policy generated from the same user-agent list negotiation matches, so the two can't drift apart
 - A `useCanonical()` composable for canonical and markdown-alternate `<link>` tags, and a `rawUrl()` helper resolving a page URL to its markdown twin from the same route config
 - An `agent-discovery:extend` hook so other modules can add discovery links and user agents
-- Link relations validated against the IANA registry, so an invented `rel="llms"` fails the build
+- Link relations validated against the IANA registry, plus `sitemap`, which every crawler understands and nothing has registered, so an invented `rel="llms"` fails the build
 
 ## Quick Setup
 
@@ -48,7 +48,7 @@ What you get out of the box:
 
 - `/raw/**.md`, the raw markdown route, served from whichever content source is detected
 - `Accept: text/markdown` or an explicit `<path>.md` URL returns markdown for any negotiated route; a known agent User-Agent (ClaudeBot, GPTBot, PerplexityBot, ...) gets markdown without an `Accept` header
-- `Vary: Accept, User-Agent` on negotiated routes, their `.md` twins and `/raw/**`
+- `Vary: Accept, User-Agent` on the negotiated pages, and only those: a `.md` twin and everything under `/raw/**` answer markdown to every client, so nothing about them depends on the request
 - a `Link` header on `/` advertising the discovery resources
 - `/.well-known/api-catalog`
 - `/sitemap.md`
@@ -65,7 +65,7 @@ In this order:
 
 Exclusions never negotiate: `/_`, `/api/`, `/mcp`, `/.well-known/`, the raw prefix itself, and any path whose last segment is dotted (assets, `_payload.json`, images).
 
-Errors follow the same idea but browsers are protected: a `fetch()` call of any mode keeps the HTML or JSON error it was written against (`Sec-Fetch-Mode` other than `navigate`), and an explicit `Accept: text/html` or `application/json` is honored. Everything else, curl, an empty `Accept`, a navigation, gets the markdown error body.
+Errors follow the same idea but browsers are protected: a `fetch()` call of any mode keeps the HTML or JSON error it was written against (`Sec-Fetch-Mode` other than `navigate`), and an explicit `Accept: text/html` or `application/json` is honored unless the client is a known agent, which outranks it. Everything else, curl, an empty `Accept`, a navigation, gets the markdown error body.
 
 ## Configuration
 
@@ -73,7 +73,7 @@ Errors follow the same idea but browsers are protected: a `fetch()` call of any 
 export default defineNuxtConfig({
   agentDiscovery: {
     siteUrl: '',                 // '' resolves per-request / from `site.url` / `llms.domain`
-    siteName: '',
+    siteName: '',                // falls back to `site.name`
     rawPrefix: '/raw',
     source: 'auto',                    // 'auto' | 'content' | false | path to an AgentContentSource
     routes: ['/', '/**'],
@@ -82,7 +82,7 @@ export default defineNuxtConfig({
     discovery: {
       link: true,
       apiCatalog: true,
-      sitemapXml: true,
+      sitemapXml: true,               // only when `@nuxtjs/sitemap` is installed
       mcpServerCard: false,
       links: []
     },
@@ -95,7 +95,7 @@ export default defineNuxtConfig({
 ```
 
 - **`siteUrl`** Canonical site URL, resolved in this order when left empty: the `site.url` module option, then `llms.domain`, then, per request, the incoming host. Prerendered documents bake the URL in, so it's settled once at build time when it can be; request-time responses still fall back to the request origin.
-- **`siteName`** Used in `sitemap.md` and markdown error bodies.
+- **`siteName`** Used in `sitemap.md` and the generated `/raw/index.md`. Falls back to the `site.name` module option, the same way `siteUrl` falls back to `site.url`.
 - **`rawPrefix`** Where raw markdown representations live. Defaults to `/raw`.
 - **`source`** `'auto'` detects `@nuxt/content`. `'content'` forces it. `false` disables every content-backed feature (the raw route, `sitemap.md`, the `nuxt-llms` bridge) and leaves negotiation and discovery running against whatever already serves the raw markdown. Anything else is a path to a file exporting an `AgentContentSource` as its default export, which is how a comark site or a custom backend plugs in (see [Content sources](#content-sources)). `source: 'comark'` throws, pointing you at the factory instead, since comark sites construct their own content instance.
 - **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one path segment, `**` matches one or more, so a locale prefix or an entire nested tree is one pattern and the generated CDN route table stays O(patterns), never O(pages). `raw` overrides the raw destination and is only honored on exact (non-wildcard) patterns, e.g. `{ path: '/', raw: '/raw/index.md' }`; wildcard patterns always resolve to `rawPrefix + path + '.md'`.
@@ -103,12 +103,12 @@ export default defineNuxtConfig({
 - **`userAgents.extend`** Extra user agents appended to the defaults (18 agents, from `ai.robots.txt`: ClaudeBot, GPTBot, PerplexityBot, and others, see `src/defaults.ts`). **`userAgents.replace`** replaces the list entirely.
 - **`discovery.link`** Emit the discovery `Link` header on `/`.
 - **`discovery.apiCatalog`** Serve `/.well-known/api-catalog` (RFC 9727).
-- **`discovery.sitemapXml`** Add a `Link` entry pointing at `/sitemap.xml`. It also puts the `Sitemap:` line in the generated `robots.txt`. This module doesn't generate that file, bring your own sitemap module.
+- **`discovery.sitemapXml`** Advertise `/sitemap.xml` in the discovery links, which also puts the `Sitemap:` line in the generated `robots.txt`. On by default but only when `@nuxtjs/sitemap` is installed, since this module doesn't generate that file and pointing agents at a 404 is worse than saying nothing. A site serving its own registers it through `discovery.links`.
 - **`discovery.mcpServerCard`** Given an `McpServerCardOptions` object (`endpoint`, `name`, and optionally `title`, `description`, `documentation`, `repository`, `license`, `version`), serves `/.well-known/mcp/server-card.json`. `false` to disable.
 - **`discovery.links`** Site-specific discovery links: OpenAPI documents, service docs, anything else worth advertising. Rels are validated against the IANA registry, an invented one fails the build. Other modules can push into the same list through the `agent-discovery:extend` hook.
 - **`errors`** Chains a markdown error handler ahead of any existing Nitro `errorHandler`, answering with a markdown body carrying recovery links when the request prefers it.
-- **`sitemap.markdown`** Serve `/sitemap.md`, a markdown index of every page, from the content adapter. Pass an object to control the grouping: `expand` lists path prefixes whose children each get their own section (`['/docs']` turns one "Docs" section into "Components", "Composables", ... while `/blog/**` stays a single "Blog"), and `labels` overrides the heading derived from a segment. Top-level pages share one "Pages" section.
-- **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with `name` and `description` frontmatter becomes a skill; its files are listed from disk into a generated `/.well-known/skills/index.json`, so the index can never fall behind the files actually served. Names are validated against the Agent Skills spec. `false` to disable; the feature turns itself off when the directory does not exist. Skills are pushed into the discovery registry, so they reach the api-catalog and the error-body recovery links.
+- **`sitemap.markdown`** Serve `/sitemap.md`, a markdown index of every page, from the content adapter. Anything under `excludePrefixes` is left out, which is how a site keeps a legacy docs version out of the index and out of negotiation with one setting, and `agent-discovery:sitemap` is where a site adds the pages an adapter cannot know about. Pass an object to control the grouping: `expand` lists path prefixes whose children each get their own section (`['/docs']` turns one "Docs" section into "Components", "Composables", ... while `/blog/**` stays a single "Blog"), and `labels` overrides the heading derived from a segment. Top-level pages share one "Pages" section.
+- **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` in its frontmatter becomes a skill, taking its name from the directory unless the frontmatter sets one; its files are listed from disk into a generated `/.well-known/skills/index.json`, so the index can never fall behind the files actually served. Names are validated against the Agent Skills spec. `false` to disable; the feature turns itself off when the directory does not exist. Skills are pushed into the discovery registry, so they reach the api-catalog and the error-body recovery links.
 - **`robots.aiPolicy`** Feeds the shared user-agent list into `@nuxtjs/robots` when it's installed. Otherwise generates `/robots.txt`, skipped (with a warning) if a static `public/robots.txt` already exists.
 - **`robots.contentSignal`** The `Content-Signal` line added to the wildcard group. `false` to omit it.
 
@@ -120,12 +120,12 @@ export default defineNuxtConfig({
 | `/sitemap.md` | a content source resolves and `sitemap.markdown` is on |
 | `/.well-known/api-catalog` | `discovery.apiCatalog` |
 | `/.well-known/mcp/server-card.json` | `discovery.mcpServerCard` is an object |
-| `/.well-known/skills/index.json` and `/.well-known/skills/**` | the skills directory exists |
+| `/.well-known/skills/index.json` and `/.well-known/skills/**` | at least one valid skill is found |
 | `/robots.txt` | `robots.aiPolicy`, and neither `@nuxtjs/robots` nor a static `public/robots.txt` |
 
 `/llms.txt` and `/llms-full.txt` are not in there, and there's no option to add them. They belong to `nuxt-llms`, which every site already configures, so a second module claiming the route would be last-write-wins with no detection.
 
-With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered. Skill files are prerendered whatever the source. Nothing else under the raw prefix is: a wildcard pattern has no build-time page list, so those twins are rendered per request. On a source that is not the built-in one, that goes for every twin, including the ones `llms.txt` links.
+With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered. Skill files are prerendered whatever the source. With `nuxt-llms` installed, the bridge also hands Nitro's crawler every twin that `llms.txt` links, on any source, so those are prerendered too. A twin that nothing links and no exact pattern names is rendered per request.
 
 ### The raw route
 
@@ -177,7 +177,9 @@ export default defineNuxtConfig({
 })
 ```
 
-It produces the same document the `@nuxt/content` adapter does, byte for byte, which is what makes swapping backend a one-file change. Same rendering format, the `# title` / `> description` lead added only when the body doesn't already open on an `h1`, the related links from `links` frontmatter appended the same way, site-relative links absolutized on the tree, and a highlighter's `<style>` node dropped rather than rendered (comark declares `removeLastStyle` and doesn't implement it). `test/e2e/shared.ts` holds all three adapters to the same expected bytes.
+It produces the same document the `@nuxt/content` adapter does for prose, which is what makes swapping backend close to a one-file change. Same rendering format, the `# title` / `> description` lead added only when the body doesn't already open on an `h1`, the related links from `links` frontmatter appended the same way, site-relative links absolutized on the tree, and a highlighter's `<style>` node dropped rather than rendered (comark declares `removeLastStyle` and doesn't implement it). `test/e2e/shared.ts` holds all three adapters to the same expected bytes.
+
+**Components are the exception.** comark and minimark serialize a component block with different blank lines around its children, so `::callout` renders as `<callout type="warning">\nCareful.\n</callout>` through comark and `<callout type="warning">\n\nCareful.\n\n\n\n</callout>` through `@nuxt/content`. The content is the same and both parse the same; only the whitespace differs, and it compounds when components nest. Diff a page carrying components before pointing a comark site at this, rather than taking the prose equivalence as covering it. `test/unit/comark.test.ts` pins the current difference so a change in either stringifier shows up here rather than during a migration.
 
 `agent-discovery:document` fires here too. The `page` it receives is comark's own `ContentFile`, so a transformer mutates `page.nodes` rather than `page.body.value`.
 
@@ -188,8 +190,8 @@ It produces the same document the `@nuxt/content` adapter does, byte for byte, w
 import { defineAgentContentSource } from '#agent-discovery'
 
 export default defineAgentContentSource({
-  async routes() {
-    return ['/']
+  async list() {
+    return [{ route: '/', title: 'Hello' }]
   },
   async get(route) {
     if (route !== '/') return null
@@ -198,23 +200,12 @@ export default defineAgentContentSource({
 })
 ```
 
-`routes()` lists every markdown-representable route, `get()` resolves one to its markdown. Two optional methods:
+`list()` returns every markdown-representable page, `get()` resolves one to its markdown. Both take the request event as their last argument, which is how they reach the site URL and whatever request-scoped state the backend needs.
 
-- **`list(event, selector)`** returns routes with metadata in one call, used by `sitemap.md` and the `nuxt-llms` bridge to avoid a `get()` per page. Without it, `sitemap.md` and the `llms.txt` link list fall back to bare `routes()` and label each page by its path, while `llms-full.txt` falls back to `routes()` + a `get()` per page, since it needs the bodies anyway. With a `selector` (a `llms.sections` entry, handed over verbatim) return only the pages it names, or `null` when the selector isn't one you understand. An entry can carry a `section` label, which becomes the section title in `llms.txt` when the site declares no sections of its own.
-- **`firstLeaf(route, event)`** returns the first page under a section path, so a URL naming a directory rather than a page (`/raw/getting-started.md` with no index document) redirects to its first document instead of 404ing, the same as the HTML page does.
+- **`list(selector, event)`** is what `sitemap.md`, `listAgentPages()` and the `nuxt-llms` bridge read, so it is worth returning the metadata you already have: a `title` and `description` per entry, and a `section` label that becomes the section title in `llms.txt` when the site declares no sections of its own. With a `selector`, a `llms.sections` entry handed over verbatim, return only the pages it names, or `null` when the selector isn't one you understand.
+- **`firstLeaf(route, event)`** is optional. It returns the first page under a section path, so a URL naming a directory rather than a page (`/raw/getting-started.md` with no index document) redirects to its first document instead of 404ing, the same as the HTML page does.
 
-A markdown document is read detached from the site it came from, so site-relative links in it point nowhere. Both built-in adapters rewrite their document tree before rendering, with `absolutizeTreeLinks()`, which also catches the links in MDC component props. An adapter rendering straight to markdown should call `absolutizeMarkdownLinks()` instead, which leaves fenced blocks and inline code spans alone. Both are exported from `#agent-discovery`:
-
-```ts
-import { absolutizeMarkdownLinks, defineAgentContentSource, getAgentSiteUrl } from '#agent-discovery'
-
-export default defineAgentContentSource({
-  async get(route, event) {
-    const markdown = await render(route)
-    return { markdown: absolutizeMarkdownLinks(markdown, getAgentSiteUrl(event!)) }
-  }
-})
-```
+Site-relative links are absolutized for you. A markdown document is read detached from the site it came from, so a relative href in it points nowhere; the module rewrites whatever `get()` returns, leaving fenced blocks and inline code spans alone. The built-in adapters also rewrite their document tree before rendering, which is how they catch the links inside MDC component props, and running both is harmless because the pass only touches a destination that is still relative.
 
 ### llms.txt sections
 
@@ -236,12 +227,15 @@ A section whose selector no adapter recognises, and that has no description of i
 
 ```ts
 export default defineNuxtConfig({
-  routeRules: {
-    '/llms.txt': { prerender: false },
-    '/llms-full.txt': { prerender: false }
+  nitro: {
+    prerender: {
+      ignore: ['/llms.txt', '/llms-full.txt']
+    }
   }
 })
 ```
+
+A `routeRules` entry of `{ prerender: false }` on both routes does the same thing. Reach for `ignore` when the site is ISR end to end and has no prerendering to speak of, and for the route rule when you want to pair it with a cache.
 
 The module doesn't do this for you: it would turn both documents dynamic for every custom source, including the ones whose content is as static as `@nuxt/content`'s.
 
@@ -260,7 +254,7 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
-Tools in a group the card shouldn't advertise, `server/mcp/tools/admin/*.ts`, are left out. `discovery.mcpServerCard.excludeGroups` sets which groups those are, `['admin']` by default.
+Tools in a group the card shouldn't advertise, `server/mcp/tools/admin/*.ts`, are left out. `discovery.mcpServerCard.excludeGroups` adds to that list rather than replacing it, so naming your own private group keeps `admin` excluded.
 
 **`renderAgentResources()`** renders the discovery registry as a markdown block, for sites that hand-write an agent-facing homepage. It is the same list the `Link` header and the api-catalog are built from, so a resource can't be advertised in one place and missed in another. Pass `{ heading }` to change the default `## Resources for Agents` title:
 
@@ -326,6 +320,17 @@ useCanonical(() => `${route.path}.md`)
 </script>
 ```
 
+**`agent-discovery:sitemap`** adds to `/sitemap.md` before it renders. The content adapter only knows the pages it holds, so a hand-written route, a Vue-rendered showcase or a design document has no other way into the index an agent reads first. Sections are keyed by their heading, in order:
+
+```ts
+// server/plugins/agent-discovery.ts
+export default defineNitroPlugin((nitroApp) => {
+  nitroApp.hooks.hook('agent-discovery:sitemap', (event, sections) => {
+    sections.set('Design', [{ title: 'Design system', href: 'https://example.com/design.md' }])
+  })
+})
+```
+
 **`agent-discovery:document`** transforms a page before it is stringified, covered under [Content sources](#content-sources).
 
 ## Agent tooling
@@ -361,7 +366,7 @@ export default defineMcpTool({
 })
 ```
 
-- **`listAgentPages(event, { search, prefix })`** returns every page with its title, description, section, page URL and raw markdown URL. `search` keeps pages matching every whitespace-separated term across title, path and description. Without `list()` on the adapter it falls back to bare `routes()`, with no metadata.
+- **`listAgentPages(event, { search, prefix })`** returns every page with its title, description, section, page URL and raw markdown URL, skipping anything under `excludePrefixes`. `search` keeps pages matching every whitespace-separated term across title, path and description.
 - **`getAgentDocument(event, route, { sections })`** returns the exact bytes `/raw/<route>.md` serves, frontmatter and sitemap footer included, resolved in-process. `null` for a route with no markdown, `{ redirect }` for one that names a section rather than a page. Sites do this today by `$fetch`ing their own raw route from inside a serverless function.
 - **`extractSections(markdown, titles)`** narrows a document to the `##` sections named, keeping the frontmatter, title and description. Falls back to the whole document when none of them match, since handing back a title alone just makes the agent ask again.
 
@@ -379,11 +384,11 @@ Detected automatically, never a dependency. Detection happens at `modules:done`,
 
 On the `vercel` preset (skipped in dev), a Nitro `compiled` hook patches `.vercel/output/config.json` directly, the Build Output API v3, not `vercel.json`, prepending routes ahead of the ones Nitro emits from `routeRules`.
 
-The first route sets `Vary: Accept, User-Agent` across every configured pattern (and its `.md` twin, for exact patterns) with `continue: true`. That flag matters: Nitro emits its own header routes from `routeRules` *after* these rewrites and without `continue`, so without it `Vary` would never reach a request that gets rewritten straight to a prerendered `/raw/**.md` file off the CDN. A `Link` route on `/` carries the same `continue: true` for the same reason, the homepage's own `routeRules` entry never runs once a request is rewritten.
+The first route sets `Vary: Accept, User-Agent` across every configured pattern with `continue: true`. That flag matters: Nitro emits its own header routes from `routeRules` *after* these rewrites and without `continue`, so without it `Vary` would never reach a request that gets rewritten straight to a prerendered `/raw/**.md` file off the CDN. It skips anything with a dotted last segment, which keeps it off `/llms.txt`, `/robots.txt`, the `.md` twins and everything in `public/`: those answer the same bytes to every client, and a shared cache keyed per user-agent on them is close to no caching at all. A `Link` route on `/` carries the same `continue: true` for the same reason, the homepage's own `routeRules` entry never runs once a request is rewritten.
 
 Then, per route pattern, two negotiated routes: a `has` matcher on `Accept: text/markdown` and another on the agent User-Agent list. What they do depends on whether the pattern is cached:
 
-- **Prerendered pattern**: a rewrite, with `check: true` so Vercel looks the destination up on the filesystem first, which is where the prerendered raw files live, before falling through to the origin. The page URL is preserved, which is the point of doing this at the CDN rather than redirecting.
+- **Uncached pattern**: a rewrite, with `check: true` so Vercel looks the destination up on the filesystem first, which is where the prerendered raw files live, before falling through to the origin. The page URL is preserved, which is the point of doing this at the CDN rather than redirecting. Where the twin is not prerendered the request reaches the origin with its original path, so the Nitro middleware makes the call.
 - **Cached pattern** (see [ISR and cached routes](#isr-and-cached-routes)): a 307 to the raw twin, carrying `Vary` itself.
 
 The explicit `.md` twin stays a rewrite either way: that URL only ever serves markdown, so it has no second variant to worry about.
@@ -402,7 +407,7 @@ A `routeRules` entry with `isr`, `swr`, or `cache` can't vary its response on `A
 
 So for any configured pattern overlapping a cached route rule (logged at build time), the module:
 
-- disables request-time negotiation in the Nitro middleware, in production. Dev has no response cache, and a site that caches every page would otherwise never negotiate locally
+- redirects rather than answering in place in the Nitro middleware, in production. Dev has no response cache, and a site that caches every page would otherwise never negotiate locally
 - emits a 307 to the raw twin at the CDN instead of a rewrite, so each URL keeps a single variant and the client resolves the twin before any cache lookup
 
 A rule narrower than the pattern covering it, `routeRules['/docs/**']` under the default `/**`, gets its own redirect pair emitted ahead of that pattern's rewrite, so only the cached section is affected and the rest of the site keeps URL-preserving rewrites. Both strategies come out of the same detection, so a route rule added later moves the routes it covers on its own.
