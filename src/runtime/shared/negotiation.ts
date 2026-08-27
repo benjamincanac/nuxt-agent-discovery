@@ -276,16 +276,26 @@ export function acceptQuality(entries: AcceptEntry[], target: string): number {
 
 /**
  * Whether the client explicitly asked for markdown: a literal `text/markdown`
- * entry with a non-zero q-value that html does not outrank. Wildcards never
- * count as asking, so wildcard-only clients keep HTML on pages.
+ * entry with a non-zero q-value that html does not outrank. A wildcard on its
+ * own never counts as asking, so wildcard-only clients keep HTML on pages.
+ *
+ * Unless it refused html outright. A client sending `text/html;q=0` alongside
+ * a full wildcard has ruled out the only other representation there is, so
+ * html hands it the one thing it said it could not read, and the page is not
+ * unacceptable either: markdown rates through that wildcard, so there is
+ * nothing for `notAcceptable` to refuse. Markdown is the only answer left.
+ *
+ * Narrow on purpose: a browser and a `fetch()` both rate html through their
+ * own wildcard, so neither ever reaches this.
  */
 export function acceptsMarkdown(accept?: string | null): boolean {
   const entries = parseAccept(accept)
+  const html = acceptQuality(entries, 'text/html')
   const markdown = explicitQuality(entries, 'text/markdown')
-  if (!markdown) {
-    return false
+  if (markdown) {
+    return markdown >= html
   }
-  return markdown >= acceptQuality(entries, 'text/html')
+  return html === 0 && acceptQuality(entries, 'text/markdown') > 0
 }
 
 /** Case-sensitive on purpose, so it agrees with the CDN `has` matchers. */

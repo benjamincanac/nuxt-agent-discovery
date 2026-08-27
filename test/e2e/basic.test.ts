@@ -57,6 +57,16 @@ describe('content negotiation', () => {
 
     expect(response.headers.get('content-type')).toContain('text/html')
   })
+
+  // HTML is the one representation this client refused, and markdown rates
+  // through its wildcard, so there is nothing else left to answer with.
+  it('serves markdown when html is refused and a wildcard permits it', async () => {
+    const response = await fetch('/docs/getting-started', { headers: { Accept: 'text/html;q=0, */*;q=1' } })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
+  })
 })
 
 // `notAcceptable: true` in this fixture. A page has an HTML and a markdown

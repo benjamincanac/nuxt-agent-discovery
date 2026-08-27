@@ -60,8 +60,9 @@ What you get out of the box:
 In this order:
 
 1. An explicit `.md` twin URL is always a markdown request, whatever the headers say.
-2. `Accept: text/markdown` with a q-value that `text/html` doesn't outrank (wildcards like `*/*` never count as asking).
-3. A known agent User-Agent, matched by substring against the shared list.
+2. `Accept: text/markdown` with a q-value that `text/html` doesn't outrank. A wildcard on its own never counts as asking, so `*/*` and `text/*` keep HTML.
+3. `Accept` refusing `text/html` outright while a wildcard permits markdown, as in `text/html;q=0, */*`. The client ruled out the only other representation there is, so HTML would hand it the one thing it said it couldn't read. Narrow by construction: a browser and a `fetch()` both rate HTML through their own wildcard, so neither ever lands here.
+4. A known agent User-Agent, matched by substring against the shared list.
 
 Exclusions never negotiate: `/_`, `/api/`, `/mcp`, `/.well-known/`, the raw prefix itself, and any path whose last segment is dotted (assets, `_payload.json`, images).
 
@@ -420,6 +421,8 @@ Then, per route pattern, two negotiated routes: a `has` matcher on `Accept: text
 The explicit `.md` twin stays a rewrite either way: that URL only ever serves markdown, so it has no second variant to worry about.
 
 The `Accept` route also carries a `missing` matcher for `text/markdown;q=0`, so a client that explicitly refuses markdown gets HTML from the edge like it does from the origin. Full q-value precedence is not expressible in a matcher: Vercel runs RE2, which has no lookahead, so `Accept: text/markdown;q=0.1, text/html;q=0.9` is a known divergence. The Nitro middleware ranks those per RFC 9110 and returns HTML, while the edge rewrite still sends markdown. Only the outright refusal (`q=0`) is covered.
+
+`Accept: text/html;q=0, */*` is the same kind of divergence the other way. The matcher looks for a literal `text/markdown` range and there isn't one, so the edge serves HTML while the origin serves markdown. Expressing it would take a second route pair per pattern to test the refusal and the wildcard separately, which is a real cost to the table for a header almost nothing sends.
 
 The table stays O(route patterns): one set of routes per configured pattern, not one per page, however many pages the site has.
 

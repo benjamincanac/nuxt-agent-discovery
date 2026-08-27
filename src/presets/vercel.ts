@@ -59,13 +59,19 @@ const TOKEN = String.raw`[a-z0-9!#$%&'*+.^_|~-]+`
  * inside a parameter value, so `Accept: application/json;profile="text/html"`
  * read as offering HTML when the only range in it is JSON.
  *
+ * The list separator has to be a real one too. `(.*,)?` treated the comma in
+ * `profile="x,text/html;q=0"` as the end of a range, which put the quoted
+ * fragment at the head of the next one and read it as an offer. Only quotes
+ * closed before the comma count, so a separator inside a quoted value cannot
+ * split the header.
+ *
  * Still not the q-value ranking the runtime does, because a matcher is a plain
  * regex over the raw header. A representation offered and then refused with
  * `q=0` reads as offered here, so the edge serves the page where the origin
  * answers 406. That is the fail-safe direction, and the one this route wants
  * above all others.
  */
-const ACCEPTS_A_REPRESENTATION = String.raw`(.*,)?\s*(text/(html|markdown|\*)|\*/\*)\s*([;,].*)?`
+const ACCEPTS_A_REPRESENTATION = String.raw`(([^"]|"[^"]*")*,)?\s*(text/(html|markdown|\*)|\*/\*)\s*([;,].*)?`
 
 /**
  * An `Accept` carrying at least one media range, however unacceptable.
