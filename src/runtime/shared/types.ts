@@ -172,6 +172,12 @@ export interface NegotiationConfig {
   /** Path prefixes that never negotiate and keep their JSON/HTML errors. */
   excludePrefixes: string[]
   links: DiscoveryLink[]
+  /**
+   * Whether the discovery `Link` header is emitted on `/`. Carried here rather
+   * than read off the module options, because the deploy presets emit that
+   * header themselves and only ever see this config.
+   */
+  linkHeader: boolean
   /** How `sitemap.md` groups pages into sections. */
   sitemapSections: SitemapSections
   /**

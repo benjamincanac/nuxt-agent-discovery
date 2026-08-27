@@ -1,7 +1,7 @@
 import { appendResponseHeader, createError, defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader, setResponseStatus } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { matchRoute, negotiatedRawPath, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
+import { isNegotiablePath, negotiatedRawPath, normalizePathname, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves markdown through content negotiation on the Nitro server.
@@ -34,6 +34,16 @@ export default defineEventHandler(async (event) => {
   })
 
   if (!rawPath) {
+    // The HTML half of a page that has both representations. Its markdown half
+    // is labelled further down, and a shared cache that stored this one without
+    // `Vary` would replay the HTML to an agent asking for markdown.
+    //
+    // Set here rather than through a `routeRules` header: a route rule cannot
+    // express a negative pattern, so a catch-all pattern labelled every asset,
+    // every discovery document and the whole API surface as varying.
+    if (isNegotiablePath(config, event.path)) {
+      setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+    }
     return
   }
 
@@ -49,8 +59,8 @@ export default defineEventHandler(async (event) => {
   // and passes the incoming query on to the destination, so both paths land on
   // the same URL for a page whose content is its query.
   const pathname = normalizePathname(event.path)
-  if (!import.meta.dev && !pathname.endsWith('.md') && config.cachedRoutes.length
-    && matchRoute(config.cachedRoutes.map(path => ({ path })), pathname)) {
+  if (!import.meta.dev && !pathname.endsWith('.md')
+    && config.cachedRoutes.some(rule => ruleMatchesPath(rule, pathname))) {
     const query = event.path.slice(event.path.indexOf('?') + 1)
     setResponseHeader(event, 'Vary', MARKDOWN_VARY)
     return sendRedirect(event, event.path.includes('?') ? `${rawPath}?${query}` : rawPath, 307)
@@ -85,7 +95,12 @@ export default defineEventHandler(async (event) => {
 
   setResponseStatus(event, response.status)
   setResponseHeader(event, 'Content-Type', response.headers.get('content-type') || 'text/markdown; charset=utf-8')
-  setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+  // The markdown half of a page that also has an HTML one. An explicit `.md`
+  // URL reaches here too and is not labelled: it serves markdown to every
+  // client, so nothing about it depends on the request headers.
+  if (isNegotiablePath(config, event.path)) {
+    setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+  }
 
   for (const name of ['cache-control', 'x-content-type-options', 'x-frame-options', 'referrer-policy']) {
     const value = response.headers.get(name)

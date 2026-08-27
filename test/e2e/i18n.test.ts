@@ -107,6 +107,7 @@ describe('O(1) route table', () => {
     userAgents: AGENT_USER_AGENTS,
     excludePrefixes: EXCLUDE_PREFIXES,
     links: [{ href: '/llms.txt', rel: 'describedby', type: 'text/plain', title: 'llms.txt' }],
+    linkHeader: true,
     cachedRoutes: [],
     sitemapSections: { expand: [], labels: {} }
   }

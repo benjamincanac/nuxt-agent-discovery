@@ -1,7 +1,7 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Nitro } from 'nitropack'
-import { compilePattern, formatLinkHeader, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { compilePattern, formatLinkHeader, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
 export interface VercelRoute {
@@ -118,25 +118,22 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
 
   const routes: VercelRoute[] = []
 
-  // Tell CDNs the response depends on `Accept` / `User-Agent`, then keep routing.
-  const varySources = config.routes.flatMap((route) => {
-    const body = compilePattern(route.path).source.slice(1, -1)
-    const sources = [body]
-    // Exact patterns also cover their `.md` twin; wildcards already do.
-    if (!route.path.includes('*') && route.path !== '/') {
-      sources.push(`${escapeRegExp(route.path)}\\.md`)
-    }
-    return sources
-  })
+  // Tell CDNs the response depends on `Accept` / `User-Agent`, then keep
+  // routing. The dotted-segment lookahead is what keeps this off the documents
+  // that have a single representation: without it this route labelled
+  // `/llms.txt`, `/robots.txt`, `/sitemap.xml` and every file in `public/`,
+  // which fragments a shared cache per user-agent for nothing. `.md` twins are
+  // excluded by the same rule, and want to be: that URL only serves markdown.
+  const varySources = config.routes.map(route => compilePattern(route.path).source.slice(1, -1))
   routes.push({
-    src: `^${excluded}(?:${varySources.join('|')})$`,
+    src: `^${NO_DOTTED_LAST_SEGMENT}${excluded}(?:${varySources.join('|')})$`,
     headers: { Vary: MARKDOWN_VARY },
     continue: true
   })
 
   // The `/` routeRule carries the same `Link` header, but a homepage request
   // rewritten below to a prerendered raw markdown file never reaches it.
-  const linkHeader = formatLinkHeader(config.links)
+  const linkHeader = config.linkHeader ? formatLinkHeader(config.links) : ''
   if (linkHeader) {
     routes.push({
       src: '^/$',
@@ -145,22 +142,30 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     })
   }
 
+  // Whether a rule covers a whole pattern, so the pattern itself is demoted to
+  // a redirect. Comparing static-prefix lengths instead used to tie `/` with
+  // `/**`, so a single cached homepage demoted every page on the site.
+  const patternCached = (pattern: string) => config.cachedRoutes.some(rule => ruleCoversPattern(rule, pattern))
+
   // A cached rule narrower than the pattern covering it, `routeRules['/docs/**']`
   // under the default `/**`, gets its own 307 pair ahead of that pattern's
   // rewrite. Marking the whole pattern cached instead would demote every page on
   // the site to a redirect because one section happens to be cached.
   for (const rule of config.cachedRoutes) {
-    const covered = config.routes.filter(route => patternsOverlap(rule, route.path))
-    if (!covered.length || !covered.every(route => staticPrefix(rule).length > staticPrefix(route.path).length)) {
-      continue
-    }
-
     // An exact rule is only negotiable through the route it matches. Without
     // one there is no twin to send the client to, and inventing a
     // `rawPrefix + rule + '.md'` destination 307s to a URL that 404s.
     const wildcard = rule.includes('*')
     const matched = wildcard ? undefined : matchRoute(config.routes, rule)
-    if (!wildcard && !matched) {
+
+    // This loop handles what a rule caches *beyond* the patterns it fully
+    // covers; those are demoted wholesale below. Skipping a rule with nothing
+    // left over is what keeps a path from collecting two redirects.
+    if (wildcard) {
+      if (!config.routes.some(route => patternsOverlap(rule, route.path) && !patternCached(route.path))) {
+        continue
+      }
+    } else if (!matched || patternCached(matched.path)) {
       continue
     }
 
@@ -182,7 +187,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     // handled above, so this pattern keeps its rewrite for everything outside
     // it. The `.md` twins stay rewrites either way: that URL only ever serves
     // markdown, so there is no second variant to poison.
-    const cached = config.cachedRoutes.some(rule => patternsOverlap(rule, route.path) && staticPrefix(rule).length <= staticPrefix(route.path).length)
+    const cached = patternCached(route.path)
 
     if (route.path.includes('*')) {
       const body = compilePattern(route.path).source.slice(1, -1)

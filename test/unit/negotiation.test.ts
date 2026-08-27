@@ -31,6 +31,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
     userAgents: ['ClaudeBot', 'GPTBot', 'curl/8.4'],
     excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/'],
     links: [],
+    linkHeader: true,
     cachedRoutes: [],
     sitemapSections: { expand: [], labels: {} },
     ...overrides

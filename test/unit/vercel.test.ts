@@ -16,6 +16,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
     userAgents: ['ClaudeBot', 'GPTBot', 'curl/8.4'],
     excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/'],
     links: [],
+    linkHeader: true,
     cachedRoutes: [],
     sitemapSections: { expand: [], labels: {} },
     ...overrides
@@ -62,10 +63,19 @@ describe('vercelMarkdownRoutes: Vary', () => {
     expect(matches(vary!, '/blog/x')).toBe(false)
   })
 
-  it('covers the .md twin of an exact pattern', () => {
+  // `Vary` belongs on a URL with two representations and nowhere else. A `.md`
+  // twin only ever serves markdown, and a shared cache keyed per user-agent on
+  // the documents agents fetch most is close to no caching at all.
+  it('leaves the single-representation documents alone', () => {
     const [exact] = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/changelog' }] }))
     expect(matches(exact!, '/changelog')).toBe(true)
-    expect(matches(exact!, '/changelog.md')).toBe(true)
+    expect(matches(exact!, '/changelog.md')).toBe(false)
+
+    expect(matches(vary!, '/llms.txt')).toBe(false)
+    expect(matches(vary!, '/robots.txt')).toBe(false)
+    expect(matches(vary!, '/sitemap.xml')).toBe(false)
+    expect(matches(vary!, '/logo.png')).toBe(false)
+    expect(matches(vary!, '/docs/foo.md')).toBe(false)
   })
 })
 
@@ -217,6 +227,53 @@ describe('vercelMarkdownRoutes: cached routes', () => {
   it('still labels cached pages with `Vary` through the leading continue route', () => {
     expect(routes[0]?.continue).toBe(true)
     expect(matches(routes[0]!, '/docs/foo')).toBe(true)
+  })
+
+  // A rule only demotes a pattern it covers *entirely*. Comparing static-prefix
+  // lengths instead tied `/` with `/**`, so one cached page took the whole site
+  // down to redirects with it.
+  it('does not let a cached `/` demote every other pattern', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/']
+    }))
+
+    const home = site.filter(route => route.headers?.Location === '/raw/index.md')
+    expect(home).toHaveLength(2)
+    expect(home.every(route => route.status === 307)).toBe(true)
+
+    const rest = site.filter(route => route.dest === '/raw/$1.md' && route.has)
+    expect(rest).toHaveLength(2)
+    expect(rest.every(route => route.check && !route.status)).toBe(true)
+  })
+
+  // radix3 reads `**` as zero or more segments, so `/docs/**` caches `/docs`
+  // itself. Reading the rule with `compilePattern`, one or more, left the
+  // section root rewriting onto a cache that really exists.
+  it('treats a section root as cached by its own `**` rule', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/docs' }],
+      cachedRoutes: ['/docs/**']
+    }))
+
+    const docs = site.filter(route => route.headers?.Location === '/raw/docs.md')
+    expect(docs).toHaveLength(2)
+    expect(docs.every(route => route.status === 307)).toBe(true)
+    expect(site.some(route => route.dest === '/raw/docs.md' && route.has)).toBe(false)
+  })
+
+  it('emits one redirect per path, never two', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/docs/**' }],
+      cachedRoutes: ['/docs/**', '/docs/api/**']
+    }))
+
+    for (const path of ['/', '/docs/guide', '/docs/api/x']) {
+      const hit = site.filter(route => route.status === 307 && matches(route, path))
+      expect(hit.length).toBeLessThanOrEqual(2)
+      const targets = new Set(hit.map(route => path.replace(new RegExp(route.src), route.headers!.Location!)))
+      expect(targets.size).toBeLessThanOrEqual(1)
+    }
   })
 
   it('matches a route rule by static prefix, whatever the wildcards are', () => {

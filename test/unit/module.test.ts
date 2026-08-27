@@ -159,6 +159,36 @@ describe('module setup: cached routes', () => {
     '/tools/**': { isr: 3600 }
   }
 
+  // Which route-rule shapes Nitro actually turns into a response cache. Pinned
+  // because it is otherwise folklore about `deprecateSWR` and
+  // `normalizeRouteRules`, and because guessing wrong in either direction is a
+  // bug: a missed cache gets a rewrite that poisons it, a false positive costs
+  // a redirect where a rewrite would have done.
+  it('reads a route rule the way Nitro reads it', async () => {
+    const cached = async (rule: Record<string, unknown>) => {
+      const config = await setupModule({ routes: ['/docs/**'] }, { '/docs/**': rule })
+      return config.cachedRoutes.includes('/docs/**')
+    }
+
+    expect(await cached({ isr: 3600 })).toBe(true)
+    expect(await cached({ isr: true })).toBe(true)
+    expect(await cached({ swr: 60 })).toBe(true)
+    expect(await cached({ cache: { maxAge: 60 } })).toBe(true)
+    // `deprecateSWR` turns `static` into `isr: !static`, so this really is ISR.
+    expect(await cached({ static: false })).toBe(true)
+
+    expect(await cached({ isr: false })).toBe(false)
+    expect(await cached({ swr: false })).toBe(false)
+    expect(await cached({ static: true })).toBe(false)
+    expect(await cached({ prerender: true })).toBe(false)
+    // An opt-out, which `'cache' in rule` used to read as a cache.
+    expect(await cached({ cache: false })).toBe(false)
+    // The Vercel builder skips a falsy `isr` outright, and `normalizeRouteRules`
+    // only configures a cache for a truthy `swr`, so neither is one.
+    expect(await cached({ isr: 0 })).toBe(false)
+    expect(await cached({ swr: 0 })).toBe(false)
+  })
+
   it('only lists a rule the routes actually negotiate', async () => {
     const config = await setupModule({ routes }, routeRules)
 

@@ -214,6 +214,7 @@ export default defineNuxtModule<ModuleOptions>({
       userAgents,
       excludePrefixes,
       links: [],
+      linkHeader: options.discovery?.link !== false,
       cachedRoutes: [],
       sitemapSections: {
         expand: (typeof options.sitemap?.markdown === 'object' && options.sitemap.markdown.expand) || [],
@@ -608,24 +609,34 @@ export {}
 
       /* ----------------------------- route rules ---------------------------- */
 
-      const headerRules: Record<string, { headers: Record<string, string> }> = {}
-      for (const route of routes) {
-        headerRules[route.path] = { headers: { Vary: MARKDOWN_VARY } }
-        if (!route.path.includes('*') && route.path !== '/') {
-          headerRules[`${route.path}.md`] = { headers: { Vary: MARKDOWN_VARY } }
-        }
+      // Only the `Link` header, and only on `/`. `Vary` used to be written here
+      // too, once per configured pattern, which under the default `/**` became
+      // a `routeRules` entry matching every path on the site: assets, the API,
+      // `/llms.txt`, `/robots.txt`. A route rule cannot express an exclusion,
+      // so the header now comes from the negotiation middleware, which already
+      // knows exactly which paths have two representations.
+      if (config.linkHeader && config.links.length) {
+        nuxt.options.routeRules = defu(nuxt.options.routeRules, {
+          '/': { headers: { Vary: MARKDOWN_VARY, Link: formatLinkHeader(config.links) } }
+        })
       }
-      headerRules[`${rawPrefix}/**`] = { headers: { Vary: MARKDOWN_VARY } }
-      if (options.discovery?.link !== false && config.links.length) {
-        headerRules['/'] = { headers: { Vary: MARKDOWN_VARY, Link: formatLinkHeader(config.links) } }
-      }
-      nuxt.options.routeRules = defu(nuxt.options.routeRules, headerRules)
 
       // A cached response cannot vary on Accept/User-Agent, so request-time
       // negotiation is disabled there. The CDN rewrites still cover those
       // pages because they run before the cache.
       for (const [key, rule] of Object.entries(nuxt.options.routeRules || {})) {
-        if (!rule || !(rule.isr || rule.swr || 'cache' in rule)) {
+        // Every shape Nitro turns into a response cache, read the way Nitro
+        // reads it. `isr: 0` and `swr: 0` are not one: the Vercel builder skips
+        // a falsy `isr` outright and `normalizeRouteRules` only configures a
+        // cache for a truthy `swr`, so no cached asset is ever written. A bare
+        // `'cache' in rule` counted `cache: false`, an opt-out, as a cache.
+        // `static` is the legacy Vercel spelling that `deprecateSWR` turns into
+        // `isr: !static`, so `static: false` is a real ISR route no other key
+        // here names; it is inert under `future.nativeSWR`, which errs towards
+        // a redirect and is the safe direction.
+        const cached = rule && (rule.isr || rule.swr || rule.cache
+          || ('static' in rule && !(rule as { static?: boolean | number }).static))
+        if (!cached) {
           continue
         }
         // Excluded prefixes never negotiate, so their caches are safe.

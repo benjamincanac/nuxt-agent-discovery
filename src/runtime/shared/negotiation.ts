@@ -121,6 +121,52 @@ export function patternsOverlap(a: string, b: string): boolean {
 }
 
 /**
+ * Whether a `routeRules` key covers a path, read the way Nitro reads it rather
+ * than the way this module's own patterns are read.
+ *
+ * Route rules are matched by radix3, where `**` stands for zero or more
+ * segments: `/docs/**` applies to `/docs` itself, and `/**` applies to `/`.
+ * `compilePattern` compiles `**` to `(.+)`, one or more, which is what a page
+ * pattern needs (the capture feeds `/raw/$1.md`) and not what a cache rule
+ * means. Reading a rule with the pattern matcher silently leaves the section
+ * root uncached, which is where a rewrite poisons a cache that really exists.
+ */
+export function ruleMatchesPath(rule: string, pathname: string): boolean {
+  if (rule.endsWith('**')) {
+    return isUnder(pathname, trimSlash(staticPrefix(rule)))
+  }
+  return patternRegExp(rule).test(pathname)
+}
+
+/**
+ * Whether a cached rule covers *every* path a negotiated pattern matches, the
+ * only condition under which the whole pattern may be demoted from a rewrite
+ * to a 307. Anything narrower gets its own pair of routes emitted ahead of the
+ * pattern instead.
+ *
+ * Errs towards `false`, the opposite bias to `patternsOverlap`: a pattern
+ * wrongly left uncovered still gets that rule's own 307, while a pattern
+ * wrongly covered turns every page under it into a redirect.
+ *
+ * A rule carrying a wildcard before its last segment, a locale prefix say,
+ * reports `true` for anything under its static prefix, because `staticPrefix`
+ * cuts at the first wildcard. That is the fail-safe direction and matches what
+ * the preset did before, so it is left alone deliberately.
+ */
+export function ruleCoversPattern(rule: string, pattern: string): boolean {
+  if (rule === pattern) {
+    return true
+  }
+  // A `**` rule owns its whole subtree, so it covers any pattern rooted in it.
+  if (rule.endsWith('**')) {
+    return isUnder(trimSlash(staticPrefix(pattern)), trimSlash(staticPrefix(rule)))
+  }
+  // Anything else matches a bounded set of paths, so it can only cover a
+  // pattern that is itself a single path the rule matches.
+  return !pattern.includes('*') && ruleMatchesPath(rule, pattern)
+}
+
+/**
  * The raw markdown destination for a matched page. `raw` is only honoured on
  * exact patterns; wildcard patterns always map to `rawPrefix + path + '.md'`.
  */
@@ -240,7 +286,9 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
   }
 
   // An explicit `.md` twin URL is a markdown request, whatever the headers
-  // say. A bare `/.md` is not a twin, matching the CDN rewrites.
+  // say. A bare `/.md` is not a twin, matching the CDN rewrites. Handled here
+  // rather than through `negotiableRoute`, whose dotted-segment rule would
+  // read the suffix as an asset.
   if (pathname.endsWith('.md')) {
     const base = pathname.slice(0, -3)
     if (base.length <= 1) {
@@ -254,17 +302,40 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
     return undefined
   }
 
-  const route = matchRoute(config.routes, pathname)
-  if (!route) {
+  const route = negotiableRoute(config, pathname)
+  return route ? rawDestination(config, route, pathname) : undefined
+}
+
+/**
+ * The route a path negotiates through, whatever the client asked for.
+ * `undefined` when the URL has a single representation: the raw prefix itself,
+ * an excluded prefix, a dotted asset (`_payload.json`, images), or a path no
+ * configured pattern covers.
+ */
+function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRoute | undefined {
+  if (pathname === config.rawPrefix || pathname.startsWith(`${config.rawPrefix}/`)) {
     return undefined
   }
-
-  // Any other dotted path is an asset (`_payload.json`, images), not a page.
+  if (isExcluded(pathname, config)) {
+    return undefined
+  }
   if (hasFileExtension(pathname)) {
     return undefined
   }
+  return matchRoute(config.routes, pathname)
+}
 
-  return rawDestination(config, route, pathname)
+/**
+ * Whether a URL has both an HTML and a markdown representation, so its
+ * response genuinely depends on `Accept` and `User-Agent`.
+ *
+ * This is what `Vary` is set from. Deriving it here rather than from a route
+ * rule glob is the only way to exclude the API surface and the assets: a
+ * `routeRules` key cannot express a negative pattern, so a catch-all pattern
+ * would label every response on the site.
+ */
+export function isNegotiablePath(config: NegotiationConfig, path: string): boolean {
+  return Boolean(negotiableRoute(config, normalizePathname(path)))
 }
 
 /**
