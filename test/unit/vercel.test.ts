@@ -195,6 +195,17 @@ describe('vercelMarkdownRoutes: 406', () => {
     expect(offers('application/json;profile="x", text/html')).toBe(true)
   })
 
+  // A comma inside a quoted value is not a list separator, so the fragment
+  // after it is not the head of a new media range. Reading it as one put the
+  // quoted `text/html` at the front of an entry and skipped the refusal.
+  it('does not split the header on a comma inside a quoted value', () => {
+    const offers = accepts(refusal)
+    expect(offers('application/json;profile="x,text/html;q=0"')).toBe(false)
+    expect(offers('application/json;profile="a,text/markdown"')).toBe(false)
+    // A separator outside the quotes still separates.
+    expect(offers('application/json;profile="a,b", text/html')).toBe(true)
+  })
+
   // A matcher is a plain regex over the raw header, so a representation
   // offered and then refused at `q=0` still reads as offered. The edge serves
   // the page where the origin answers 406, which is the fail-safe direction.

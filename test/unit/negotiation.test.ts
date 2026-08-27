@@ -144,6 +144,24 @@ describe('acceptsMarkdown', () => {
     expect(acceptsMarkdown('text/*;q=1, text/html;q=0.1')).toBe(false)
   })
 
+  // A client that refused html and left a wildcard open ruled out the only
+  // other representation there is, so html would hand it the one thing it said
+  // it could not read, and the page is not unacceptable either since markdown
+  // rates through that wildcard.
+  it('counts a wildcard once html is refused outright', () => {
+    expect(acceptsMarkdown('text/html;q=0, */*;q=1')).toBe(true)
+    expect(acceptsMarkdown('text/html;q=0, text/*')).toBe(true)
+  })
+
+  it('leaves every client that rates html through its wildcard alone', () => {
+    expect(acceptsMarkdown('text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')).toBe(false)
+    expect(acceptsMarkdown('*/*;q=0.8')).toBe(false)
+    // Nothing left to fall back on: refusing html without a wildcard is not a
+    // markdown request, it is a request for something the page does not have.
+    expect(acceptsMarkdown('text/html;q=0')).toBe(false)
+    expect(acceptsMarkdown('application/xml')).toBe(false)
+  })
+
   it('is case-insensitive on media types', () => {
     expect(acceptsMarkdown('TEXT/MARKDOWN')).toBe(true)
     expect(acceptsMarkdown('Text/Markdown;Q=0')).toBe(false)
@@ -165,6 +183,10 @@ describe('negotiatedRawPath: headers', () => {
 
   it('does not serve markdown for q=0', () => {
     expect(negotiatedRawPath(config, '/docs/foo', { accept: 'text/markdown;q=0' })).toBeUndefined()
+  })
+
+  it('serves markdown when html is refused and a wildcard permits it', () => {
+    expect(negotiatedRawPath(config, '/docs/foo', { accept: 'text/html;q=0, */*;q=1' })).toBe('/raw/docs/foo.md')
   })
 
   it('does not serve markdown when html outranks it', () => {
@@ -362,6 +384,13 @@ describe('notAcceptable', () => {
     // One of the two still acceptable is a page, not an error.
     expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/markdown;q=0, text/html' })).toBe(false)
     expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml, text/markdown;q=0.1' })).toBe(false)
+  })
+
+  // Markdown rates through the wildcard, so there is nothing to refuse. The
+  // page is served as markdown instead, see `acceptsMarkdown`.
+  it('does not refuse a request one representation still satisfies', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html;q=0, */*;q=1' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html;q=0, text/*' })).toBe(false)
   })
 
   it('leaves browsers and `fetch()` alone', () => {
