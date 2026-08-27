@@ -1,6 +1,6 @@
 import type { H3Event } from 'h3'
 import source from '#agent-discovery/source'
-import { getAgentSiteUrl, rawUrl } from './agent-discovery'
+import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from './agent-discovery'
 
 /** One page in a listing, with both URLs an agent might want. */
 export interface AgentPageListing {
@@ -49,10 +49,16 @@ export async function listAgentPages(event: H3Event, options: AgentPageListOptio
     ? (await source.list(event)) || []
     : (await source.routes(event)).map(route => ({ route, title: undefined, description: undefined, section: undefined }))
 
+  const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
   const terms = options.search?.toLowerCase().split(/\s+/).filter(Boolean) || []
 
   return entries
+    // A path the module refuses to negotiate is not a page as far as the rest
+    // of the module is concerned, so listing it in `sitemap.md` or handing it
+    // to an MCP tool would advertise a markdown twin that does not exist. This
+    // is also how a site keeps a legacy docs version out of both.
+    .filter(entry => !config.excludePrefixes.some(prefix => entry.route.startsWith(prefix)))
     .filter(entry => !options.prefix || entry.route.startsWith(options.prefix))
     .filter((entry) => {
       if (!terms.length) {

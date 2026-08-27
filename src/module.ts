@@ -190,11 +190,24 @@ export default defineNuxtModule<ModuleOptions>({
     const runtimeConfig = nuxt.options.runtimeConfig as unknown as AgentDiscoveryRuntimeConfig & { public: AgentDiscoveryPublicRuntimeConfig }
 
     const rawPrefix = withoutTrailingSlash(withLeadingSlash(options.rawPrefix || '/raw'))
+    // Normalized, not validated: a pattern without a leading slash can never
+    // match a pathname, and silently emitted a prerender entry of
+    // `/rawabout.md`. The intent is unambiguous, so there is nothing to warn
+    // about.
     const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
       .map(route => typeof route === 'string' ? { path: route } : route)
+      .map(route => ({ ...route, path: withLeadingSlash(route.path) }))
     // Copied, not aliased. `agent-discovery:extend` lets a site push onto this
     // list, and a `replace` array comes straight from the site's config, which
     // in a monorepo can be one const imported by two apps.
+    // `replace` wins, and saying both is the one case here where the intent is
+    // genuinely unclear, so it is the one worth a warning.
+    for (const [name, option] of [['userAgents', options.userAgents], ['excludePrefixes', options.excludePrefixes]] as const) {
+      if (option?.replace && option.extend?.length) {
+        logger.warn(`\`${name}\` has both \`replace\` and \`extend\`; \`replace\` wins and the extended entries are dropped.`)
+      }
+    }
+
     const userAgents = options.userAgents?.replace
       ? [...options.userAgents.replace]
       : [...AGENT_USER_AGENTS, ...(options.userAgents?.extend || [])]
@@ -373,6 +386,11 @@ declare module 'nitropack/types' {
     'agent-discovery:index': (event: H3Event, index: AgentIndex) => void | Promise<void>
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
+    /**
+     * Adds to \`sitemap.md\` before it is rendered, for the pages a content
+     * adapter cannot know about. Keyed by section, in the order they appear.
+     */
+    'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
 }
 
@@ -583,7 +601,11 @@ export {}
       /* ------------------------------ registry ----------------------------- */
 
       const links: DiscoveryLink[] = []
-      if (options.discovery?.sitemapXml) {
+      // Advertised only when something serves it. This module does not generate
+      // `sitemap.xml`, so keying on the option alone meant a zero-config site
+      // pointed agents, the api-catalog and `robots.txt` at a 404. A site that
+      // serves its own can register it through `discovery.links`.
+      if (options.discovery?.sitemapXml !== false && hasNuxtModule('@nuxtjs/sitemap')) {
         links.push({ href: '/sitemap.xml', rel: 'sitemap', type: 'application/xml', title: 'Sitemap (XML)' })
       }
       if (sourcePath && options.sitemap?.markdown) {
@@ -636,7 +658,11 @@ export {}
           throw new Error(`[nuxt-agent-discovery] \`rel="${link.rel}"\` (${link.href}) is not an IANA-registered link relation. Use a registered rel or an absolute URI extension relation.`)
         }
       }
-      config.links.push(...links)
+      // Layer configs concatenate, so a layer and the app both declaring
+      // `/llms.txt` would double it in the `Link` header, the api-catalog and
+      // every error body. First one wins, which keeps the layer's ordering.
+      const seen = new Set<string>()
+      config.links.push(...links.filter(link => !seen.has(`${link.rel} ${link.href}`) && seen.add(`${link.rel} ${link.href}`)))
 
       // `/sitemap.md` is not a page twin: without this a catch-all route
       // pattern rewrites it to `${rawPrefix}/sitemap.md` at the edge and in the

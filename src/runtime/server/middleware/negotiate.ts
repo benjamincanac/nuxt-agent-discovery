@@ -76,7 +76,14 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const response = await useNitroApp().localFetch(rawPath, { headers })
+  // The query rides along: the CDN re-attaches it to a rewrite destination for
+  // free, and the redirect branch above does it by hand, so a source whose
+  // pages depend on the query has to see it here too.
+  const queryIndex = event.path.indexOf('?')
+  const response = await useNitroApp().localFetch(
+    queryIndex === -1 ? rawPath : `${rawPath}${event.path.slice(queryIndex)}`,
+    { headers }
+  )
 
   // The inner request has already handled and logged the original failure
   // against the raw path; rethrowing reports the status on the path the

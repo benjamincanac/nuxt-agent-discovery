@@ -43,8 +43,12 @@ export default defineEventHandler(async (event) => {
   const siteUrl = getAgentSiteUrl(event)
   const absolute = (href: string) => href.startsWith('/') ? `${siteUrl}${href}` : href
 
+  // No `$schema`: the URL this used to carry 404s, and so does the one the
+  // draft that would define it (SEP-2127) proposes, because that draft is
+  // unmerged. The released MCP spec has no server card, so the shape below is
+  // pre-standard by nature and advertising a schema it cannot be checked
+  // against is worse than advertising none.
   const serverCard: Record<string, unknown> = {
-    $schema: 'https://modelcontextprotocol.io/schema/server-card/v1',
     serverInfo: {
       name: card.name,
       ...(card.version ? { version: card.version } : {}),
@@ -74,7 +78,9 @@ export default defineEventHandler(async (event) => {
     }
     // Groups come from the subdirectory a definition sits in, which is how a
     // site separates its admin tools from the ones anybody may call.
-    const excluded = new Set(card.excludeGroups ?? ['admin'])
+    // Extends the default rather than replacing it: a site naming its own
+    // private group should not silently start publishing its admin tools.
+    const excluded = new Set(['admin', ...(card.excludeGroups ?? [])])
     const isPublic = (definition: McpDefinition) => !definition.group || !excluded.has(definition.group)
 
     serverCard.capabilities = {

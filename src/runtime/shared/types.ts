@@ -22,6 +22,11 @@ declare module 'nitropack/types' {
     'agent-discovery:index': (event: H3Event, index: AgentIndex) => void | Promise<void>
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
+    /**
+     * Adds to `sitemap.md` before it is rendered. The map is keyed by section,
+     * in the order the sections appear.
+     */
+    'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
 }
 

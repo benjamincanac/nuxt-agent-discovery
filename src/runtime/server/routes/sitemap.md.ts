@@ -1,4 +1,5 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
+import { useNitroApp } from 'nitropack/runtime'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { listAgentPages } from '../utils/pages'
 
@@ -44,6 +45,11 @@ export default defineEventHandler(async (event) => {
     }
     sections.get(key)!.push({ title: entry.title || entry.route, href })
   }
+
+  // The content adapter only knows the pages it holds. A site with hand-written
+  // routes, a Vue-rendered showcase or a design document has no other way to
+  // put them in the index an agent reads first.
+  await useNitroApp().hooks.callHook('agent-discovery:sitemap', event, sections)
 
   const siteName = config.siteName || new URL(siteUrl).hostname
   const lines: string[] = [
