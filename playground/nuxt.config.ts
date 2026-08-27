@@ -11,7 +11,6 @@ export default defineNuxtConfig({
       nativeSqlite: true
     }
   },
-  compatibilityDate: '2026-01-01',
   // `/docs/**` is cached, the rest of the site is not. That split is the point:
   // a cached pattern has to 307 to its raw twin, because a response cache keys
   // on the path alone and would otherwise serve one visitor's markdown to the
@@ -19,6 +18,7 @@ export default defineNuxtConfig({
   routeRules: {
     '/docs/**': { isr: 60 }
   },
+  compatibilityDate: '2026-01-01',
   nitro: {
     output: {
       // Vercel reads the build output from the repository root, not from the playground.
