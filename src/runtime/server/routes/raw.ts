@@ -1,8 +1,8 @@
 import { createError, defineEventHandler, sendRedirect, setResponseHeader } from 'h3'
 import source from '#agent-discovery/source'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { getAgentDocument, normalizeAgentRoute } from '../utils/document'
-import { normalizePathname } from '../../shared/negotiation'
+import { getAgentDocument } from '../utils/document'
+import { normalizeAgentRoute, normalizePathname } from '../../shared/negotiation'
 
 /**
  * Serves the raw markdown representation of a page from the content adapter.

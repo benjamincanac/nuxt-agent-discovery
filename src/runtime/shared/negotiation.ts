@@ -22,6 +22,31 @@ export function normalizePathname(path: string): string {
   return pathname || '/'
 }
 
+/**
+ * A raw route slug as the content backends spell it: decoded, without a
+ * trailing slash, and with `/index` folded into the directory it indexes.
+ *
+ * The URL arrives percent-encoded while every backend stores decoded paths, so
+ * without this `/docs/caf%C3%A9` has no markdown twin at all while its HTML
+ * page renders. A malformed escape is left as it came: it matches nothing
+ * either way, and throwing would turn a 404 into a 500.
+ */
+export function normalizeAgentRoute(route: string): string {
+  let path = route
+  try {
+    path = decodeURIComponent(path)
+  } catch {
+    // Not a valid escape sequence, so there is nothing to decode.
+  }
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.slice(0, -1)
+  }
+  if (path.endsWith('/index')) {
+    path = path.slice(0, -6) || '/'
+  }
+  return path === '/index' || path === '' ? '/' : path
+}
+
 /** Whether the last path segment is dotted: an asset, not a page. */
 export function hasFileExtension(pathname: string): boolean {
   const segment = pathname.slice(pathname.lastIndexOf('/') + 1)
@@ -40,6 +65,12 @@ const REGEX_SPECIALS = /[.+?^${}()|[\]\\]/
 /**
  * Compiles a route pattern to a regex source with one capture group per
  * wildcard: `*` matches one segment, `**` one or more.
+ *
+ * A trailing slash is matched but never captured. The runtime strips it in
+ * `normalizePathname` before matching, but the CDN tests this pattern against
+ * the raw request path, and a captured slash lands in the rewrite destination:
+ * `/docs/x/` becoming `/raw/docs/x/.md`, which 404s. The `**` capture is lazy
+ * so it yields the slash to that optional suffix rather than swallowing it.
  */
 export function compilePattern(pattern: string): { source: string, captures: number } {
   let source = ''
@@ -48,7 +79,7 @@ export function compilePattern(pattern: string): { source: string, captures: num
     const char = pattern[i]!
     if (char === '*') {
       if (pattern[i + 1] === '*') {
-        source += '(.+)'
+        source += '(.+?)'
         i++
       } else {
         source += '([^/]+)'
@@ -58,7 +89,7 @@ export function compilePattern(pattern: string): { source: string, captures: num
       source += REGEX_SPECIALS.test(char) ? `\\${char}` : char
     }
   }
-  return { source: `^${source}$`, captures }
+  return { source: `^${source}/?$`, captures }
 }
 
 const patternCache = new Map<string, RegExp>()
@@ -547,8 +578,11 @@ export function errorMarkdown(config: NegotiationConfig, options: { path: string
   const siteUrl = options.siteUrl.replace(/\/$/, '')
   // The pathname is attacker-chosen and lands in a code span of a document
   // written for agents, so drop anything that could close the span or smuggle
-  // markdown in.
-  const pathname = normalizePathname(options.path).replace(/[`\\]/g, '')
+  // markdown in. Newlines most of all: h3 has already decoded `%0A`, so without
+  // this a crafted path ends the paragraph and everything after it renders as
+  // first-class markdown, links included, in a document an agent will act on.
+  // Capped too, so a long path cannot bury the rest of the body.
+  const pathname = normalizePathname(options.path).replace(/[`\\\r\n]+/g, '').slice(0, 200)
   // Server errors never surface their message. Client errors use the status
   // message when there is one, stripped of anything that could break the
   // heading or the frontmatter line.

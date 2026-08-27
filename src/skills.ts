@@ -71,6 +71,13 @@ async function listFiles(dir: string, base = ''): Promise<string[]> {
   const files: string[] = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = base ? `${base}/${entry.name}` : entry.name
+    // A symlink reports neither directory nor regular file here, so listing it
+    // would publish whatever it points at: the catalog is the allowlist the
+    // runtime route checks against, so a link to `../../.env` would be served.
+    // Skipped rather than resolved, because a skill has no reason to hold one.
+    if (entry.isSymbolicLink()) {
+      continue
+    }
     if (entry.isDirectory()) {
       files.push(...await listFiles(join(dir, entry.name), path))
     } else {

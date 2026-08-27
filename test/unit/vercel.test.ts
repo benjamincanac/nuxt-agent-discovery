@@ -129,8 +129,21 @@ describe('vercelMarkdownRoutes: negotiated rewrites', () => {
     expect(negotiated).toHaveLength(2)
     expect(negotiated[0]?.src).toBe(negotiated[1]?.src)
     expect(negotiated.every(route => route.check)).toBe(true)
-    expect(negotiated[0]?.has).toEqual([{ type: 'header', key: 'accept', value: '(.*)text/markdown(.*)' }])
+    expect(negotiated[0]?.has?.[0]).toMatchObject({ type: 'header', key: 'accept' })
     expect(negotiated[1]?.has?.[0]?.key).toBe('user-agent')
+  })
+
+  // The matcher has to agree with `acceptsMarkdown`, so it is asserted through
+  // headers rather than through its source. `text/markdown` has to head a media
+  // range: as a bare substring it also matched inside a parameter value.
+  it('matches `Accept` the way the negotiation core does', () => {
+    const accept = (header: string) => new RegExp(`^(?:${negotiated[0]!.has![0]!.value})$`).test(header)
+
+    expect(accept('text/markdown')).toBe(true)
+    expect(accept('text/markdown;q=0.9')).toBe(true)
+    expect(accept('text/html, text/markdown')).toBe(true)
+    expect(accept('text/html;profile="text/markdown"')).toBe(false)
+    expect(accept('text/html')).toBe(false)
   })
 
   it('matches pages, not .md URLs, assets or excluded prefixes', () => {
@@ -157,7 +170,7 @@ describe('vercelMarkdownRoutes: negotiated rewrites', () => {
 
   it('rewrites the exact root through its explicit raw destination', () => {
     const root = rewrites(routes).filter(route => route.dest === '/raw/index.md')
-    expect(root.every(route => route.src === '^/$')).toBe(true)
+    expect(root.every(route => matches(route, '/'))).toBe(true)
     expect(root.every(route => route.check)).toBe(true)
     expect(matches(root[0]!, '/docs/foo')).toBe(false)
   })

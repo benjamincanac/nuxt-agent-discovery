@@ -27,21 +27,24 @@ interface RouteMatcher {
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
- * `Accept` values that explicitly refuse markdown, as an anchored RE2 pattern:
- * a `text/markdown` range carrying `q=0`, with or without trailing zeroes, and
+ * `Accept` values that explicitly refuse markdown, as an anchored pattern: a
+ * `text/markdown` range carrying `q=0`, with or without trailing zeroes, and
  * whatever follows it.
  *
  * The negotiation core reads q-values per RFC 9110, so the Nitro middleware
  * serves HTML for `Accept: text/markdown;q=0, text/html`. A CDN matcher is a
- * plain regex over the raw header, and Vercel runs RE2, so there is no
- * lookahead to say "markdown, but not at q=0" in a `has` matcher. A `missing`
- * matcher says it directly: the rewrite applies only when this does not match,
- * which is confirmed against a real Vercel edge and not just the emitted config.
+ * plain regex over the raw header, with no way to express "markdown, but not at
+ * q=0" as a positive match. A `missing` matcher says it directly: the rewrite
+ * applies only when this does not match. Confirmed against a real Vercel edge,
+ * which anchors the value and matches it case-insensitively.
  *
  * `q=0.5` and friends must not match, hence the `(\.0+)?` rather than a loose
- * tail, and the boundary that follows keeps `q=0.05` (a real quality) out.
+ * tail, and the boundary that follows keeps `q=0.05` (a real quality) out. The
+ * whitespace before that boundary is load-bearing: RFC 9110 allows spaces
+ * around a list separator, and without it `text/markdown;q=0 , text/html` was
+ * served markdown by the edge after explicitly refusing it.
  */
-const REFUSES_MARKDOWN = String.raw`.*text/markdown\s*;\s*[qQ]=0(\.0+)?([;,].*)?`
+const REFUSES_MARKDOWN = String.raw`.*text/markdown\s*;\s*[qQ]=0(\.0+)?(\s*[;,].*)?`
 
 /** `has` matcher for the Vercel Build Output API, which anchors the value. */
 function agentUserAgentPattern(config: NegotiationConfig): string {
@@ -109,14 +112,34 @@ function negotiatedRoute(src: string, dest: string, has: RouteMatcher[], cached:
  * their 307 carries `Vary` itself, so the HTML variant is labelled as well.
  */
 export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
-  const acceptMarkdown = { type: 'header', key: 'accept', value: '(.*)text/markdown(.*)' }
+  // `text/markdown` at the head of a media range, not anywhere in the header.
+  // A bare substring also matched it inside a parameter value, so
+  // `Accept: text/html;profile="text/markdown"` was served markdown.
+  const acceptMarkdown = { type: 'header', key: 'accept', value: String.raw`(.*,)?\s*text/markdown\s*([;,].*)?` }
   // Only on the `Accept` routes. A known agent user agent gets markdown
   // whatever its `Accept` says, which is what the negotiation core does too.
   const refusesMarkdown = [{ type: 'header', key: 'accept', value: REFUSES_MARKDOWN }]
-  const agentUserAgent = { type: 'header', key: 'user-agent', value: agentUserAgentPattern(config) }
+  // An empty list has no matcher, not an empty alternation: `.*().*` matches
+  // every user agent there is, so `userAgents: { replace: [] }` served markdown
+  // to browsers at the edge while the runtime correctly matched nothing.
+  const agentUserAgent = config.userAgents.length
+    ? { type: 'header', key: 'user-agent', value: agentUserAgentPattern(config) }
+    : undefined
   const excluded = excludeLookahead(config)
 
   const routes: VercelRoute[] = []
+
+  /**
+   * One negotiated pattern: the `Accept` route, then the agent one. A site that
+   * emptied the user-agent list gets the first only, rather than an empty
+   * alternation that matches every client.
+   */
+  const pushNegotiated = (src: string, dest: string, cached: boolean) => {
+    routes.push(negotiatedRoute(src, dest, [acceptMarkdown], cached, refusesMarkdown))
+    if (agentUserAgent) {
+      routes.push(negotiatedRoute(src, dest, [agentUserAgent], cached))
+    }
+  }
 
   // Tell CDNs the response depends on `Accept` / `User-Agent`, then keep
   // routing. The dotted-segment lookahead is what keeps this off the documents
@@ -176,10 +199,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       ? rawDestination(config, matched, rule)
       : `${config.rawPrefix}${patternDest(rule)}.md`
 
-    routes.push(
-      negotiatedRoute(src, dest, [acceptMarkdown], true, refusesMarkdown),
-      negotiatedRoute(src, dest, [agentUserAgent], true)
-    )
+    pushNegotiated(src, dest, true)
   }
 
   for (const route of config.routes) {
@@ -200,21 +220,17 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       })
       // The dotted-last-segment lookahead keeps `.md` URLs on the rewrite above
       // and assets (`_payload.json`, images) out.
-      const negotiatedSrc = `^${NO_DOTTED_LAST_SEGMENT}${excluded}${body}$`
-      routes.push(
-        negotiatedRoute(negotiatedSrc, dest, [acceptMarkdown], cached, refusesMarkdown),
-        negotiatedRoute(negotiatedSrc, dest, [agentUserAgent], cached)
-      )
+      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${body}$`, dest, cached)
     } else {
       const dest = rawDestination(config, route, route.path)
-      const src = `^${escapeRegExp(route.path)}$`
       if (route.path !== '/') {
         routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, dest })
       }
-      routes.push(
-        negotiatedRoute(src, dest, [acceptMarkdown], cached, refusesMarkdown),
-        negotiatedRoute(src, dest, [agentUserAgent], cached)
-      )
+      // The same two guards the wildcard branch carries. Without them an exact
+      // pattern negotiated at the edge where the runtime refuses it: a dotted
+      // one like `/faq.html` reads as an asset, and `/mcp` sits behind an
+      // excluded prefix.
+      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${escapeRegExp(route.path)}/?$`, dest, cached)
     }
   }
 
@@ -229,7 +245,11 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
  * https://vercel.com/docs/build-output-api/configuration
  */
 export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig) {
-  if (nitro.options.dev || !nitro.options.preset.includes('vercel')) {
+  // `nuxt generate` on Vercel resolves the `vercel-static` preset, whose name
+  // contains "vercel" but which emits no function routes at all. Patching the
+  // table there leaves rewrites pointing at a filesystem that only holds what
+  // was prerendered, with nothing behind them to fall through to.
+  if (nitro.options.dev || nitro.options.static || !nitro.options.preset.includes('vercel')) {
     return
   }
   nitro.hooks.hook('compiled', async () => {

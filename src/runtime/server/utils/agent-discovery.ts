@@ -77,7 +77,7 @@ export { agentDiscoveryOpenApi } from './openapi'
 // and the CDN rewrites do. See the "Agent tooling" section of the README.
 export { listAgentPages } from './pages'
 export type { AgentPageListing, AgentPageListOptions } from './pages'
-export { getAgentDocument, normalizeAgentRoute } from './document'
+export { getAgentDocument } from './document'
 export type { AgentDocument, AgentDocumentOptions } from './document'
 export { extractSections } from '../../shared/sections'
 

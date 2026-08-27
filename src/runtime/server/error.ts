@@ -54,7 +54,8 @@ const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler })
   return send(event, errorMarkdown(config, {
     path: typeof data?.path === 'string' ? data.path : event.path,
     status,
-    // Already passed through h3's status message sanitizer.
+    // Not sanitized on the way here: `createError` only warns about an unsafe
+    // status message, and Nitro returns it verbatim. `errorMarkdown` strips it.
     statusMessage: res.statusText,
     siteUrl: config.siteUrl || getRequestURL(event).origin
   }))

@@ -32,7 +32,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Not Found' })
   }
 
-  const path = decodeURIComponent(pathname.slice(index + prefix.length))
+  let path: string
+  try {
+    path = decodeURIComponent(pathname.slice(index + prefix.length))
+  } catch {
+    // A malformed escape (`%`, `%zz`) is a bad request, not a server error.
+    throw createError({ statusCode: 400, statusMessage: 'Bad Request' })
+  }
   if (!path || path.includes('..')) {
     throw createError({ statusCode: 400, statusMessage: 'Bad Request' })
   }

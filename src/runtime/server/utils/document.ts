@@ -3,6 +3,7 @@ import { useNitroApp } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
 import { extractSections } from '../../shared/sections'
+import { normalizeAgentRoute } from '../../shared/negotiation'
 import type { AgentIndex } from '../../shared/types'
 
 /** A resolved markdown document, or where to go instead. */
@@ -61,17 +62,6 @@ async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentInd
       ''
     ].join('\n')
   }
-}
-
-/**
- * `/foo/index` and `/index` both name `/`, whichever way the URL spelled it.
- */
-export function normalizeAgentRoute(route: string): string {
-  let path = route
-  if (path.endsWith('/index')) {
-    path = path.slice(0, -6) || '/'
-  }
-  return path === '/index' || path === '' ? '/' : path
 }
 
 /**

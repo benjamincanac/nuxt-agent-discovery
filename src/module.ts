@@ -241,7 +241,12 @@ export default defineNuxtModule<ModuleOptions>({
       const contentEntry = await tryResolveModule('@nuxt/content', nuxt.options.modulesDir)
       minimarkStringify = contentEntry ? await tryResolveModule('minimark/stringify', [contentEntry]) : undefined
       if (!minimarkStringify) {
-        logger.warn('Could not resolve `minimark/stringify` from `@nuxt/content`; falling back to this module\'s own copy. Raw markdown may differ from what `@nuxt/content` produces.')
+        // Points at the cause rather than the symptom: reached with
+        // `source: 'content'` on a site that has no `@nuxt/content` at all,
+        // where the next failure is an unresolvable `@nuxt/content/server`.
+        logger.warn(contentEntry
+          ? 'Could not resolve `minimark/stringify` from `@nuxt/content`, so raw markdown may differ from what it produces.'
+          : 'The content source is enabled but `@nuxt/content` could not be resolved. Install it, or set `agentDiscovery.source` to a file exporting an `AgentContentSource`.')
       }
     } else if (options.source === 'comark') {
       throw new Error('[nuxt-agent-discovery] comark sites construct their content instance themselves, so pass a source file instead: `source: \'~~/server/utils/agent-source\'`, exporting `createComarkSource(() => getContent())` from `#agent-discovery/comark`.')
@@ -281,8 +286,13 @@ export default defineNuxtModule<ModuleOptions>({
       // imports. Aliasing the real re-export in that state fails the Nitro
       // build on an unresolvable id, so the same three conditions are mirrored
       // here.
-      const mcpOptions = (nuxt.options as { mcp?: { enabled?: boolean } }).mcp
+      // `mcp: false` is how Nuxt disables a module by its config key, and it is
+      // not the same as `mcp: { enabled: false }`: optional chaining reads the
+      // first as `undefined !== false`, which passed this guard and left the
+      // card aliased to a toolkit that registered nothing.
+      const mcpOptions = (nuxt.options as { mcp?: false | { enabled?: boolean } }).mcp
       const mcpToolkit = hasNuxtModule('@nuxtjs/mcp-toolkit')
+        && mcpOptions !== false
         && mcpOptions?.enabled !== false
         && !nuxt.options.nitro?.static
         && (nuxt.options as { _generate?: boolean })._generate !== true
@@ -312,7 +322,19 @@ export default defineNuxtModule<ModuleOptions>({
       addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: resolve('./runtime/server/routes/mcp-server-card') })
     }
 
-    addServerHandler({ middleware: true, handler: resolve('./runtime/server/middleware/negotiate') })
+    // `source: false` is a site saying something else already serves the raw
+    // markdown, so negotiation still runs against it. `'auto'` resolving to
+    // nothing is a site that installed the module and has no adapter: rewriting
+    // every page to a prefix nothing serves would answer agents with a 404 on
+    // pages that render fine in HTML, which is worse than not installing it.
+    const negotiates = Boolean(sourcePath) || options.source === false
+    if (!negotiates) {
+      logger.warn('No content source resolved, so markdown negotiation is off. Install `@nuxt/content`, point `agentDiscovery.source` at a file exporting an `AgentContentSource`, or set `source: false` if another route already serves the raw markdown.')
+    }
+
+    if (negotiates) {
+      addServerHandler({ middleware: true, handler: resolve('./runtime/server/middleware/negotiate') })
+    }
 
     nuxt.hook('nitro:config', (nitroConfig) => {
       if (options.errors) {
@@ -482,9 +504,30 @@ export {}
       // Prerendered documents bake the site URL in, so resolve it from the
       // site config or the llms domain when not set explicitly. Request-time
       // responses still fall back to the incoming host.
+      const siteOptions = nuxt.options as { site?: { url?: string, name?: string }, llms?: { domain?: string } }
       if (!config.siteUrl) {
-        const siteOptions = nuxt.options as { site?: { url?: string }, llms?: { domain?: string } }
         config.siteUrl = (siteOptions.site?.url || siteOptions.llms?.domain || '').replace(/\/$/, '')
+      }
+      // Falls back the same way `siteUrl` does, so a site that already told
+      // `@nuxtjs/seo` its name does not repeat it here.
+      if (!config.siteName) {
+        config.siteName = siteOptions.site?.name || ''
+      }
+
+      // Every helper here treats `siteUrl` as an origin: `rawUrl()` compares
+      // against `new URL(siteUrl).origin`, then concatenates the raw path onto
+      // the configured value, so a path would end up in the middle of the URL.
+      // Failing at build is better than shipping documents whose every link is
+      // silently wrong.
+      if (config.siteUrl && new URL(config.siteUrl).pathname !== '/') {
+        throw new Error(`[nuxt-agent-discovery] \`siteUrl\` must be an origin, but it carries a path (${config.siteUrl}). Serving the site under a base path is not supported yet.`)
+      }
+
+      // Prerendered documents bake this in, and the prerenderer sends no host
+      // header, so an empty value here becomes `http://localhost` in every
+      // canonical URL and every absolutized link of the built output.
+      if (!config.siteUrl && nuxt.options.nitro.static) {
+        logger.warn('No `siteUrl`: set it, or `site.url`, or `llms.domain`. Prerendered documents resolve it from the request, which is `localhost` at build time.')
       }
 
       if (hasLlms && sourcePath) {
@@ -683,8 +726,10 @@ export {}
 
     /* ------------------------------- presets ------------------------------- */
 
-    nuxt.hook('nitro:init', (nitro) => {
-      setupVercelPreset(nitro, config)
-    })
+    if (negotiates) {
+      nuxt.hook('nitro:init', (nitro) => {
+        setupVercelPreset(nitro, config)
+      })
+    }
   }
 })
