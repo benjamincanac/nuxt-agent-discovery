@@ -368,6 +368,13 @@ describe('normalizeAgentRoute', () => {
     expect(normalizeAgentRoute('/docs/%')).toBe('/docs/%')
   })
 
+  // Decoding is not idempotent, so only one layer may own it. Applying it twice
+  // turns an encoded `%2F` into a path separator and resolves a different page.
+  it('decodes exactly once', () => {
+    expect(normalizeAgentRoute('/docs/a%252Fb')).toBe('/docs/a%2Fb')
+    expect(normalizeAgentRoute(normalizeAgentRoute('/docs/a%252Fb'))).toBe('/docs/a/b')
+  })
+
   it('drops a trailing slash and folds `/index`', () => {
     expect(normalizeAgentRoute('/docs/getting-started/')).toBe('/docs/getting-started')
     expect(normalizeAgentRoute('/docs/index')).toBe('/docs')

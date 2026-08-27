@@ -84,11 +84,12 @@ const source: AgentContentSource = {
    */
   async firstLeaf(route: string, event: H3Event) {
     const prefix = `${withLeadingSlash(route).replace(/\/$/, '')}/`
-    // `%` and `_` are `LIKE` wildcards and the prefix comes from the URL, so
-    // `/raw/%.md` would widen the query to every page in every collection and
-    // materialize them all before the check below throws them away. No real
-    // section path contains either.
-    if (prefix.includes('%') || prefix.includes('_')) {
+    // `%` is a `LIKE` wildcard and the prefix comes from the URL, so `/raw/%.md`
+    // would match every page in every collection and materialize them all
+    // before the check below throws them away. `_` is a wildcard too but only
+    // for a single character, which is a real path character and barely widens
+    // anything, so it stays.
+    if (prefix.includes('%')) {
       return null
     }
     for (const collection of pageCollections()) {

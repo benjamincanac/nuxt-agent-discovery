@@ -537,8 +537,22 @@ export {}
       // the configured value, so a path would end up in the middle of the URL.
       // Failing at build is better than shipping documents whose every link is
       // silently wrong.
-      if (config.siteUrl && new URL(config.siteUrl).pathname !== '/') {
-        throw new Error(`[nuxt-agent-discovery] \`siteUrl\` must be an origin, but it carries a path (${config.siteUrl}). Serving the site under a base path is not supported yet.`)
+      if (config.siteUrl) {
+        // Parsed defensively: `site.url` is commonly written without a scheme,
+        // and `new URL('example.com')` throws a bare `Invalid URL` that names
+        // neither the option nor this module.
+        let parsed: URL | undefined
+        try {
+          parsed = new URL(config.siteUrl)
+        } catch {
+          parsed = undefined
+        }
+        if (!parsed) {
+          throw new Error(`[nuxt-agent-discovery] \`siteUrl\` is not a valid URL (${config.siteUrl}). Give it a scheme, as in \`https://example.com\`.`)
+        }
+        if (parsed.pathname !== '/') {
+          throw new Error(`[nuxt-agent-discovery] \`siteUrl\` must be an origin, but it carries a path (${config.siteUrl}). Serving the site under a base path is not supported yet.`)
+        }
       }
 
       // Prerendered documents bake this in, and the prerenderer sends no host

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join } from 'pathe'
 import { parse as parseYaml } from 'yaml'
 import type { ConsolaInstance } from 'consola'
@@ -101,7 +101,11 @@ export async function scanSkills(dir: string, logger: ConsolaInstance): Promise<
 
     const skillDir = join(dir, entry.name)
     const skillMd = join(skillDir, 'SKILL.md')
-    if (!existsSync(skillMd)) {
+    // `lstat`, not `existsSync`, which follows the link: `SKILL.md` is added to
+    // the catalog unconditionally below, so a symlinked one would publish
+    // whatever it points at. The reference files are filtered the same way.
+    const stats = await lstat(skillMd).catch(() => null)
+    if (!stats?.isFile()) {
       continue
     }
 
