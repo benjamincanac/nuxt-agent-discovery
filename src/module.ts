@@ -538,6 +538,56 @@ export {}
       llmsOptions.llms = { ...llmsOptions.llms, contentRawMarkdown: false }
     }
 
+    /**
+     * Route-rule patterns with a response cache that a negotiated pattern
+     * reaches, which decide where the CDN redirects instead of rewriting.
+     *
+     * Run twice: once at `modules:done`, and again at `nitro:init` for the
+     * rules that do not exist yet at the first pass. A page calling
+     * `defineRouteRules({ isr })` under `experimental.inlineRouteRules` is
+     * applied through `nitro.updateConfig` after every module has set up, and
+     * missing it means emitting a URL-preserving rewrite onto a route that
+     * really is cached, which is the one error here that poisons a cache.
+     */
+    const collectCachedRoutes = () => {
+      for (const [key, rule] of Object.entries(nuxt.options.routeRules || {})) {
+        if (config.cachedRoutes.includes(key)) {
+          continue
+        }
+        // Every shape Nitro turns into a response cache, read the way Nitro
+        // reads it. `isr: 0` and `swr: 0` are not one: the Vercel builder skips
+        // a falsy `isr` outright and `normalizeRouteRules` only configures a
+        // cache for a truthy `swr`, so no cached asset is ever written. A bare
+        // `'cache' in rule` counted `cache: false`, an opt-out, as a cache.
+        // `static` is the legacy Vercel spelling that `deprecateSWR` turns into
+        // `isr: !static`, so `static: false` is a real ISR route no other key
+        // here names; it is inert under `future.nativeSWR`, which errs towards
+        // a redirect and is the safe direction.
+        const cached = rule && (rule.isr || rule.swr || rule.cache
+          || ('static' in rule && !(rule as { static?: boolean | number }).static))
+        if (!cached) {
+          continue
+        }
+        // Excluded prefixes never negotiate, so their caches are safe.
+        if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
+          continue
+        }
+        // The question is whether the path negotiates at all, which for an
+        // exact rule is `matchRoute`, not `patternsOverlap`: overlap puts
+        // every path under a `/` pattern, so a non-page rule like
+        // `/llms.txt` joined the list and the CDN gave it a 307 to a
+        // `/raw/llms.txt.md` that does not exist. A dotted last segment is an
+        // asset either way, the same rule `negotiatedRawPath` applies.
+        const negotiable = key.includes('*')
+          ? routes.some(route => patternsOverlap(key, route.path))
+          : Boolean(matchRoute(routes, key)) && !hasFileExtension(key)
+        if (negotiable) {
+          config.cachedRoutes.push(key)
+          logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
+        }
+      }
+    }
+
     nuxt.hook('modules:done', async () => {
       // Prerendered documents bake the site URL in, so resolve it from the
       // site config or the llms domain when not set explicitly. Request-time
@@ -645,9 +695,13 @@ export {}
       if (sourcePath && options.sitemap?.markdown) {
         links.push({ href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown', title: 'Sitemap (Markdown): every page on the site' })
       }
-      if (options.discovery?.apiCatalog) {
-        links.push({ href: '/.well-known/api-catalog', rel: 'api-catalog', type: 'application/linkset+json', title: 'API catalog: every service document this site publishes' })
-      }
+      // Advertised only once something would be in it. The catalog groups the
+      // links carrying an `anchor` with a `service-desc`/`service-doc` rel, and
+      // a site with none of `nuxt-llms`, skills or an MCP card has no such
+      // link: the route answered `{"linkset":[]}` while the `Link` header on
+      // `/` pointed agents at it. Registered further down, once the rest of the
+      // registry is known.
+      const catalogLink: DiscoveryLink = { href: '/.well-known/api-catalog', rel: 'api-catalog', type: 'application/linkset+json', title: 'API catalog: every service document this site publishes' }
       if (options.discovery?.mcpServerCard) {
         const card = options.discovery.mcpServerCard
         const endpoint = card.endpoint.startsWith('/') ? `${config.siteUrl}${card.endpoint}` : card.endpoint
@@ -686,6 +740,11 @@ export {}
       links.push(...(options.discovery?.links || []))
 
       await nuxt.callHook('agent-discovery:extend', { links, userAgents })
+
+      // After the hook, so a link contributed by another module counts too.
+      if (options.discovery?.apiCatalog && links.some(link => link.anchor && (link.rel === 'service-desc' || link.rel === 'service-doc'))) {
+        links.unshift(catalogLink)
+      }
 
       for (const link of links) {
         if (!isValidRel(link.rel)) {
@@ -727,39 +786,7 @@ export {}
       // A cached response cannot vary on Accept/User-Agent, so request-time
       // negotiation is disabled there. The CDN rewrites still cover those
       // pages because they run before the cache.
-      for (const [key, rule] of Object.entries(nuxt.options.routeRules || {})) {
-        // Every shape Nitro turns into a response cache, read the way Nitro
-        // reads it. `isr: 0` and `swr: 0` are not one: the Vercel builder skips
-        // a falsy `isr` outright and `normalizeRouteRules` only configures a
-        // cache for a truthy `swr`, so no cached asset is ever written. A bare
-        // `'cache' in rule` counted `cache: false`, an opt-out, as a cache.
-        // `static` is the legacy Vercel spelling that `deprecateSWR` turns into
-        // `isr: !static`, so `static: false` is a real ISR route no other key
-        // here names; it is inert under `future.nativeSWR`, which errs towards
-        // a redirect and is the safe direction.
-        const cached = rule && (rule.isr || rule.swr || rule.cache
-          || ('static' in rule && !(rule as { static?: boolean | number }).static))
-        if (!cached) {
-          continue
-        }
-        // Excluded prefixes never negotiate, so their caches are safe.
-        if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
-          continue
-        }
-        // The question is whether the path negotiates at all, which for an
-        // exact rule is `matchRoute`, not `patternsOverlap`: overlap puts
-        // every path under a `/` pattern, so a non-page rule like
-        // `/llms.txt` joined the list and the CDN gave it a 307 to a
-        // `/raw/llms.txt.md` that does not exist. A dotted last segment is an
-        // asset either way, the same rule `negotiatedRawPath` applies.
-        const negotiable = key.includes('*')
-          ? routes.some(route => patternsOverlap(key, route.path))
-          : Boolean(matchRoute(routes, key)) && !hasFileExtension(key)
-        if (negotiable) {
-          config.cachedRoutes.push(key)
-          logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
-        }
-      }
+      collectCachedRoutes()
 
       /* ---------------------------- runtime config --------------------------- */
 
@@ -788,6 +815,11 @@ export {}
 
     if (negotiates) {
       nuxt.hook('nitro:init', (nitro) => {
+        // Once more before the preset reads the config: a page-level
+        // `defineRouteRules({ isr })` is merged in after every module has set
+        // up, so the first pass never saw it and the pattern would get a
+        // URL-preserving rewrite onto a route that really is cached.
+        collectCachedRoutes()
         setupVercelPreset(nitro, config)
       })
     }
