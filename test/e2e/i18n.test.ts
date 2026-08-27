@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup } from '@nuxt/test-utils/e2e'
-import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from '../../src/defaults'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 import { CLAUDE_BOT, MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY } from './expected'
@@ -99,31 +98,36 @@ describe('sitemap.md destinations', () => {
  * replaces.
  */
 describe('O(1) route table', () => {
-  const config: NegotiationConfig = {
-    siteUrl: SITE_URL,
-    siteName: 'i18n',
-    rawPrefix: '/raw',
-    routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/*/docs/**' }],
-    userAgents: AGENT_USER_AGENTS,
-    excludePrefixes: EXCLUDE_PREFIXES,
-    links: [{ href: '/llms.txt', rel: 'describedby', type: 'text/plain', title: 'llms.txt' }],
-    linkHeader: true,
-    cachedRoutes: [],
-    sitemapSections: { expand: [], labels: {} }
-  }
+  // The config the module resolved, read off the running fixture. Asserting
+  // against a literal here would restate `nuxt.config` and pass even if the
+  // module expanded the locale wildcard into one pattern per locale, which is
+  // the one thing this fixture exists to catch.
+  // Fetched on first use rather than in `beforeAll`, which runs before
+  // `setup()` has published its context.
+  let cached: NegotiationConfig | undefined
+  const resolved = async () => (cached ??= await fetch('/agent-config.json').then(response => response.json()) as NegotiationConfig)
 
-  it('emits the closed-form number of routes for the fixture patterns', () => {
+  it('keeps the locale a wildcard instead of enumerating the locales', async () => {
+    const config = await resolved()
+
+    expect(config.routes.map(route => route.path)).toEqual(['/', '/*/docs/**'])
+    // The fixture ships `en` and `fr`; neither may appear as a pattern.
+    expect(config.routes.some(route => /\/(?:en|fr)\//.test(route.path))).toBe(false)
+  })
+
+  it('emits the closed-form number of routes for the resolved patterns', async () => {
+    const config = await resolved()
     const routes = vercelMarkdownRoutes(config)
     const exact = config.routes.filter(route => !route.path.includes('*')).length
     const glob = config.routes.filter(route => route.path.includes('*')).length
 
-    // 2 header routes (`Vary`, `Link`) + 2 per exact path + 3 per glob.
+    // 2 header routes (`Vary`, `Link`) + 2 per exact path + 3 per glob, and
+    // nothing that scales with the 5 content files or the 2 locales.
     expect(routes).toHaveLength(2 + exact * 2 + glob * 3)
-    expect(routes).toHaveLength(7)
   })
 
-  it('captures the locale segment rather than enumerating locales', () => {
-    const routes = vercelMarkdownRoutes(config)
+  it('captures the locale segment rather than enumerating locales', async () => {
+    const routes = vercelMarkdownRoutes(await resolved())
     const localeRewrites = routes.filter(route => route.dest?.includes('$'))
 
     // One `.md` twin rewrite plus the two negotiated ones, all three sharing
@@ -137,8 +141,8 @@ describe('O(1) route table', () => {
     expect(routes.filter(route => route.dest === '/raw/index.md')).toHaveLength(2)
   })
 
-  it('never names a locale or a page', () => {
-    const serialized = JSON.stringify(vercelMarkdownRoutes(config))
+  it('never names a locale or a page', async () => {
+    const serialized = JSON.stringify(vercelMarkdownRoutes(await resolved()))
 
     for (const fragment of ['/en', '/fr', 'getting-started', 'button', 'about']) {
       expect(serialized).not.toContain(fragment)
@@ -148,12 +152,12 @@ describe('O(1) route table', () => {
   it('stays smaller than a per-page table for the pages the fixture serves', async () => {
     const sitemap = await fetch('/sitemap.md').then(response => response.text())
     const pages = sitemap.split('\n').filter(line => line.startsWith('- [')).length
+    const routes = vercelMarkdownRoutes(await resolved())
 
     expect(pages).toBeGreaterThanOrEqual(5)
     // A per-link table (two routes per page) would already be larger here and
-    // would keep growing; this one is fixed at 7.
-    expect(vercelMarkdownRoutes(config)).toHaveLength(7)
-    expect(vercelMarkdownRoutes(config).length).toBeLessThan(pages * 2)
+    // would keep growing; this one does not move with the page count.
+    expect(routes.length).toBeLessThan(pages * 2)
   })
 })
 
