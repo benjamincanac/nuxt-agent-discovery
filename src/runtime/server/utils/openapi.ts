@@ -17,7 +17,7 @@ import type { AgentRoute, NegotiationConfig } from '../../shared/types'
  * `servers` and its own endpoints, and merges these in:
  *
  * ```ts
- * const discovery = agentDiscoveryOpenApi(event)
+ * const discovery = agentDiscoveryOpenApi(event, { paths: myPaths })
  * return {
  *   openapi: '3.1.0',
  *   info: { ... },
@@ -33,9 +33,65 @@ import type { AgentRoute, NegotiationConfig } from '../../shared/types'
  *
  * Spreading the site's own values last means any path here can be replaced
  * with a richer, site-specific description.
+ *
+ * Pass the `paths` being merged in and every `operationId` in them is claimed
+ * before one is derived here, so a site's own operation keeps its name and the
+ * generated one takes a numeric suffix. Without it the two namespaces are
+ * decided independently and a duplicate is only caught by a linter, if the
+ * site runs one. `reserved` does the same for a document assembled where this
+ * call cannot see it.
+ *
+ * The namespace, for a site picking names by hand:
+ *
+ * - a page pattern gets `get<PascalRoute>`, its raw twin
+ *   `get<PascalRoute>Markdown`. `/` is `getHomepage`/`getHomepageMarkdown`,
+ *   a wildcard pattern ends in `Page`, so `/docs/**` is `getDocsPage`
+ * - the discovery documents get `getSitemapMarkdown`, `getSitemapXml`,
+ *   `getLlmsTxt`, `getLlmsFullTxt`, `getApiCatalog`, `getMcpServerCard`,
+ *   `getSkillsIndex` and `callMcpServer`, each only when the site serves it
  */
 
 type Json = Record<string, unknown>
+
+/** Options for {@link agentDiscoveryOpenApi}. */
+export interface AgentOpenApiOptions {
+  /**
+   * The `paths` object these fragments are being merged into. Every
+   * `operationId` in it is claimed first, so a generated id never lands on a
+   * name the site is already using.
+   */
+  paths?: Record<string, unknown>
+  /**
+   * Operation ids to claim without a `paths` object to read them from, for a
+   * document assembled somewhere this call cannot see.
+   */
+  reserved?: string[]
+}
+
+/** The fixed fields of an OpenAPI path item that carry an operation. */
+const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
+
+/**
+ * Operation ids of the discovery documents, by the registered link each one
+ * follows.
+ *
+ * Claimed ahead of every route-derived id, so a page pattern deriving the same
+ * name takes the suffix instead of these moving. A generated client calls
+ * `getSitemapMarkdown()` on every site running this module, and that should not
+ * change because one of them happens to configure a `/sitemap` page.
+ */
+const DISCOVERY_OPERATIONS: Record<string, string> = {
+  '/sitemap.md': 'getSitemapMarkdown',
+  '/sitemap.xml': 'getSitemapXml',
+  '/llms.txt': 'getLlmsTxt',
+  '/llms-full.txt': 'getLlmsFullTxt',
+  '/.well-known/api-catalog': 'getApiCatalog',
+  '/.well-known/mcp/server-card.json': 'getMcpServerCard',
+  '/.well-known/skills/index.json': 'getSkillsIndex'
+}
+
+/** The MCP endpoint, which follows the server card rather than a link of its own. */
+const MCP_OPERATION = 'callMcpServer'
 
 const NEGOTIATION = 'Every page is available as Markdown. Append `.md` to the URL, or send `Accept: text/markdown` on the HTML URL. Known AI agent user agents receive Markdown by default.'
 
@@ -87,9 +143,38 @@ function routeOperation(pattern: string): string {
 }
 
 /**
- * Two patterns can still derive the same name (`/docs/api` and `/docs-api`),
- * so the second one along takes a numeric suffix. Route order is the site's
- * own config order, which makes the result stable for a given config.
+ * Every `operationId` in a caller's `paths` object.
+ *
+ * Only the fixed method fields are read: a path item also carries `summary`,
+ * `parameters` and `servers`, none of which name an operation.
+ */
+function operationIds(paths: Record<string, unknown>): string[] {
+  const ids: string[] = []
+  for (const item of Object.values(paths)) {
+    if (!item || typeof item !== 'object') {
+      continue
+    }
+    for (const method of METHODS) {
+      const operation = (item as Json)[method] as Json | undefined
+      const id = operation?.operationId
+      if (typeof id === 'string') {
+        ids.push(id)
+      }
+    }
+  }
+  return ids
+}
+
+/**
+ * Two patterns can derive the same name (`/docs/api` and `/docs-api`), a
+ * pattern can derive a discovery document's name (`/sitemap` derives
+ * `getSitemapMarkdown`), and either can land on one the caller is already
+ * using. Whichever claims a name first keeps it; the next one along takes a
+ * numeric suffix.
+ *
+ * The order is caller first, then the discovery documents, then the routes in
+ * the site's own config order, which makes the result stable for a given
+ * config.
  */
 function claim(taken: Set<string>, name: string): string {
   let candidate = name
@@ -189,24 +274,44 @@ function discoveryDocument(operationId: string, summary: string, description: st
   return { get: { tags: ['Discovery'], operationId, summary, description, responses: { 200: response } } }
 }
 
-export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
+export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptions = {}): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
   const config = useAgentDiscoveryConfig(event)
   const has = (href: string) => config.links.some(link => link.href === href)
 
+  // Only a same-origin path, since `paths` is relative to `servers`. A card
+  // pointing at an endpoint on another host has nothing to describe here.
+  const mcp = useRuntimeConfig(event).agentDiscoveryMcp as { endpoint?: string } | undefined
+  const mcpEndpoint = mcp?.endpoint?.startsWith('/') ? mcp.endpoint : undefined
+
+  // The caller's names first, so nothing generated here can take one of them.
+  // Then the discovery documents, whose ids are the same on every site running
+  // this module and should not move. The route-derived ids come last and take
+  // the suffix on a clash.
+  const taken = new Set<string>([
+    ...(options.reserved || []),
+    ...(options.paths ? operationIds(options.paths) : [])
+  ])
+  const discovery: Record<string, string> = {}
+  for (const [href, id] of Object.entries(DISCOVERY_OPERATIONS)) {
+    if (has(href)) {
+      discovery[href] = claim(taken, id)
+    }
+  }
+  const mcpOperation = mcpEndpoint ? claim(taken, MCP_OPERATION) : undefined
+
   const paths: Json = {}
-  const taken = new Set<string>()
   for (const route of config.routes) {
     const operation = routeOperation(route.path)
     Object.assign(
       paths,
-      negotiatedPage(config, route, `get${claim(taken, operation)}`),
-      rawPage(config, route, `get${claim(taken, `${operation}Markdown`)}`)
+      negotiatedPage(config, route, claim(taken, `get${operation}`)),
+      rawPage(config, route, claim(taken, `get${operation}Markdown`))
     )
   }
 
   if (has('/sitemap.md')) {
     paths['/sitemap.md'] = discoveryDocument(
-      'getSitemapMarkdown',
+      discovery['/sitemap.md']!,
       'Markdown sitemap',
       'Every page, grouped into sections, linking to the Markdown URLs.',
       markdown('Markdown index of every page.')
@@ -214,7 +319,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/sitemap.xml')) {
     paths['/sitemap.xml'] = discoveryDocument(
-      'getSitemapXml',
+      discovery['/sitemap.xml']!,
       'XML sitemap',
       'Every indexable page, in the sitemaps.org XML format.',
       { description: 'Sitemap in the sitemaps.org XML format.', content: { 'application/xml': { schema: { type: 'string' } } } }
@@ -222,7 +327,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/llms.txt')) {
     paths['/llms.txt'] = discoveryDocument(
-      'getLlmsTxt',
+      discovery['/llms.txt']!,
       'llms.txt index',
       'Index of the documentation for LLMs, following the llms.txt convention.',
       text('Markdown index.')
@@ -230,7 +335,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/llms-full.txt')) {
     paths['/llms-full.txt'] = discoveryDocument(
-      'getLlmsFullTxt',
+      discovery['/llms-full.txt']!,
       'Full documentation for LLMs',
       'Every documentation page concatenated as Markdown. Large response.',
       text('Full documentation as Markdown.')
@@ -238,7 +343,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/.well-known/api-catalog')) {
     paths['/.well-known/api-catalog'] = discoveryDocument(
-      'getApiCatalog',
+      discovery['/.well-known/api-catalog']!,
       'API catalog (RFC 9727)',
       'Linkset pointing at the documents this site publishes for agents.',
       { description: 'Linkset document.', content: { 'application/linkset+json': { schema: { $ref: '#/components/schemas/Linkset' } } } }
@@ -249,15 +354,11 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   // above: what earns a path here is being in the discovery registry, not who
   // answers it. Leaving this one out is what made every adopter hand-write the
   // same JSON-RPC block.
-  //
-  // Only a same-origin path, since `paths` is relative to `servers`. A card
-  // pointing at an endpoint on another host has nothing to describe here.
-  const mcp = useRuntimeConfig(event).agentDiscoveryMcp as { endpoint?: string } | undefined
-  if (mcp?.endpoint?.startsWith('/')) {
-    paths[mcp.endpoint] = {
+  if (mcpEndpoint) {
+    paths[mcpEndpoint] = {
       post: {
         tags: ['Discovery'],
-        operationId: 'callMcpServer',
+        operationId: mcpOperation!,
         summary: 'MCP endpoint',
         description: 'Model Context Protocol endpoint (streamable HTTP transport), speaking JSON-RPC 2.0. Use an MCP client rather than calling it directly.',
         requestBody: {
@@ -278,7 +379,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/.well-known/mcp/server-card.json')) {
     paths['/.well-known/mcp/server-card.json'] = discoveryDocument(
-      'getMcpServerCard',
+      discovery['/.well-known/mcp/server-card.json']!,
       'MCP server card',
       'Describes the MCP endpoint, its capabilities and what it exposes.',
       { description: 'MCP server card, following the schema it declares in `$schema`.', content: { 'application/json': { schema: { type: 'object' } } } }
@@ -286,7 +387,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
   }
   if (has('/.well-known/skills/index.json')) {
     paths['/.well-known/skills/index.json'] = discoveryDocument(
-      'getSkillsIndex',
+      discovery['/.well-known/skills/index.json']!,
       'Agent skills index',
       'Lists the agent skills published by this site and the files each one is made of, served under `/.well-known/skills/{name}/`.',
       { description: 'Skills index.', content: { 'application/json': { schema: { $ref: '#/components/schemas/SkillsIndex' } } } }

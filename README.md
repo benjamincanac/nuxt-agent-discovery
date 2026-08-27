@@ -290,7 +290,7 @@ export default defineEventHandler(event => `# Docs\n\n${renderAgentResources(eve
 **`agentDiscoveryOpenApi()`** returns the discovery layer as OpenAPI fragments, for sites publishing an `openapi.json`. These paths are identical across every site running this module by construction, so hand-writing them means restating the route config where it can drift:
 
 ```ts
-const discovery = agentDiscoveryOpenApi(event)
+const discovery = agentDiscoveryOpenApi(event, { paths: myPaths })
 
 return {
   openapi: '3.1.0',
@@ -303,7 +303,20 @@ return {
 
 Covered are the negotiated page patterns and their raw twins, plus every discovery document the site actually serves: `/sitemap.md`, `/sitemap.xml`, `/llms.txt`, `/llms-full.txt`, the api-catalog, the skills index, and, where `discovery.mcpServerCard` declares one, both the server card and the MCP endpoint itself as a JSON-RPC `post`. What earns a path is being in the discovery registry, not being a route this module serves, which is why the sitemap, the llms documents and the MCP endpoint are all in there.
 
-Every operation carries an `operationId`, since that is what client generators turn into a method name. Discovery documents have fixed ids (`getLlmsTxt`, `getSitemapMarkdown`, `getApiCatalog`, `callMcpServer`, ...) and page patterns derive theirs from the pattern: `/` gives `getHomepage` and `getHomepageMarkdown`, `/docs/**` gives `getDocsPage` and `getDocsPageMarkdown`, and a locale wildcard in front of that gives `getSegmentDocsPage`. They only move when the pattern does.
+Every operation carries an `operationId`, since that is what client generators turn into a method name. The namespace, so a site knows which names are taken before it picks its own:
+
+| Operation | `operationId` |
+| --- | --- |
+| A page pattern | `get<PascalRoute>`, and `get<PascalRoute>Markdown` for its raw twin. `/` gives `getHomepage`, a wildcard pattern ends in `Page`, so `/docs/**` gives `getDocsPage` and a locale wildcard in front of it gives `getSegmentDocsPage` |
+| `/sitemap.md`, `/sitemap.xml` | `getSitemapMarkdown`, `getSitemapXml` |
+| `/llms.txt`, `/llms-full.txt` | `getLlmsTxt`, `getLlmsFullTxt` |
+| `/.well-known/api-catalog` | `getApiCatalog` |
+| `/.well-known/mcp/server-card.json`, the MCP endpoint | `getMcpServerCard`, `callMcpServer` |
+| `/.well-known/skills/index.json` | `getSkillsIndex` |
+
+A page pattern's id only moves when the pattern does, and a discovery document's is the same on every site running this module.
+
+Pass the `paths` you are merging these into, as above, and every `operationId` in them is claimed before one is derived here, so your own operation keeps its name and the generated one takes a numeric suffix. Without it the two namespaces are decided independently and a duplicate is only caught by a linter, if you run one. `reserved: [...]` does the same for a document assembled where the call cannot see it. The order is yours first, then the discovery documents, then the page patterns.
 
 Spreading your own values last means any generated path can be replaced with a richer, site-specific description. That is where anything only the site knows belongs, a custom header its MCP endpoint reads, for instance.
 
