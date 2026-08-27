@@ -112,15 +112,24 @@ function pathParameters(params: string[], pattern: string): Json[] {
   }))
 }
 
+/**
+ * A markdown response. Carries `Vary` like the negotiated page does: these URLs
+ * serve markdown to every client, but they are where a negotiated page sends
+ * one, so the header is on them too and the document has to say so.
+ */
 function markdown(description: string): Json {
-  return { description, content: { 'text/markdown': { schema: { type: 'string' } } } }
+  return {
+    description,
+    headers: { Vary: { $ref: '#/components/headers/Vary' } },
+    content: { 'text/markdown': { schema: { type: 'string' } } }
+  }
 }
 
 function text(description: string): Json {
   return { description, content: { 'text/plain': { schema: { type: 'string' } } } }
 }
 
-function negotiatedPage(route: AgentRoute, operationId: string): Json {
+function negotiatedPage(config: NegotiationConfig, route: AgentRoute, operationId: string): Json {
   const { path, params } = toTemplate(route.path)
   const label = route.path === '/' ? 'Homepage' : `Page under \`${route.path}\``
   return {
@@ -140,7 +149,11 @@ function negotiatedPage(route: AgentRoute, operationId: string): Json {
               'text/markdown': { schema: { type: 'string' } }
             }
           },
-          404: { $ref: '#/components/responses/NotFoundMarkdown' }
+          404: { $ref: '#/components/responses/NotFoundMarkdown' },
+          // Only the pages can refuse every representation, and only where the
+          // site turned that on. Left out otherwise rather than documented as
+          // a status nothing returns.
+          ...(config.notAcceptable ? { 406: { $ref: '#/components/responses/NotAcceptable' } } : {})
         }
       }
     }
@@ -186,7 +199,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
     const operation = routeOperation(route.path)
     Object.assign(
       paths,
-      negotiatedPage(route, `get${claim(taken, operation)}`),
+      negotiatedPage(config, route, `get${claim(taken, operation)}`),
       rawPage(config, route, `get${claim(taken, `${operation}Markdown`)}`)
     )
   }
@@ -344,7 +357,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
     components: {
       headers: {
         Vary: {
-          description: 'Always includes `Accept` and `User-Agent`, since the representation depends on both.',
+          description: 'Always includes `Accept` and `User-Agent`. The page depends on both, and its Markdown representation carries the header too, since that is where a negotiated request is sent.',
           schema: { type: 'string' }
         }
       },
@@ -352,7 +365,22 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
         NotFoundMarkdown: {
           description: 'The page does not exist. The body is a short Markdown document linking to the entry points an agent can recover from.',
           content: { 'text/markdown': { schema: { type: 'string' } } }
-        }
+        },
+        // The body follows the same rules every other error does, so a browser
+        // `fetch()` keeps the JSON it was written against while an agent or a
+        // command-line client gets the Markdown one.
+        ...(config.notAcceptable
+          ? {
+              NotAcceptable: {
+                description: 'The `Accept` header allows neither representation of the page. The body names the two that exist.',
+                headers: { Vary: { $ref: '#/components/headers/Vary' } },
+                content: {
+                  'text/markdown': { schema: { type: 'string' } },
+                  'application/json': { schema: { type: 'object' } }
+                }
+              }
+            }
+          : {})
       },
       schemas
     }

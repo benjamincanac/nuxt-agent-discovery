@@ -12,6 +12,7 @@ import {
   matchRoute,
   negotiatedRawPath,
   normalizeAgentRoute,
+  notAcceptable,
   normalizePathname,
   parseAccept,
   patternsOverlap,
@@ -38,6 +39,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
     linkHeader: true,
     cachedRoutes: [],
     sitemapSections: { expand: [], labels: {} },
+    notAcceptable: false,
     ...overrides
   }
 }
@@ -142,6 +144,24 @@ describe('acceptsMarkdown', () => {
     expect(acceptsMarkdown('text/*;q=1, text/html;q=0.1')).toBe(false)
   })
 
+  // A client that refused html and left a wildcard open ruled out the only
+  // other representation there is, so html would hand it the one thing it said
+  // it could not read, and the page is not unacceptable either since markdown
+  // rates through that wildcard.
+  it('counts a wildcard once html is refused outright', () => {
+    expect(acceptsMarkdown('text/html;q=0, */*;q=1')).toBe(true)
+    expect(acceptsMarkdown('text/html;q=0, text/*')).toBe(true)
+  })
+
+  it('leaves every client that rates html through its wildcard alone', () => {
+    expect(acceptsMarkdown('text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')).toBe(false)
+    expect(acceptsMarkdown('*/*;q=0.8')).toBe(false)
+    // Nothing left to fall back on: refusing html without a wildcard is not a
+    // markdown request, it is a request for something the page does not have.
+    expect(acceptsMarkdown('text/html;q=0')).toBe(false)
+    expect(acceptsMarkdown('application/xml')).toBe(false)
+  })
+
   it('is case-insensitive on media types', () => {
     expect(acceptsMarkdown('TEXT/MARKDOWN')).toBe(true)
     expect(acceptsMarkdown('Text/Markdown;Q=0')).toBe(false)
@@ -163,6 +183,10 @@ describe('negotiatedRawPath: headers', () => {
 
   it('does not serve markdown for q=0', () => {
     expect(negotiatedRawPath(config, '/docs/foo', { accept: 'text/markdown;q=0' })).toBeUndefined()
+  })
+
+  it('serves markdown when html is refused and a wildcard permits it', () => {
+    expect(negotiatedRawPath(config, '/docs/foo', { accept: 'text/html;q=0, */*;q=1' })).toBe('/raw/docs/foo.md')
   })
 
   it('does not serve markdown when html outranks it', () => {
@@ -336,6 +360,96 @@ describe('prefersMarkdownError', () => {
   })
 })
 
+// The opt-in strict answer. Every case below that returns `false` is a page
+// that used to render and has to keep rendering, which is why the option
+// exists at all rather than this being the default.
+describe('notAcceptable', () => {
+  const strict = createConfig({ notAcceptable: true })
+
+  it('is off unless the site turns it on', () => {
+    expect(notAcceptable(config, { path: '/docs/foo', accept: 'application/xml' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml' })).toBe(true)
+  })
+
+  it('refuses an `Accept` that rules out both representations', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml' })).toBe(true)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'image/png, application/pdf' })).toBe(true)
+    expect(notAcceptable(strict, { path: '/', accept: 'application/xml' })).toBe(true)
+  })
+
+  // A quality of zero is a refusal, so refusing both leaves nothing to send.
+  it('reads `q=0` as a refusal', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/markdown;q=0' })).toBe(true)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html;q=0, text/markdown;q=0' })).toBe(true)
+    // One of the two still acceptable is a page, not an error.
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/markdown;q=0, text/html' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml, text/markdown;q=0.1' })).toBe(false)
+  })
+
+  // Markdown rates through the wildcard, so there is nothing to refuse. The
+  // page is served as markdown instead, see `acceptsMarkdown`.
+  it('does not refuse a request one representation still satisfies', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html;q=0, */*;q=1' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html;q=0, text/*' })).toBe(false)
+  })
+
+  it('leaves browsers and `fetch()` alone', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html,application/xhtml+xml,*/*;q=0.8' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: '*/*' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/*' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: '' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo' })).toBe(false)
+  })
+
+  it('never refuses a navigation or a known agent', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml', secFetchMode: 'navigate' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml', userAgent: CLAUDE_BOT })).toBe(false)
+    // Any other `Sec-Fetch-Mode` is a subresource request, which is refused
+    // like every other client that asked for something the page does not have.
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml', secFetchMode: 'cors' })).toBe(true)
+  })
+
+  it('only answers GET and HEAD', () => {
+    expect(notAcceptable(strict, { method: 'POST', path: '/docs/foo', accept: 'application/xml' })).toBe(false)
+    expect(notAcceptable(strict, { method: 'head', path: '/docs/foo', accept: 'application/xml' })).toBe(true)
+  })
+
+  // A URL with one representation cannot refuse them all: nothing about it
+  // depended on `Accept` in the first place.
+  it('only covers the pages that negotiate', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo.md', accept: 'application/xml' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/raw/docs/foo.md', accept: 'application/xml' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/api/x', accept: 'application/xml' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/logo.png', accept: 'application/xml' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/blog/x', accept: 'application/xml' })).toBe(false)
+  })
+
+  // RFC 9110 says to ignore a header it cannot parse rather than fail the
+  // request over it, and a proxy mangling `Accept` must not take a page down.
+  // A half-mangled range is the shape one of those leaves behind.
+  it('ignores an `Accept` carrying no media range at all', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'garbage' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: ',,' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: '/html' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html/extra' })).toBe(false)
+  })
+
+  // One intelligible range is enough to judge the request on, so a mangled
+  // entry alongside a real one does not buy a page back.
+  it('still refuses when a real range sits next to a mangled one', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml, text/' })).toBe(true)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'garbage, text/html' })).toBe(false)
+  })
+
+  // The type has to be a range of its own, not a string inside a parameter
+  // value. The edge matcher was reading one out of there and serving the page.
+  it('does not read a representation out of a parameter value', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/json;profile="text/html"' })).toBe(true)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/json;profile="x", text/html' })).toBe(false)
+  })
+})
+
 // What `Vary` is derived from: a URL with two representations, independent of
 // what the client asked for. A route rule cannot express these exclusions,
 // which is why the header does not come from one.
@@ -438,6 +552,15 @@ describe('errorMarkdown', () => {
     expect(body).toContain('status: 404')
     expect(body).toContain('# 404 Page Not Found')
     expect(body).toContain('The page `/docs/gone` does not exist on https://example.com.')
+  })
+
+  // RFC 9110 asks a 406 body to carry a list of available representation
+  // characteristics, which for a negotiated page is exactly its two.
+  it('lists the representations a 406 refused', () => {
+    const body = errorMarkdown(config, { path: '/docs/foo', status: 406, statusMessage: 'Not Acceptable', siteUrl: 'https://example.com' })
+    expect(body).toContain('title: "Not Acceptable"')
+    expect(body).toContain('# 406 Not Acceptable')
+    expect(body).toContain('`/docs/foo` is available as `text/html` and `text/markdown`, and the request\'s `Accept` header allows neither.')
   })
 
   it('strips backticks and backslashes from the path', () => {

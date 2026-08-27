@@ -29,6 +29,11 @@ export default defineNuxtConfig({
 
   agentDiscovery: {
     siteName: 'Basic',
+    // The opt-in strict answer, on here so both halves of it are covered: the
+    // middleware on this build, and the CDN route in the Build Output the
+    // `vercel` suite reads. Every other fixture leaves it off, which is where
+    // the default is covered.
+    notAcceptable: true,
     // `/agent-resources.md` is served by its own handler, so it has to be
     // excluded or the catch-all route pattern would rewrite it to its raw twin.
     excludePrefixes: { extend: ['/agent-resources.md', '/openapi.json'] },

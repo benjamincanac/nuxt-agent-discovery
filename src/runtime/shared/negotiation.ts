@@ -276,16 +276,26 @@ export function acceptQuality(entries: AcceptEntry[], target: string): number {
 
 /**
  * Whether the client explicitly asked for markdown: a literal `text/markdown`
- * entry with a non-zero q-value that html does not outrank. Wildcards never
- * count as asking, so wildcard-only clients keep HTML on pages.
+ * entry with a non-zero q-value that html does not outrank. A wildcard on its
+ * own never counts as asking, so wildcard-only clients keep HTML on pages.
+ *
+ * Unless it refused html outright. A client sending `text/html;q=0` alongside
+ * a full wildcard has ruled out the only other representation there is, so
+ * html hands it the one thing it said it could not read, and the page is not
+ * unacceptable either: markdown rates through that wildcard, so there is
+ * nothing for `notAcceptable` to refuse. Markdown is the only answer left.
+ *
+ * Narrow on purpose: a browser and a `fetch()` both rate html through their
+ * own wildcard, so neither ever reaches this.
  */
 export function acceptsMarkdown(accept?: string | null): boolean {
   const entries = parseAccept(accept)
+  const html = acceptQuality(entries, 'text/html')
   const markdown = explicitQuality(entries, 'text/markdown')
-  if (!markdown) {
-    return false
+  if (markdown) {
+    return markdown >= html
   }
-  return markdown >= acceptQuality(entries, 'text/html')
+  return html === 0 && acceptQuality(entries, 'text/markdown') > 0
 }
 
 /** Case-sensitive on purpose, so it agrees with the CDN `has` matchers. */
@@ -367,6 +377,92 @@ function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRout
  */
 export function isNegotiablePath(config: NegotiationConfig, path: string): boolean {
   return Boolean(negotiableRoute(config, normalizePathname(path)))
+}
+
+/**
+ * The media types a negotiated page has a representation for, in the order the
+ * 406 body lists them.
+ */
+export const REPRESENTATIONS = ['text/html', 'text/markdown']
+
+/**
+ * A media range as RFC 9110 spells one: a full wildcard, `type/*`, or
+ * `type/subtype`, each half a non-empty token.
+ *
+ * `text/`, `/html` and `text/html/extra` are not media ranges, they are a
+ * mangled header, and the difference matters: an unacceptable range is a 406
+ * while a mangled one is ignored.
+ */
+const MEDIA_RANGE = /^[a-z0-9!#$%&'*+.^_|~-]+\/[a-z0-9!#$%&'*+.^_|~-]+$/
+
+/**
+ * Whether a negotiated page has to answer 406: the request carries an `Accept`
+ * that rules out both of its representations, which is what RFC 9110 asks for
+ * when a server cannot honour the header.
+ *
+ * Off unless a site turns it on, and narrow when it is on, because every false
+ * positive here is a page that used to render turning into an error. So:
+ *
+ * - no `Accept` at all means the client takes anything, and the full wildcard
+ *   a `fetch()` sends, or the one at `q=0.8` every browser sends, rates both
+ *   representations through `acceptQuality`, so neither reaches the last check
+ * - a `Sec-Fetch-Mode` of `navigate` is a real navigation, and keeps its page
+ *   whatever it asked for, the same protection `prefersMarkdownError` gives
+ * - a known agent gets markdown whatever its `Accept` says, so it can never be
+ *   refused over a header it was not being read on anyway
+ * - a header with no media range in it at all is malformed, and RFC 9110 says
+ *   to ignore one of those rather than fail the request over it. `garbage` is
+ *   one, and so is a half-mangled `text/` or `/html`, which is the shape a
+ *   proxy rewriting the header leaves behind
+ *
+ * `Accept: text/markdown;q=0` reaches the last check and is a 406, on the same
+ * reading that makes `Accept: application/xml` one: a quality of zero is a
+ * refusal, and refusing both representations leaves nothing to send.
+ */
+export function notAcceptable(config: NegotiationConfig, options: {
+  method?: string
+  path: string
+  accept?: string | null
+  userAgent?: string | null
+  secFetchMode?: string | null
+}): boolean {
+  if (!config.notAcceptable) {
+    return false
+  }
+
+  const method = (options.method || 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD') {
+    return false
+  }
+
+  if (!options.accept?.trim()) {
+    return false
+  }
+
+  // Only a URL with more than one representation can refuse them all. Rules
+  // out the assets, the excluded prefixes and the `.md` twins in one call.
+  if (!isNegotiablePath(config, options.path)) {
+    return false
+  }
+
+  if (isAgentUserAgent(config, options.userAgent)) {
+    return false
+  }
+
+  if (options.secFetchMode && options.secFetchMode.toLowerCase() === 'navigate') {
+    return false
+  }
+
+  // One intelligible range is enough to judge the request on. RFC 9110 says to
+  // ignore what cannot be parsed, so `application/xml, text/` is still a
+  // refusal of both representations while `text/` on its own is not a request
+  // this can read at all.
+  const entries = parseAccept(options.accept)
+  if (!entries.some(entry => MEDIA_RANGE.test(entry.type))) {
+    return false
+  }
+
+  return REPRESENTATIONS.every(type => acceptQuality(entries, type) === 0)
 }
 
 /**
@@ -564,6 +660,7 @@ const STATUS_TEXT: Record<number, string> = {
   403: 'Forbidden',
   404: 'Page Not Found',
   405: 'Method Not Allowed',
+  406: 'Not Acceptable',
   410: 'Gone',
   429: 'Too Many Requests'
 }
@@ -593,9 +690,13 @@ export function errorMarkdown(config: NegotiationConfig, options: { path: string
     ? STATUS_TEXT[404]!
     : statusMessage || STATUS_TEXT[status] || (status < 500 ? 'Request Error' : 'Server Error')
 
+  // A 406 says which representations exist, which is the "list of available
+  // representation characteristics" RFC 9110 asks a 406 body to carry.
   const intro = status === 404
     ? `The page \`${pathname}\` does not exist on ${siteUrl}.`
-    : `The request for \`${pathname}\` failed with status ${status}.`
+    : status === 406
+      ? `\`${pathname}\` is available as ${REPRESENTATIONS.map(type => `\`${type}\``).join(' and ')}, and the request's \`Accept\` header allows neither.`
+      : `The request for \`${pathname}\` failed with status ${status}.`
 
   const links = config.links
     .filter(link => link.title)

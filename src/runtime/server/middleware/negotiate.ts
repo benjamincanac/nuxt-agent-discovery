@@ -1,7 +1,7 @@
 import { appendResponseHeader, createError, defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader, setResponseStatus } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { isNegotiablePath, negotiatedRawPath, normalizePathname, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
+import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves markdown through content negotiation on the Nitro server.
@@ -28,10 +28,10 @@ export default defineEventHandler(async (event) => {
 
   const config = useAgentDiscoveryConfig(event)
 
-  const rawPath = negotiatedRawPath(config, event.path, {
-    accept: getRequestHeader(event, 'accept'),
-    userAgent: getRequestHeader(event, 'user-agent')
-  })
+  const accept = getRequestHeader(event, 'accept')
+  const userAgent = getRequestHeader(event, 'user-agent')
+
+  const rawPath = negotiatedRawPath(config, event.path, { accept, userAgent })
 
   if (!rawPath) {
     // The HTML half of a page that has both representations. Its markdown half
@@ -44,6 +44,22 @@ export default defineEventHandler(async (event) => {
     if (isNegotiablePath(config, event.path)) {
       setResponseHeader(event, 'Vary', MARKDOWN_VARY)
     }
+
+    // Those two representations are all there is, so an `Accept` allowing
+    // neither has nothing to be served. Opt-in through `notAcceptable`, and
+    // guarded there against everything that sends a narrow `Accept` without
+    // meaning it. The error handler renders the body, listing what the page
+    // does have.
+    if (notAcceptable(config, {
+      method: event.method,
+      path: event.path,
+      accept,
+      userAgent,
+      secFetchMode: getRequestHeader(event, 'sec-fetch-mode')
+    })) {
+      throw createError({ statusCode: 406, statusMessage: 'Not Acceptable' })
+    }
+
     return
   }
 
@@ -102,12 +118,13 @@ export default defineEventHandler(async (event) => {
 
   setResponseStatus(event, response.status)
   setResponseHeader(event, 'Content-Type', response.headers.get('content-type') || 'text/markdown; charset=utf-8')
-  // The markdown half of a page that also has an HTML one. An explicit `.md`
-  // URL reaches here too and is not labelled: it serves markdown to every
-  // client, so nothing about it depends on the request headers.
-  if (isNegotiablePath(config, event.path)) {
-    setResponseHeader(event, 'Vary', MARKDOWN_VARY)
-  }
+  // The markdown half of a page that also has an HTML one, and the explicit
+  // `.md` twin that reaches here too. That URL serves markdown to every client,
+  // so nothing about it depends on the request, but it is where a negotiated
+  // page sends one, and the raw route it proxies labels its own responses the
+  // same way. Leaving it off here made the twin the one URL in the chain whose
+  // answer differed by preset.
+  setResponseHeader(event, 'Vary', MARKDOWN_VARY)
 
   for (const name of ['cache-control', 'x-content-type-options', 'x-frame-options', 'referrer-policy']) {
     const value = response.headers.get(name)

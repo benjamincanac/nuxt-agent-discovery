@@ -19,6 +19,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
     linkHeader: true,
     cachedRoutes: [],
     sitemapSections: { expand: [], labels: {} },
+    notAcceptable: false,
     ...overrides
   }
 }
@@ -63,10 +64,9 @@ describe('vercelMarkdownRoutes: Vary', () => {
     expect(matches(vary!, '/blog/x')).toBe(false)
   })
 
-  // `Vary` belongs on a URL with two representations and nowhere else. A `.md`
-  // twin only ever serves markdown, and a shared cache keyed per user-agent on
-  // the documents agents fetch most is close to no caching at all.
-  it('leaves the single-representation documents alone', () => {
+  // This route labels the HTML half only. The markdown half is the next one,
+  // so that each says why it is there.
+  it('leaves the documents that never serve HTML alone', () => {
     const [exact] = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/changelog' }] }))
     expect(matches(exact!, '/changelog')).toBe(true)
     expect(matches(exact!, '/changelog.md')).toBe(false)
@@ -79,10 +79,150 @@ describe('vercelMarkdownRoutes: Vary', () => {
   })
 })
 
+// A negotiated page rewrites or 307s to one of these, so this is the response
+// a client keeps and a shared cache stores. Labelling only the page leaves the
+// URL the hop lands on saying nothing about the pair behind it.
+describe('vercelMarkdownRoutes: Vary on the markdown representations', () => {
+  const config = createConfig({ links: [{ href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown' }] })
+  const markdown = vercelMarkdownRoutes(config)[1]
+
+  it('comes second and keeps routing, ahead of the rewrites below it', () => {
+    expect(markdown?.continue).toBe(true)
+    expect(markdown?.dest).toBeUndefined()
+    expect(markdown?.headers).toEqual({ Vary: MARKDOWN_VARY })
+  })
+
+  it('covers the raw prefix, the `.md` twins and `/sitemap.md`', () => {
+    expect(matches(markdown!, '/raw/index.md')).toBe(true)
+    expect(matches(markdown!, '/raw/docs/foo.md')).toBe(true)
+    expect(matches(markdown!, '/docs/foo.md')).toBe(true)
+    expect(matches(markdown!, '/docs/3.x/guide.md')).toBe(true)
+    expect(matches(markdown!, '/sitemap.md')).toBe(true)
+  })
+
+  it('leaves the pages and the other documents alone', () => {
+    expect(matches(markdown!, '/docs/foo')).toBe(false)
+    expect(matches(markdown!, '/')).toBe(false)
+    expect(matches(markdown!, '/llms.txt')).toBe(false)
+    expect(matches(markdown!, '/sitemap.xml')).toBe(false)
+    expect(matches(markdown!, '/logo.png')).toBe(false)
+  })
+
+  it('covers the twin of an exact pattern, and skips the root which has none', () => {
+    const [, exact] = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/' }, { path: '/changelog' }] }))
+    expect(matches(exact!, '/changelog.md')).toBe(true)
+    expect(matches(exact!, '/.md')).toBe(false)
+  })
+
+  it('follows `rawPrefix`', () => {
+    const [, moved] = vercelMarkdownRoutes(createConfig({ rawPrefix: '/md' }))
+    expect(matches(moved!, '/md/docs/foo.md')).toBe(true)
+    expect(matches(moved!, '/raw/docs/foo.md')).toBe(false)
+  })
+
+  // Keyed on the registered link: a site serving its own through
+  // `discovery.links` needs the label just as much as one using the route.
+  it('skips `/sitemap.md` when no link registers it', () => {
+    const [, none] = vercelMarkdownRoutes(createConfig())
+    expect(matches(none!, '/sitemap.md')).toBe(false)
+  })
+})
+
+// The edge half of the opt-in 406. A prerendered page is answered off the
+// filesystem and never reaches the middleware, so without this the option
+// would be on for the pages Nitro renders and off for the rest of the site.
+describe('vercelMarkdownRoutes: 406', () => {
+  const strict = createConfig({ notAcceptable: true })
+  const refusal = vercelMarkdownRoutes(strict).find(route => route.status === 406)!
+  const matcher = (route: VercelRoute, key: string, list: 'has' | 'missing') =>
+    route[list]?.find(entry => entry.key === key)?.value
+  /** The `missing` `Accept` matcher, read the way the edge reads it: anchored, case-insensitive. */
+  const accepts = (route: VercelRoute) => (header: string) =>
+    new RegExp(`^(?:${matcher(route, 'accept', 'missing')})$`, 'i').test(header)
+
+  it('is absent unless the site turns it on', () => {
+    expect(vercelMarkdownRoutes(createConfig()).some(route => route.status === 406)).toBe(false)
+    expect(refusal).toBeDefined()
+  })
+
+  it('answers the status itself, on the negotiated pages only', () => {
+    expect(refusal.dest).toBeUndefined()
+    expect(refusal.continue).toBeUndefined()
+    expect(refusal.headers).toEqual({ Vary: MARKDOWN_VARY })
+    expect(matches(refusal, '/docs/foo')).toBe(true)
+    expect(matches(refusal, '/docs/foo.md')).toBe(false)
+    expect(matches(refusal, '/api/x')).toBe(false)
+    expect(matches(refusal, '/logo.png')).toBe(false)
+  })
+
+  // The middleware's guards, as matchers: an `Accept` has to be there and
+  // carry a media range, must not offer a representation, and a navigation or
+  // a known agent is never refused.
+  it('carries the same guards the middleware applies', () => {
+    const offers = accepts(refusal)
+    expect(offers('text/html,application/xhtml+xml,*/*;q=0.8')).toBe(true)
+    expect(offers('*/*')).toBe(true)
+    expect(offers('text/*')).toBe(true)
+    expect(offers('text/markdown')).toBe(true)
+    expect(offers('application/xml')).toBe(false)
+    expect(offers('image/png, application/pdf')).toBe(false)
+
+    // Present and carrying a media range, so a mangled header cannot refuse.
+    // Both halves have to be there, or the edge would 406 what the origin
+    // serves, which is the one divergence this route cannot have.
+    const present = new RegExp(`^(?:${matcher(refusal, 'accept', 'has')})$`, 'i')
+    expect(present.test('application/xml')).toBe(true)
+    expect(present.test('image/png, application/pdf')).toBe(true)
+    expect(present.test('garbage')).toBe(false)
+    expect(present.test('text/')).toBe(false)
+    expect(present.test('/html')).toBe(false)
+    expect(present.test('text/html/extra')).toBe(false)
+
+    expect(matcher(refusal, 'sec-fetch-mode', 'missing')).toBe('navigate')
+    expect(matcher(refusal, 'user-agent', 'missing')).toContain('ClaudeBot')
+  })
+
+  // A bare substring matched a supported type inside a parameter value, so
+  // `application/json;profile="text/html"` read as offering HTML when the only
+  // range in it is JSON. Anchored at media-range boundaries the same way the
+  // rewrite matcher already was.
+  it('does not read a supported type out of a parameter value', () => {
+    const offers = accepts(refusal)
+    expect(offers('application/json;profile="text/html"')).toBe(false)
+    expect(offers('application/json;profile="text/markdown", image/png')).toBe(false)
+    expect(offers('text/htmlish')).toBe(false)
+    // The real range still counts wherever it sits in the list.
+    expect(offers('application/json;profile="x", text/html')).toBe(true)
+  })
+
+  // A comma inside a quoted value is not a list separator, so the fragment
+  // after it is not the head of a new media range. Reading it as one put the
+  // quoted `text/html` at the front of an entry and skipped the refusal.
+  it('does not split the header on a comma inside a quoted value', () => {
+    const offers = accepts(refusal)
+    expect(offers('application/json;profile="x,text/html;q=0"')).toBe(false)
+    expect(offers('application/json;profile="a,text/markdown"')).toBe(false)
+    // A separator outside the quotes still separates.
+    expect(offers('application/json;profile="a,b", text/html')).toBe(true)
+  })
+
+  // A matcher is a plain regex over the raw header, so a representation
+  // offered and then refused at `q=0` still reads as offered. The edge serves
+  // the page where the origin answers 406, which is the fail-safe direction.
+  it('is lenient about `q=0` where the runtime is strict', () => {
+    expect(accepts(refusal)('text/markdown;q=0')).toBe(true)
+  })
+
+  it('drops the user-agent guard when the site emptied the agent list', () => {
+    const none = vercelMarkdownRoutes(createConfig({ notAcceptable: true, userAgents: [] })).find(route => route.status === 406)!
+    expect(none.missing?.some(entry => entry.key === 'user-agent')).toBe(false)
+  })
+})
+
 describe('vercelMarkdownRoutes: Link', () => {
   it('emits a continue route on the homepage when links exist', () => {
     const config = createConfig({ links: LINKS })
-    const link = vercelMarkdownRoutes(config)[1]
+    const link = vercelMarkdownRoutes(config)[2]
     expect(link?.src).toBe('^/$')
     expect(link?.continue).toBe(true)
     expect(link?.headers).toEqual({ Link: formatLinkHeader(LINKS) })
@@ -91,29 +231,29 @@ describe('vercelMarkdownRoutes: Link', () => {
   it('is absent without links', () => {
     const routes = vercelMarkdownRoutes(createConfig())
     expect(routes.filter(route => route.headers?.Link)).toHaveLength(0)
-    expect(routes[1]?.dest).toBeDefined()
+    expect(routes[2]?.dest).toBeDefined()
   })
 })
 
 describe('vercelMarkdownRoutes: route count', () => {
-  it('emits 3 rewrites per glob pattern and 2 for the exact root', () => {
+  it('emits 3 rewrites per glob pattern and 2 for the exact root, behind the two `Vary` routes', () => {
     const routes = vercelMarkdownRoutes(createConfig())
     expect(rewrites(routes).filter(route => route.dest === '/raw/docs/$1.md')).toHaveLength(3)
     expect(rewrites(routes).filter(route => route.dest === '/raw/index.md')).toHaveLength(2)
-    expect(routes).toHaveLength(6)
+    expect(routes).toHaveLength(7)
   })
 
   it('emits 3 rewrites for an exact pattern that is not the root', () => {
     const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/changelog' }] }))
     expect(rewrites(routes).filter(route => route.dest === '/raw/changelog.md')).toHaveLength(3)
-    expect(routes).toHaveLength(4)
+    expect(routes).toHaveLength(5)
   })
 
   it('stays O(patterns), never O(pages)', () => {
     const base = createConfig()
     const many = createConfig({ routes: [...base.routes, { path: '/blog/**' }, { path: '/*/docs/**' }] })
-    expect(vercelMarkdownRoutes(base)).toHaveLength(6)
-    expect(vercelMarkdownRoutes(many)).toHaveLength(6 + 3 + 3)
+    expect(vercelMarkdownRoutes(base)).toHaveLength(7)
+    expect(vercelMarkdownRoutes(many)).toHaveLength(7 + 3 + 3)
     // Nothing in the table depends on the pages behind a pattern.
     expect(JSON.stringify(vercelMarkdownRoutes(base))).not.toContain('foo')
   })
