@@ -18,6 +18,13 @@ export default defineNuxtConfig({
       }
     }
   },
+  // One cached section under an uncached catch-all, which is the split the
+  // Build Output table has to get right: `/docs/components/**` redirects to its
+  // raw twin because a path-keyed cache cannot hold two variants, while every
+  // other page keeps a URL-preserving rewrite.
+  routeRules: {
+    '/docs/components/**': { isr: 60 }
+  },
   compatibilityDate: '2026-01-01',
 
   agentDiscovery: {
