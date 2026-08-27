@@ -397,9 +397,27 @@ describe('notAcceptable', () => {
 
   // RFC 9110 says to ignore a header it cannot parse rather than fail the
   // request over it, and a proxy mangling `Accept` must not take a page down.
+  // A half-mangled range is the shape one of those leaves behind.
   it('ignores an `Accept` carrying no media range at all', () => {
     expect(notAcceptable(strict, { path: '/docs/foo', accept: 'garbage' })).toBe(false)
     expect(notAcceptable(strict, { path: '/docs/foo', accept: ',,' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: '/html' })).toBe(false)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'text/html/extra' })).toBe(false)
+  })
+
+  // One intelligible range is enough to judge the request on, so a mangled
+  // entry alongside a real one does not buy a page back.
+  it('still refuses when a real range sits next to a mangled one', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/xml, text/' })).toBe(true)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'garbage, text/html' })).toBe(false)
+  })
+
+  // The type has to be a range of its own, not a string inside a parameter
+  // value. The edge matcher was reading one out of there and serving the page.
+  it('does not read a representation out of a parameter value', () => {
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/json;profile="text/html"' })).toBe(true)
+    expect(notAcceptable(strict, { path: '/docs/foo', accept: 'application/json;profile="x", text/html' })).toBe(false)
   })
 })
 

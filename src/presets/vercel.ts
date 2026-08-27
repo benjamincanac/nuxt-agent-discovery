@@ -46,22 +46,36 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\
  */
 const REFUSES_MARKDOWN = String.raw`.*text/markdown\s*;\s*[qQ]=0(\.0+)?(\s*[;,].*)?`
 
+/** A media range half: a non-empty RFC 9110 token, which `*` is one of. */
+const TOKEN = String.raw`[a-z0-9!#$%&'*+.^_|~-]+`
+
 /**
- * `Accept` values leaving a negotiated page something to serve: an `text/html`
+ * `Accept` values leaving a negotiated page something to serve: a `text/html`
  * or `text/markdown` range, or a wildcard covering one of them.
  *
  * The `missing` matcher for the 406 route, so the page is refused only when
- * this does not match. A substring test, not the q-value ranking the runtime
- * does, for the same reason `REFUSES_MARKDOWN` exists: a matcher is a plain
- * regex over the raw header. So a representation offered and then refused with
- * `q=0` still reads as offered here, and the edge serves the page where the
- * origin would answer 406. That is the fail-safe direction, and the one this
- * route wants above all others.
+ * this does not match. Anchored at media-range boundaries the same way
+ * `acceptMarkdown` is, and for the same reason: a bare substring also matches
+ * inside a parameter value, so `Accept: application/json;profile="text/html"`
+ * read as offering HTML when the only range in it is JSON.
+ *
+ * Still not the q-value ranking the runtime does, because a matcher is a plain
+ * regex over the raw header. A representation offered and then refused with
+ * `q=0` reads as offered here, so the edge serves the page where the origin
+ * answers 406. That is the fail-safe direction, and the one this route wants
+ * above all others.
  */
-const ACCEPTS_A_REPRESENTATION = String.raw`.*(text/(html|markdown|\*)|\*/\*).*`
+const ACCEPTS_A_REPRESENTATION = String.raw`(.*,)?\s*(text/(html|markdown|\*)|\*/\*)\s*([;,].*)?`
 
-/** An `Accept` carrying at least one media range, however unacceptable. */
-const ANY_MEDIA_RANGE = String.raw`.*/.*`
+/**
+ * An `Accept` carrying at least one media range, however unacceptable.
+ *
+ * Both halves have to be there: `text/`, `/html` and `text/html/extra` are
+ * mangled rather than unacceptable, and the runtime ignores those rather than
+ * refusing over them. A looser test here would 406 at the edge what the origin
+ * serves, which is the one divergence this route cannot have.
+ */
+const ANY_MEDIA_RANGE = String.raw`(.*,)?\s*${TOKEN}/${TOKEN}\s*([;,].*)?`
 
 /** `has` matcher for the Vercel Build Output API, which anchors the value. */
 function agentUserAgentPattern(config: NegotiationConfig): string {

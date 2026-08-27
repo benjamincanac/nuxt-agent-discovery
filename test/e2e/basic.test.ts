@@ -89,6 +89,23 @@ describe('406 on a page whose representations were all refused', () => {
     expect(response.status).toBe(406)
   })
 
+  // The only range here is JSON. A supported type sitting inside a parameter
+  // value is not an offer, which the edge matcher has to agree on.
+  it('does not read a representation out of a parameter value', async () => {
+    const response = await fetch('/docs/getting-started', { headers: { Accept: 'application/json;profile="text/html"' } })
+
+    expect(response.status).toBe(406)
+  })
+
+  // A mangled header is not an unacceptable one, so a proxy rewriting `Accept`
+  // cannot take a page down.
+  it('serves the page for a half-mangled `Accept`', async () => {
+    for (const accept of ['text/', '/html', 'text/html/extra']) {
+      const response = await fetch('/docs/getting-started', { headers: { Accept: accept } })
+      expect(response.status, accept).toBe(200)
+    }
+  })
+
   it('keeps serving every client that sends a wildcard', async () => {
     for (const accept of [BROWSER_ACCEPT, '*/*', 'text/*']) {
       const response = await fetch('/docs/getting-started', { headers: { Accept: accept } })
@@ -377,6 +394,25 @@ describe('openapi fragments', () => {
     // A client generator turns these into method names, so a duplicate would
     // silently drop an operation.
     expect(new Set(Object.values(ids)).size).toBe(Object.values(ids).length)
+  })
+
+  // `notAcceptable: true` in this fixture, so the pages can answer 406 and the
+  // document has to say so or a generated client will not handle it.
+  it('describes the 406 where the site turned strict negotiation on', async () => {
+    const doc = (await (await fetch('/openapi.json')).json()) as {
+      paths: Record<string, { get: { responses: Record<string, unknown> } }>
+      components: { responses: Record<string, { content: Record<string, unknown>, headers: Record<string, unknown> }> }
+    }
+
+    expect(doc.paths['/']!.get.responses['406']).toEqual({ $ref: '#/components/responses/NotAcceptable' })
+    expect(doc.paths['/{path}']!.get.responses['406']).toEqual({ $ref: '#/components/responses/NotAcceptable' })
+    // Only the pages negotiate, so only the pages can refuse them all.
+    expect(doc.paths['/raw/index.md']!.get.responses).not.toHaveProperty('406')
+    expect(doc.paths['/sitemap.md']!.get.responses).not.toHaveProperty('406')
+
+    const response = doc.components.responses.NotAcceptable!
+    expect(response.headers.Vary).toEqual({ $ref: '#/components/headers/Vary' })
+    expect(Object.keys(response.content)).toEqual(['text/markdown', 'application/json'])
   })
 
   it('only describes the discovery documents this site actually serves', async () => {
