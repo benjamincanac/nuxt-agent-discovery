@@ -376,6 +376,16 @@ export function isNegotiablePath(config: NegotiationConfig, path: string): boole
 export const REPRESENTATIONS = ['text/html', 'text/markdown']
 
 /**
+ * A media range as RFC 9110 spells one: a full wildcard, `type/*`, or
+ * `type/subtype`, each half a non-empty token.
+ *
+ * `text/`, `/html` and `text/html/extra` are not media ranges, they are a
+ * mangled header, and the difference matters: an unacceptable range is a 406
+ * while a mangled one is ignored.
+ */
+const MEDIA_RANGE = /^[a-z0-9!#$%&'*+.^_|~-]+\/[a-z0-9!#$%&'*+.^_|~-]+$/
+
+/**
  * Whether a negotiated page has to answer 406: the request carries an `Accept`
  * that rules out both of its representations, which is what RFC 9110 asks for
  * when a server cannot honour the header.
@@ -391,7 +401,9 @@ export const REPRESENTATIONS = ['text/html', 'text/markdown']
  * - a known agent gets markdown whatever its `Accept` says, so it can never be
  *   refused over a header it was not being read on anyway
  * - a header with no media range in it at all is malformed, and RFC 9110 says
- *   to ignore one of those rather than fail the request over it
+ *   to ignore one of those rather than fail the request over it. `garbage` is
+ *   one, and so is a half-mangled `text/` or `/html`, which is the shape a
+ *   proxy rewriting the header leaves behind
  *
  * `Accept: text/markdown;q=0` reaches the last check and is a 406, on the same
  * reading that makes `Accept: application/xml` one: a quality of zero is a
@@ -431,8 +443,12 @@ export function notAcceptable(config: NegotiationConfig, options: {
     return false
   }
 
+  // One intelligible range is enough to judge the request on. RFC 9110 says to
+  // ignore what cannot be parsed, so `application/xml, text/` is still a
+  // refusal of both representations while `text/` on its own is not a request
+  // this can read at all.
   const entries = parseAccept(options.accept)
-  if (!entries.some(entry => entry.type.includes('/'))) {
+  if (!entries.some(entry => MEDIA_RANGE.test(entry.type))) {
     return false
   }
 

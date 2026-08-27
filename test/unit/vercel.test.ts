@@ -136,6 +136,9 @@ describe('vercelMarkdownRoutes: 406', () => {
   const refusal = vercelMarkdownRoutes(strict).find(route => route.status === 406)!
   const matcher = (route: VercelRoute, key: string, list: 'has' | 'missing') =>
     route[list]?.find(entry => entry.key === key)?.value
+  /** The `missing` `Accept` matcher, read the way the edge reads it: anchored, case-insensitive. */
+  const accepts = (route: VercelRoute) => (header: string) =>
+    new RegExp(`^(?:${matcher(route, 'accept', 'missing')})$`, 'i').test(header)
 
   it('is absent unless the site turns it on', () => {
     expect(vercelMarkdownRoutes(createConfig()).some(route => route.status === 406)).toBe(false)
@@ -156,29 +159,47 @@ describe('vercelMarkdownRoutes: 406', () => {
   // carry a media range, must not offer a representation, and a navigation or
   // a known agent is never refused.
   it('carries the same guards the middleware applies', () => {
-    const offers = new RegExp(matcher(refusal, 'accept', 'missing')!, 'i')
-    expect(offers.test('text/html,application/xhtml+xml,*/*;q=0.8')).toBe(true)
-    expect(offers.test('*/*')).toBe(true)
-    expect(offers.test('text/*')).toBe(true)
-    expect(offers.test('text/markdown')).toBe(true)
-    expect(offers.test('application/xml')).toBe(false)
-    expect(offers.test('image/png, application/pdf')).toBe(false)
+    const offers = accepts(refusal)
+    expect(offers('text/html,application/xhtml+xml,*/*;q=0.8')).toBe(true)
+    expect(offers('*/*')).toBe(true)
+    expect(offers('text/*')).toBe(true)
+    expect(offers('text/markdown')).toBe(true)
+    expect(offers('application/xml')).toBe(false)
+    expect(offers('image/png, application/pdf')).toBe(false)
 
     // Present and carrying a media range, so a mangled header cannot refuse.
-    const present = new RegExp(matcher(refusal, 'accept', 'has')!, 'i')
+    // Both halves have to be there, or the edge would 406 what the origin
+    // serves, which is the one divergence this route cannot have.
+    const present = new RegExp(`^(?:${matcher(refusal, 'accept', 'has')})$`, 'i')
     expect(present.test('application/xml')).toBe(true)
+    expect(present.test('image/png, application/pdf')).toBe(true)
     expect(present.test('garbage')).toBe(false)
+    expect(present.test('text/')).toBe(false)
+    expect(present.test('/html')).toBe(false)
+    expect(present.test('text/html/extra')).toBe(false)
 
     expect(matcher(refusal, 'sec-fetch-mode', 'missing')).toBe('navigate')
     expect(matcher(refusal, 'user-agent', 'missing')).toContain('ClaudeBot')
+  })
+
+  // A bare substring matched a supported type inside a parameter value, so
+  // `application/json;profile="text/html"` read as offering HTML when the only
+  // range in it is JSON. Anchored at media-range boundaries the same way the
+  // rewrite matcher already was.
+  it('does not read a supported type out of a parameter value', () => {
+    const offers = accepts(refusal)
+    expect(offers('application/json;profile="text/html"')).toBe(false)
+    expect(offers('application/json;profile="text/markdown", image/png')).toBe(false)
+    expect(offers('text/htmlish')).toBe(false)
+    // The real range still counts wherever it sits in the list.
+    expect(offers('application/json;profile="x", text/html')).toBe(true)
   })
 
   // A matcher is a plain regex over the raw header, so a representation
   // offered and then refused at `q=0` still reads as offered. The edge serves
   // the page where the origin answers 406, which is the fail-safe direction.
   it('is lenient about `q=0` where the runtime is strict', () => {
-    const offers = new RegExp(matcher(refusal, 'accept', 'missing')!, 'i')
-    expect(offers.test('text/markdown;q=0')).toBe(true)
+    expect(accepts(refusal)('text/markdown;q=0')).toBe(true)
   })
 
   it('drops the user-agent guard when the site emptied the agent list', () => {
