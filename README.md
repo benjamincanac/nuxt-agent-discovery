@@ -177,7 +177,9 @@ export default defineNuxtConfig({
 })
 ```
 
-It produces the same document the `@nuxt/content` adapter does, byte for byte, which is what makes swapping backend a one-file change. Same rendering format, the `# title` / `> description` lead added only when the body doesn't already open on an `h1`, the related links from `links` frontmatter appended the same way, site-relative links absolutized on the tree, and a highlighter's `<style>` node dropped rather than rendered (comark declares `removeLastStyle` and doesn't implement it). `test/e2e/shared.ts` holds all three adapters to the same expected bytes.
+It produces the same document the `@nuxt/content` adapter does for prose, which is what makes swapping backend close to a one-file change. Same rendering format, the `# title` / `> description` lead added only when the body doesn't already open on an `h1`, the related links from `links` frontmatter appended the same way, site-relative links absolutized on the tree, and a highlighter's `<style>` node dropped rather than rendered (comark declares `removeLastStyle` and doesn't implement it). `test/e2e/shared.ts` holds all three adapters to the same expected bytes.
+
+**Components are the exception.** comark and minimark serialize a component block with different blank lines around its children, so `::callout` renders as `<callout type="warning">\nCareful.\n</callout>` through comark and `<callout type="warning">\n\nCareful.\n\n\n\n</callout>` through `@nuxt/content`. The content is the same and both parse the same; only the whitespace differs, and it compounds when components nest. Diff a page carrying components before pointing a comark site at this, rather than taking the prose equivalence as covering it. `test/unit/comark.test.ts` pins the current difference so a change in either stringifier shows up here rather than during a migration.
 
 `agent-discovery:document` fires here too. The `page` it receives is comark's own `ContentFile`, so a transformer mutates `page.nodes` rather than `page.body.value`.
 

@@ -58,10 +58,10 @@ Establish and write down:
 - **The raw prefix.** Read it off the links in `sitemap.md`, which point at raw twins. `/raw` is the default, and every command below uses `$RAW` rather than assuming it:
 
 ```sh
-# The longest common leading path of the twins, so a multi-segment prefix like
-# `/docs/raw` survives. Stripping only the first segment would target `/docs`.
-RAW=$(curl -sS "$PREVIEW/sitemap.md" | grep -oE '\]\(https?://[^)]+\.md' | sed 's|.*://[^/]*||' \
-  | awk -F/ 'NR==1{n=NF; for(i=1;i<NF;i++) p[i]=$i; next} {if(NF<n) n=NF; for(i=1;i<n;i++) if(p[i]!=$i){n=i; break}} END{s=""; for(i=2;i<n;i++) s=s "/" p[i]; print s}')
+# Taken from the homepage twin, which is always `<prefix>/index.md`. Inferring
+# a common prefix instead collapses on a site whose pages all share a section:
+# `/raw/docs/a.md` and `/raw/docs/b.md` would give `/raw/docs`.
+RAW=$(curl -sS "$PREVIEW/sitemap.md" | grep -oE 'https?://[^)]+/index\.md' | head -1 | sed -e 's|.*://[^/]*||' -e 's|/index\.md$||')
 RAW=${RAW:-/raw}
 echo "$RAW"
 ```
@@ -239,7 +239,7 @@ grep -oE '\]\([^)]+\)' /tmp/llms.txt | grep -v '\.md)' | head       # same-origi
 ```sh
 # The homepage is `/` in the sitemap and `/index` in a raw twin, so both sides
 # are folded to `/` before the diff. Without that a correct site reports one.
-home() { sed -e 's|^/index$|/|' -e 's|^$|/|' -e 's|\(.\)/$|\1|' | sort -u; }
+home() { sed -e 's|\(.\)/$|\1|' -e 's|^/index$|/|' -e 's|^$|/|' | sort -u; }
 grep -oE 'https?://[^)]+\.md' /tmp/llms.txt | sed "s|.*$RAW||;s|\.md$||" | home > /tmp/llms-pages
 diff <(home < /tmp/pages) /tmp/llms-pages | head -40
 ```

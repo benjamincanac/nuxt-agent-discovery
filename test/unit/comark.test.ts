@@ -155,3 +155,40 @@ describe('comark listing', () => {
     expect(await source.get(leaf!, event)).toBeTruthy()
   })
 })
+
+/**
+ * Where the two backends stop agreeing.
+ *
+ * The rest of this file, and `test/e2e/shared.ts`, assert that comark and
+ * `@nuxt/content` serve the same bytes. That holds for prose and stops holding
+ * at component blocks: the two stringifiers put different blank lines around a
+ * component's children. Both parse back to the same document and no adopter is
+ * affected yet, since the sites running this module use `@nuxt/content` or a
+ * custom source, so the divergence is pinned here rather than papered over.
+ *
+ * Pinned, not asserted as correct. If either stringifier changes its spacing
+ * this fails, which is the point: it should surface here and not halfway
+ * through migrating a comark site full of MDC.
+ */
+describe('comark vs minimark: the known divergence', () => {
+  const nodes = [['callout', { type: 'warning' }, ['p', {}, 'Careful.']]] as never[]
+
+  it('agrees on prose', async () => {
+    const { render } = await import('comark/render')
+    const { stringify } = await import('minimark/stringify')
+    const prose = [['p', {}, 'Just prose.']] as never[]
+
+    expect(await render({ nodes: prose }, { format: 'markdown/html' }))
+      .toBe(stringify({ type: 'minimark', value: prose }, { format: 'markdown/html' }))
+  })
+
+  it('differs on the blank lines inside a component block', async () => {
+    const { render } = await import('comark/render')
+    const { stringify } = await import('minimark/stringify')
+
+    expect(await render({ nodes }, { format: 'markdown/html' }))
+      .toBe('<callout type="warning">\nCareful.\n</callout>\n')
+    expect(stringify({ type: 'minimark', value: nodes }, { format: 'markdown/html' }))
+      .toBe('<callout type="warning">\n\nCareful.\n\n\n\n</callout>\n')
+  })
+})
