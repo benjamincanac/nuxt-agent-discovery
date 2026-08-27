@@ -89,6 +89,15 @@ async function setupModule(options: Partial<ModuleOptions> = {}, routeRules: Rec
   return nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
 }
 
+describe('module setup: notAcceptable', () => {
+  // Off unless asked for. The strictly correct 406 breaks any client sending a
+  // narrow `Accept` it did not mean, so a site has to opt into it.
+  it('is off by default and carried into the runtime config when set', async () => {
+    expect((await setupModule()).notAcceptable).toBe(false)
+    expect((await setupModule({ notAcceptable: true })).notAcceptable).toBe(true)
+  })
+})
+
 describe('module setup: shared defaults', () => {
   it('never mutates the module-level defaults, however many instances run', async () => {
     const first = await setupModule()

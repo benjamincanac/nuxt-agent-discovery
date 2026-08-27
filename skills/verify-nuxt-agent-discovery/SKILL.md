@@ -103,19 +103,22 @@ Run every row against `$HOME` and `$DOC`, plus one page from each class the swee
 | `show -H 'Accept: text/markdown' "$PREVIEW$DOC"` | markdown body, `content-type: text/markdown`, 200 at the same URL (307 to the raw twin on a cached pattern, HTML on a non-Vercel host when the page is prerendered) |
 | `show -A "$BOT" "$PREVIEW$DOC"` | same markdown, no `Accept` header needed |
 | `probe -A "$GPT" "$PREVIEW$DOC"` | same as ClaudeBot |
-| `show "$PREVIEW$DOC.md"` | markdown, 200, a rewrite even on a cached pattern |
+| `show "$PREVIEW$DOC.md"` | markdown, 200, a rewrite even on a cached pattern, `vary` contains `Accept` and `User-Agent` |
+| `probe "$PREVIEW$RAW${DOC}.md"` | markdown, 200, same `vary`. This is where a 307 lands, so it is the response a shared cache stores |
+| `probe "$PREVIEW/sitemap.md"` | markdown, 200, same `vary` |
 | `probe -H 'Accept: text/markdown;q=0.5, text/html;q=0.9' "$PREVIEW$DOC"` | HTML **on an uncached pattern whose twin is not prerendered**, which is the only deterministic case: pick that `$DOC`. A CDN matcher cannot rank q-values, so a prerendered twin answers markdown at the edge and a cached pattern answers 307, both before the origin can rank anything. Documented in the README, not a bug |
 | `probe -H 'Accept: text/markdown;q=0.9, text/html;q=0.5' "$PREVIEW$DOC"` | markdown |
 | `probe -H 'Accept: text/markdown;q=0' "$PREVIEW$DOC"` | HTML |
 | `probe -H 'Accept: */*' "$PREVIEW$DOC"` | HTML, a wildcard never counts as asking |
 | `probe -H 'Accept: text/plain' "$PREVIEW$DOC"` | HTML, only `text/markdown` counts |
+| `probe -H 'Accept: application/xml' "$PREVIEW$DOC"` | HTML, unless the site set `notAcceptable: true`, which makes it a 406. Check the site's config before calling either one a failure |
 | `probe -A "$BOT" "$PREVIEW$UNCOVERED"` | HTML, an unconfigured page must not start negotiating |
 | `probe -A "$BOT" "$PREVIEW$DOC?ref=x"` | markdown, and if it is a 307 the `location` keeps `?ref=x` |
 | `probe -A "$BOT" -I "$PREVIEW$DOC"` | same status and headers as the GET. `-I`, not `-X HEAD`, which makes curl wait for a body that never comes |
 
 Two things that fail quietly, so check them explicitly:
 
-- **`Vary: Accept, User-Agent` is present on the markdown responses too**, including the ones served straight off the CDN rewrite. This is the `continue: true` fix most hand-rolled implementations get wrong. A markdown response with no `Vary` poisons the shared cache for browsers.
+- **`Vary: Accept, User-Agent` is present on the markdown responses too**, including the ones served straight off the CDN rewrite and the prerendered `/sitemap.md` and `/raw/index.md`. This is the `continue: true` fix most hand-rolled implementations get wrong. A markdown response with no `Vary` poisons the shared cache for browsers, and a checker following a 307 to the raw twin sees a URL with two representations behind it and no header saying so.
 - **The three markdown representations are byte-identical.**
 
 ```sh
@@ -332,7 +335,7 @@ jq '.routes | length' .vercel/output/config.json
 jq '.routes[0:6]' .vercel/output/config.json
 ```
 
-- The first route sets `Vary: Accept, User-Agent` with `continue: true`, ahead of anything Nitro emits from `routeRules`. The `Link` route on `/` does too.
+- The first route sets `Vary: Accept, User-Agent` on the pages with `continue: true`, ahead of anything Nitro emits from `routeRules`. The second sets it on the markdown representations: the raw prefix, the `.md` twins and `/sitemap.md`. The `Link` route on `/` carries `continue: true` too.
 - Two negotiated routes per configured pattern, one matching `Accept`, one matching the agent user agents. Prerendered patterns rewrite with `check: true`, cached patterns 307.
 - Total route count tracks the pattern count, not the page count.
 
@@ -353,7 +356,7 @@ Every finding lands in one of two repos, and the fix is different in each. Attri
 
 | Symptom | Likely owner | Confirm by |
 |---|---|---|
-| No `Vary` on a markdown response, or none on `/` | module, `src/presets/vercel.ts` | check the site does not override headers for that path in `routeRules` |
+| No `Vary` on a markdown response, or none on `/` | module, `src/presets/vercel.ts` | check the site does not override headers for that path in `routeRules`. Off Vercel a prerendered `/sitemap.md` or `/raw/index.md` is served off disk and carries none, which is the documented caveat, not a bug |
 | `text/plain` or `q=0` decided wrong, wildcard treated as asking | module, `src/runtime/shared/negotiation.ts` | a unit test in the module's `test/`, it is pure logic |
 | A whole section serves HTML to agents | site, `routes` patterns | does the pattern actually cover it? if it plainly does, the module's `compilePattern`/`matchRoute` |
 | `.md` twin 404s while `/raw/**.md` answers | module, `rawDestination` or the preset rewrite | unless an `excludePrefixes` entry on the site swallows that path |

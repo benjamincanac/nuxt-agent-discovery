@@ -46,6 +46,23 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\
  */
 const REFUSES_MARKDOWN = String.raw`.*text/markdown\s*;\s*[qQ]=0(\.0+)?(\s*[;,].*)?`
 
+/**
+ * `Accept` values leaving a negotiated page something to serve: an `text/html`
+ * or `text/markdown` range, or a wildcard covering one of them.
+ *
+ * The `missing` matcher for the 406 route, so the page is refused only when
+ * this does not match. A substring test, not the q-value ranking the runtime
+ * does, for the same reason `REFUSES_MARKDOWN` exists: a matcher is a plain
+ * regex over the raw header. So a representation offered and then refused with
+ * `q=0` still reads as offered here, and the edge serves the page where the
+ * origin would answer 406. That is the fail-safe direction, and the one this
+ * route wants above all others.
+ */
+const ACCEPTS_A_REPRESENTATION = String.raw`.*(text/(html|markdown|\*)|\*/\*).*`
+
+/** An `Accept` carrying at least one media range, however unacceptable. */
+const ANY_MEDIA_RANGE = String.raw`.*/.*`
+
 /** `has` matcher for the Vercel Build Output API, which anchors the value. */
 function agentUserAgentPattern(config: NegotiationConfig): string {
   return `.*(${config.userAgents.map(escapeRegExp).join('|')}).*`
@@ -105,11 +122,13 @@ function negotiatedRoute(src: string, dest: string, has: RouteMatcher[], cached:
  * serve markdown through content negotiation at the edge, where prerendered
  * pages never reach Nitro. The table stays O(route patterns), never O(pages).
  *
- * The `Vary` route must come first and carry `continue: true`: Nitro emits its
- * own `routeRules` header routes *after* these rewrites and without
+ * The two `Vary` routes must come first and carry `continue: true`: Nitro emits
+ * its own `routeRules` header routes *after* these rewrites and without
  * `continue`, so they never run for a request that gets rewritten to a
- * prerendered raw markdown file. It covers cached patterns too, even though
- * their 307 carries `Vary` itself, so the HTML variant is labelled as well.
+ * prerendered raw markdown file. The first labels the pages, cached patterns
+ * included even though their 307 carries `Vary` itself, so the HTML variant is
+ * labelled as well; the second labels the markdown representations those pages
+ * send a client to.
  */
 export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // `text/markdown` at the head of a media range, not anywhere in the header.
@@ -145,14 +164,74 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // routing. The dotted-segment lookahead is what keeps this off the documents
   // that have a single representation: without it this route labelled
   // `/llms.txt`, `/robots.txt`, `/sitemap.xml` and every file in `public/`,
-  // which fragments a shared cache per user-agent for nothing. `.md` twins are
-  // excluded by the same rule, and want to be: that URL only serves markdown.
+  // which fragments a shared cache per user-agent for nothing. It takes the
+  // `.md` twins out too, which the route below puts back deliberately.
   const varySources = config.routes.map(route => compilePattern(route.path).source.slice(1, -1))
   routes.push({
     src: `^${NO_DOTTED_LAST_SEGMENT}${excluded}(?:${varySources.join('|')})$`,
     headers: { Vary: MARKDOWN_VARY },
     continue: true
   })
+
+  // The markdown representations themselves: everything under the raw prefix,
+  // the `.md` twins, and `/sitemap.md`. Their own handlers set the header, but
+  // a prerendered file never reaches a handler, and a request one of the
+  // rewrites below matches never reaches what Nitro emits from `routeRules`
+  // either.
+  //
+  // A negotiated page rewrites or 307s to one of these, so the response a
+  // client keeps, and the one a shared cache stores, is the twin's. Labelling
+  // only the page leaves the URL the hop actually lands on saying nothing about
+  // the two representations behind it, which is what a checker following the
+  // redirect sees. The cost is a shared cache keyed per user-agent on these
+  // documents, which is why they were left alone until it turned out the
+  // negotiated pair has to be consistent end to end.
+  const twinSources = config.routes.flatMap((route) => {
+    if (route.path.includes('*')) {
+      return [`${excluded}${compilePattern(route.path).source.slice(1, -1)}\\.md`]
+    }
+    // `/` has no `.md` twin URL, matching the rewrite loop below.
+    return route.path === '/' ? [] : [`${escapeRegExp(route.path)}\\.md`]
+  })
+  // Keyed on the registered link rather than on this module serving the route,
+  // the same way the exclusion is: a site with `sitemap.markdown` off that
+  // serves its own through `discovery.links` needs the label just as much.
+  const markdownSources = [
+    `${escapeRegExp(config.rawPrefix)}/.*`,
+    ...twinSources,
+    ...(config.links.some(link => link.href === '/sitemap.md') ? [String.raw`/sitemap\.md`] : [])
+  ]
+  routes.push({
+    src: `^(?:${markdownSources.join('|')})$`,
+    headers: { Vary: MARKDOWN_VARY },
+    continue: true
+  })
+
+  // Opt-in: a negotiated page has exactly two representations, so an `Accept`
+  // allowing neither is a 406 per RFC 9110 rather than a page the client just
+  // said it cannot read. Emitted here as well as in the middleware because a
+  // prerendered page is answered off the filesystem and never reaches it, so
+  // without this the option would be on for the pages Nitro renders and
+  // quietly off for the rest of the site.
+  //
+  // The guards are the middleware's, as matchers: an `Accept` has to be there
+  // and carry a media range at all, must not offer a representation, and a
+  // navigation or a known agent is never refused. The body is empty, where the
+  // origin renders the markdown one, which is the price of answering before
+  // anything runs.
+  if (config.notAcceptable) {
+    routes.push({
+      src: `^${NO_DOTTED_LAST_SEGMENT}${excluded}(?:${varySources.join('|')})$`,
+      status: 406,
+      headers: { Vary: MARKDOWN_VARY },
+      has: [{ type: 'header', key: 'accept', value: ANY_MEDIA_RANGE }],
+      missing: [
+        { type: 'header', key: 'accept', value: ACCEPTS_A_REPRESENTATION },
+        { type: 'header', key: 'sec-fetch-mode', value: 'navigate' },
+        ...(agentUserAgent ? [agentUserAgent] : [])
+      ]
+    })
+  }
 
   // The `/` routeRule carries the same `Link` header, but a homepage request
   // rewritten below to a prerendered raw markdown file never reaches it.

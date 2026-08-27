@@ -2,6 +2,7 @@ import { defineEventHandler, setResponseHeader } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { listAgentPages } from '../utils/pages'
+import { MARKDOWN_VARY } from '../../shared/negotiation'
 
 const escapeLabel = (label: string) => label
   .replace(/\\/g, '\\\\')
@@ -17,6 +18,9 @@ const escapeLabel = (label: string) => label
  * the middleware and the `llms.txt` bridge resolve. Hand-rolling the twin here
  * put `/` on the HTML page while `llms.txt` pointed it at `/raw/index.md`, in
  * two documents an agent reads together, and ignored `raw` overrides.
+ *
+ * Carries `Vary` like the raw route does, so every markdown document the module
+ * serves answers the same way about what its response depends on.
  */
 export default defineEventHandler(async (event) => {
   const config = useAgentDiscoveryConfig(event)
@@ -69,5 +73,7 @@ export default defineEventHandler(async (event) => {
   }
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
+  setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+
   return lines.join('\n')
 })

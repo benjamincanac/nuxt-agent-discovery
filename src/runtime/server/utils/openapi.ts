@@ -112,8 +112,17 @@ function pathParameters(params: string[], pattern: string): Json[] {
   }))
 }
 
+/**
+ * A markdown response. Carries `Vary` like the negotiated page does: these URLs
+ * serve markdown to every client, but they are where a negotiated page sends
+ * one, so the header is on them too and the document has to say so.
+ */
 function markdown(description: string): Json {
-  return { description, content: { 'text/markdown': { schema: { type: 'string' } } } }
+  return {
+    description,
+    headers: { Vary: { $ref: '#/components/headers/Vary' } },
+    content: { 'text/markdown': { schema: { type: 'string' } } }
+  }
 }
 
 function text(description: string): Json {
@@ -344,7 +353,7 @@ export function agentDiscoveryOpenApi(event: H3Event): { tags: Json[], paths: Js
     components: {
       headers: {
         Vary: {
-          description: 'Always includes `Accept` and `User-Agent`, since the representation depends on both.',
+          description: 'Always includes `Accept` and `User-Agent`. The page depends on both, and its Markdown representation carries the header too, since that is where a negotiated request is sent.',
           schema: { type: 'string' }
         }
       },

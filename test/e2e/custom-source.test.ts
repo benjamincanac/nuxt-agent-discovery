@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup } from '@nuxt/test-utils/e2e'
-import { MARKDOWN_CONTENT_TYPE, SITE_URL } from './expected'
+import { MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY, SITE_URL } from './expected'
 import { describeSharedDocuments } from './shared'
 
 /**
@@ -23,6 +23,16 @@ await setup({
 
 describeSharedDocuments()
 
+describe('content negotiation', () => {
+  // `notAcceptable` is off here, which is the default. The strict answer would
+  // be a 406, and turning it on is the site's call: see the `basic` fixture.
+  it('serves the page for an `Accept` allowing neither representation', async () => {
+    const response = await fetch('/docs/getting-started', { headers: { Accept: 'application/xml' } })
+
+    expect(response.status).not.toBe(406)
+  })
+})
+
 describe('discovery documents', () => {
   // Without the `/sitemap.md` exclusion the module adds, the negotiation
   // middleware would treat this as the `.md` twin of a page called
@@ -40,6 +50,11 @@ describe('discovery documents', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+    // Asserted here rather than in the shared documents for the same reason:
+    // the `@nuxt/content` fixture prerenders this file, so the handler that
+    // sets the header never runs there. On Vercel the CDN route covers it, see
+    // the `Vary on the markdown representations` unit tests.
+    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
 
     const body = await response.text()
     expect(body).toContain('# Basic Sitemap')

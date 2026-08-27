@@ -1,8 +1,26 @@
+import { get } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { fetch, setup } from '@nuxt/test-utils/e2e'
-import { BROWSER_ACCEPT, CLAUDE_BOT, MARKDOWN_VARY, SITE_URL } from './expected'
+import { fetch, setup, url } from '@nuxt/test-utils/e2e'
+import { BROWSER_ACCEPT, CLAUDE_BOT, MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY, SITE_URL } from './expected'
 import { describeSharedDocuments } from './shared'
+
+/**
+ * A request `fetch()` cannot make. `Sec-Fetch-Mode` is a forbidden header
+ * name, so undici replaces whatever is passed with `cors` and sends it on
+ * every request, which is neither the navigation nor the bare non-browser
+ * client the error rules are written against.
+ */
+function request(path: string, headers: Record<string, string> = {}): Promise<{ status: number, headers: Record<string, string | string[] | undefined>, body: string }> {
+  return new Promise((resolve, reject) => {
+    get(url(path), { headers }, (response) => {
+      let body = ''
+      response.setEncoding('utf8')
+      response.on('data', chunk => (body += chunk))
+      response.on('end', () => resolve({ status: response.statusCode!, headers: response.headers, body }))
+    }).on('error', reject)
+  })
+}
 
 /**
  * The `@nuxt/content` fixture, built and served on the Node preset. Covers the
@@ -38,6 +56,71 @@ describe('content negotiation', () => {
     const response = await fetch('/docs/getting-started', { headers: { Accept: 'text/markdown;q=0.4, text/html;q=0.9' } })
 
     expect(response.headers.get('content-type')).toContain('text/html')
+  })
+})
+
+// `notAcceptable: true` in this fixture. A page has an HTML and a markdown
+// representation and nothing else, so an `Accept` allowing neither has nothing
+// to be answered with.
+describe('406 on a page whose representations were all refused', () => {
+  it('refuses an `Accept` that rules out both, and says which they are', async () => {
+    const response = await request('/docs/getting-started', { Accept: 'application/xml' })
+
+    expect(response.status).toBe(406)
+    expect(response.headers.vary).toBe(MARKDOWN_VARY)
+    expect(response.headers['content-type']).toBe(MARKDOWN_CONTENT_TYPE)
+    expect(response.body).toContain('# 406 Not Acceptable')
+    expect(response.body).toContain('`text/html` and `text/markdown`')
+  })
+
+  // A browser `fetch()` keeps the JSON error it was written against, the same
+  // rule that already governs every other status.
+  it('refuses a browser `fetch()` too, in the shape that client expects', async () => {
+    const response = await fetch('/docs/getting-started', { headers: { Accept: 'application/xml' } })
+
+    expect(response.status).toBe(406)
+    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
+    expect(response.headers.get('content-type')).toContain('application/json')
+  })
+
+  it('refuses markdown explicitly refused with no html to fall back on', async () => {
+    const response = await fetch('/docs/getting-started', { headers: { Accept: 'text/markdown;q=0' } })
+
+    expect(response.status).toBe(406)
+  })
+
+  it('keeps serving every client that sends a wildcard', async () => {
+    for (const accept of [BROWSER_ACCEPT, '*/*', 'text/*']) {
+      const response = await fetch('/docs/getting-started', { headers: { Accept: accept } })
+      expect(response.status).toBe(200)
+    }
+  })
+
+  it('never refuses a navigation', async () => {
+    const response = await request('/docs/getting-started', {
+      'Accept': 'application/xml',
+      'Sec-Fetch-Mode': 'navigate'
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('text/html')
+  })
+
+  it('never refuses a known agent', async () => {
+    const response = await fetch('/docs/getting-started', {
+      headers: { 'Accept': 'application/xml', 'User-Agent': CLAUDE_BOT }
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+  })
+
+  // Only the pages negotiate, so only the pages can refuse them all.
+  it('leaves the single-representation URLs alone', async () => {
+    for (const path of ['/docs/getting-started.md', '/raw/docs/getting-started.md', '/llms.txt', '/sitemap.md']) {
+      const response = await fetch(path, { headers: { Accept: 'application/xml' } })
+      expect(response.status, path).toBe(200)
+    }
   })
 })
 
@@ -263,6 +346,11 @@ describe('openapi fragments', () => {
     expect(doc.paths['/{path}']!.get.parameters?.[0]).toMatchObject({ name: 'path', in: 'path', required: true })
     expect(doc.paths['/']!.get.responses['200']!.content).toHaveProperty('text/markdown')
     expect(doc.paths['/']!.get.responses['200']!.headers.Vary).toEqual({ $ref: '#/components/headers/Vary' })
+    // The twin and `/sitemap.md` carry the header too, so the document has to
+    // say so or it understates what the raw route returns.
+    for (const path of ['/raw/index.md', '/raw/{path}.md', '/sitemap.md']) {
+      expect(doc.paths[path]!.get.responses['200']!.headers.Vary, path).toEqual({ $ref: '#/components/headers/Vary' })
+    }
   })
 
   it('names every operation, so a generated client keeps its method names', async () => {

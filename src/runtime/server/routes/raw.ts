@@ -2,7 +2,7 @@ import { createError, defineEventHandler, sendRedirect, setResponseHeader } from
 import source from '#agent-discovery/source'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
-import { normalizePathname } from '../../shared/negotiation'
+import { normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves the raw markdown representation of a page from the content adapter.
@@ -15,6 +15,14 @@ import { normalizePathname } from '../../shared/negotiation'
  * from an empty one. The error handler renders it as markdown for the raw
  * prefix, reporting the documentation path the client asked for through
  * `data.path`.
+ *
+ * `Vary` is on every response here, redirects included. This URL serves
+ * markdown to every client, so nothing about it depends on the request, but it
+ * is where a negotiated page sends one: the CDN answers `Accept: text/markdown`
+ * on a cached page with a 307, so the response the client keeps, and the one a
+ * shared cache stores, is this one. Without the header on it, whatever follows
+ * the hop lands on a URL with two representations behind it and nothing saying
+ * so.
  */
 export default defineEventHandler(async (event) => {
   const config = useAgentDiscoveryConfig(event)
@@ -33,6 +41,9 @@ export default defineEventHandler(async (event) => {
   if (!document) {
     throw createError({ statusCode: 404, statusMessage: 'Page Not Found', data: { path } })
   }
+
+  setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+
   if ('redirect' in document) {
     return sendRedirect(event, `${config.rawPrefix}${document.redirect}.md`, 302)
   }

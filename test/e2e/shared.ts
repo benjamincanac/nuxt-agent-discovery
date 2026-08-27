@@ -56,10 +56,10 @@ export function describeSharedDocuments(): void {
 
       expect(response.status).toBe(200)
       expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-      // No `Vary`: this URL answers markdown to every client, so nothing about
-      // the response depends on `Accept` or `User-Agent`. Only the page it is
-      // the twin of carries the header.
-      expect(response.headers.get('vary')).toBeNull()
+      // `Vary` even though this URL answers markdown to every client. It is
+      // where a negotiated page sends a client, so it is the response the
+      // client keeps and the one a shared cache stores.
+      expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
       expect(response.headers.get('link')).toBe(GETTING_STARTED_LINK)
       expect(await response.text()).toBe(GETTING_STARTED_MARKDOWN)
     })
@@ -69,7 +69,7 @@ export function describeSharedDocuments(): void {
 
       expect(response.status).toBe(200)
       expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-      expect(response.headers.get('vary')).toBeNull()
+      expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
       expect(await response.text()).toBe(GETTING_STARTED_MARKDOWN)
     })
 

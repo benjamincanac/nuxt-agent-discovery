@@ -190,4 +190,10 @@ export interface NegotiationConfig {
    * CDN-level rewrites still apply because they run before the cache.
    */
   cachedRoutes: string[]
+  /**
+   * Whether a negotiated page answers 406 to an `Accept` that allows neither
+   * of its two representations. Off unless the site asks for it: the strictly
+   * correct answer breaks any client sending a narrow `Accept` it did not mean.
+   */
+  notAcceptable: boolean
 }

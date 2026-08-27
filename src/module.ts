@@ -97,6 +97,16 @@ export interface ModuleOptions {
   }
   /** Answer errors with a markdown body when the client asked for markdown. */
   errors?: boolean
+  /**
+   * Answer a negotiated page with 406 when the request's `Accept` allows
+   * neither of its two representations, which is what RFC 9110 asks for.
+   *
+   * Off by default. Browsers and `fetch()` send a wildcard and are never
+   * affected, and neither is a navigation or a known agent, but a client
+   * sending a narrow `Accept` it did not mean starts getting an error where it
+   * used to get a page. See the "Strict content negotiation" README section.
+   */
+  notAcceptable?: boolean
   sitemap?: {
     /**
      * Serve `/sitemap.md`, a markdown index of every page. Pass an object to
@@ -193,6 +203,7 @@ export default defineNuxtModule<ModuleOptions>({
       links: []
     },
     errors: true,
+    notAcceptable: false,
     sitemap: { markdown: true },
     robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes' },
     skills: { dir: 'skills' }
@@ -248,6 +259,7 @@ export default defineNuxtModule<ModuleOptions>({
       excludePrefixes,
       links: [],
       linkHeader: options.discovery?.link !== false,
+      notAcceptable: options.notAcceptable === true,
       cachedRoutes: [],
       sitemapSections: {
         expand: (typeof options.sitemap?.markdown === 'object' && options.sitemap.markdown.expand) || [],

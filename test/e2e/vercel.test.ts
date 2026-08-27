@@ -35,6 +35,10 @@ function isModuleRoute(route: VercelRoute): boolean {
   if (route.status === 307 && route.headers?.Location?.startsWith('/raw/')) {
     return true
   }
+  // The opt-in 406, which answers a status and goes nowhere at all.
+  if (route.status === 406) {
+    return true
+  }
   return route.continue === true && Boolean(route.headers?.Vary || route.headers?.Link)
 }
 
@@ -71,14 +75,35 @@ beforeAll(() => {
 }, 300000)
 
 describe('vercel build output', () => {
-  it('leads with a `continue: true` `Vary` route', () => {
-    expect(routes[0]).toBeDefined()
-    expect(routes[0]!.continue).toBe(true)
-    expect(routes[0]!.headers?.Vary).toBe(MARKDOWN_VARY)
+  it('leads with two `continue: true` `Vary` routes', () => {
     // Nitro emits its own `routeRules` header routes after the rewrites and
-    // without `continue`, so this one has to come first to reach a request
+    // without `continue`, so these have to come first to reach a request
     // rewritten to a prerendered raw markdown file.
-    expect(routes[0]!.dest).toBeUndefined()
+    for (const route of [routes[0], routes[1]]) {
+      expect(route).toBeDefined()
+      expect(route!.continue).toBe(true)
+      expect(route!.headers?.Vary).toBe(MARKDOWN_VARY)
+      expect(route!.dest).toBeUndefined()
+    }
+
+    // The page, then the markdown representation it sends a client to. The
+    // prerendered files are the reason this is a CDN route at all: they never
+    // reach the handler that sets the header.
+    expect(new RegExp(routes[0]!.src!).test('/docs/getting-started')).toBe(true)
+    expect(new RegExp(routes[1]!.src!).test('/raw/index.md')).toBe(true)
+    expect(new RegExp(routes[1]!.src!).test('/sitemap.md')).toBe(true)
+  })
+
+  it('refuses at the edge what the middleware refuses at the origin', () => {
+    const refusal = routes.find(route => route.status === 406)
+
+    // A prerendered page never reaches the middleware, so the option would
+    // otherwise be on for the pages Nitro renders and off for the rest.
+    expect(refusal).toBeDefined()
+    expect(refusal!.dest).toBeUndefined()
+    expect(new RegExp(refusal!.src!).test('/docs/getting-started')).toBe(true)
+    expect(refusal!.has?.[0]?.key).toBe('accept')
+    expect(refusal!.missing?.map(entry => entry.key)).toEqual(['accept', 'sec-fetch-mode', 'user-agent'])
   })
 
   it('emits a `continue: true` `Link` route on the homepage', () => {
@@ -90,7 +115,10 @@ describe('vercel build output', () => {
   })
 
   it('negotiates on the `Accept` header', () => {
-    const acceptRoutes = routes.filter(route => route.has?.some(has => has.type === 'header' && has.key === 'accept'))
+    // The 406 matches on `Accept` too, but to refuse rather than to resolve a
+    // twin, so it is not one of the routes this asserts about.
+    const acceptRoutes = routes.filter(route => route.status !== 406
+      && route.has?.some(has => has.type === 'header' && has.key === 'accept'))
 
     expect(acceptRoutes.length).toBeGreaterThanOrEqual(2)
     for (const route of acceptRoutes) {
@@ -153,11 +181,12 @@ describe('vercel build output', () => {
     const patterns = 2 // `routes: ['/', '/**']`
     const exact = 1 // `/`
     const cachedRules = 1 // `/docs/components/**`
-    const headerRoutes = 2 // `Vary` and `Link`
+    const headerRoutes = 3 // `Vary` on the pages, `Vary` on the markdown twins, `Link`
+    const refusals = 1 // `notAcceptable: true` in the fixture
     // Per pattern: an `Accept` route and a User-Agent route, plus a `.md` alias
     // for a wildcard. Per cached rule narrower than the pattern over it: its own
     // redirect pair.
-    expect(count).toBe(headerRoutes + patterns * 2 + (patterns - exact) + cachedRules * 2)
+    expect(count).toBe(headerRoutes + refusals + patterns * 2 + (patterns - exact) + cachedRules * 2)
   })
 
   // The cache-correctness path, asserted against real emitted output rather

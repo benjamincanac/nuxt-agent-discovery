@@ -12,7 +12,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 - `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110 precedence), so `q=0` is a refusal and `text/html` outranks markdown when a client prefers it
 - Vercel Build Output routes so pages negotiate at the edge, before the CDN cache ever sees the request, with a route table that stays O(patterns), never O(pages): a rewrite where the page is prerendered, a 307 where a response cache would key on the path alone
 - A universal Nitro middleware giving the same behavior in dev and on every other host
-- Correct `Vary` and `Link` headers, including on responses served straight from the CDN rewrite table
+- Correct `Vary` and `Link` headers, on both halves of a negotiated page and on responses served straight from the CDN rewrite table
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, `comark` through a factory, or your own
 - A `nuxt-llms` bridge: `/llms.txt` and `/llms-full.txt` stay owned by `nuxt-llms`, this module never registers them, but their sections, links and full document all come from the content adapter, so a page reads the same whichever backend serves it and whichever URL an agent fetches it from
 - Markdown error bodies with recovery links for agents hitting a 404 or other error
@@ -48,7 +48,7 @@ What you get out of the box:
 
 - `/raw/**.md`, the raw markdown route, served from whichever content source is detected
 - `Accept: text/markdown` or an explicit `<path>.md` URL returns markdown for any negotiated route; a known agent User-Agent (ClaudeBot, GPTBot, PerplexityBot, ...) gets markdown without an `Accept` header
-- `Vary: Accept, User-Agent` on the negotiated pages, and only those: a `.md` twin and everything under `/raw/**` answer markdown to every client, so nothing about them depends on the request
+- `Vary: Accept, User-Agent` on both halves of a negotiated page: the HTML one, and the markdown one it rewrites or redirects to. A `.md` twin, `/raw/**` and `/sitemap.md` answer markdown to every client, but they are where a negotiated page sends one, so they carry the header too. Assets, the API surface and the other discovery documents never do
 - a `Link` header on `/` advertising the discovery resources
 - `/.well-known/api-catalog`
 - `/sitemap.md`
@@ -66,6 +66,24 @@ In this order:
 Exclusions never negotiate: `/_`, `/api/`, `/mcp`, `/.well-known/`, the raw prefix itself, and any path whose last segment is dotted (assets, `_payload.json`, images).
 
 Errors follow the same idea but browsers are protected: a `fetch()` call of any mode keeps the HTML or JSON error it was written against (`Sec-Fetch-Mode` other than `navigate`), and an explicit `Accept: text/html` or `application/json` is honored unless the client is a known agent, which outranks it. Everything else, curl, an empty `Accept`, a navigation, gets the markdown error body.
+
+An `Accept` that allows neither representation gets the HTML page anyway, unless the site turns on [strict content negotiation](#strict-content-negotiation).
+
+### Strict content negotiation
+
+A negotiated page has exactly two representations, HTML and markdown, so an `Accept` allowing neither is a 406 per RFC 9110. `notAcceptable: true` makes the module answer one, at the origin and at the Vercel edge both.
+
+It's off by default because the strictly correct answer breaks clients that send a narrow `Accept` without meaning it, and a page that used to render turning into an error is a bad trade for a site that isn't chasing the RFC. Turn it on knowing that:
+
+- browsers (`*/*;q=0.8`) and `fetch()` (`*/*`) rate both representations through the wildcard and are never refused
+- a navigation (`Sec-Fetch-Mode: navigate`) and a known agent User-Agent are never refused either, the same protections the markdown error bodies have
+- `Accept: text/markdown;q=0` on its own is a 406, on the same reading that makes `Accept: application/xml` one: a quality of zero is a refusal, and refusing both leaves nothing to send
+- an `Accept` carrying no media range at all is ignored rather than refused, so a proxy mangling the header can't take a page down
+- the body lists the two representations, in whichever format the client's error rules resolve to: markdown for an agent or curl, JSON for a browser `fetch()`
+
+Only the pages negotiate, so only the pages can refuse them all. A `.md` twin, `/raw/**`, the assets and the discovery documents have one representation each and are served whatever the header says.
+
+At the edge the guards are Build Output matchers rather than the q-value ranking, so a representation offered and then refused at `q=0` still reads as offered there and the page is served where the origin would answer 406. That's the same known divergence the `text/markdown;q=0` rewrite matcher has, in the same fail-safe direction.
 
 ## Configuration
 
@@ -87,6 +105,7 @@ export default defineNuxtConfig({
       links: []
     },
     errors: true,
+    notAcceptable: false,
     sitemap: { markdown: true },
     robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes' },
     skills: { dir: 'skills' }
@@ -107,6 +126,7 @@ export default defineNuxtConfig({
 - **`discovery.mcpServerCard`** Given an `McpServerCardOptions` object (`endpoint`, `name`, and optionally `title`, `description`, `documentation`, `repository`, `license`, `version`), serves `/.well-known/mcp/server-card.json`. `false` to disable.
 - **`discovery.links`** Site-specific discovery links: OpenAPI documents, service docs, anything else worth advertising. Rels are validated against the IANA registry, an invented one fails the build. Other modules can push into the same list through the `agent-discovery:extend` hook.
 - **`errors`** Chains a markdown error handler ahead of any existing Nitro `errorHandler`, answering with a markdown body carrying recovery links when the request prefers it.
+- **`notAcceptable`** Answer a negotiated page with 406 when the request's `Accept` allows neither of its two representations, which is what RFC 9110 asks for. Off by default, and worth reading [Strict content negotiation](#strict-content-negotiation) before turning it on.
 - **`sitemap.markdown`** Serve `/sitemap.md`, a markdown index of every page, from the content adapter. Anything under `excludePrefixes` is left out, which is how a site keeps a legacy docs version out of the index and out of negotiation with one setting, and `agent-discovery:sitemap` is where a site adds the pages an adapter cannot know about. Pass an object to control the grouping: `expand` lists path prefixes whose children each get their own section (`['/docs']` turns one "Docs" section into "Components", "Composables", ... while `/blog/**` stays a single "Blog"), and `labels` overrides the heading derived from a segment. Top-level pages share one "Pages" section.
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` in its frontmatter becomes a skill, taking its name from the directory unless the frontmatter sets one; its files are listed from disk into a generated `/.well-known/skills/index.json`, so the index can never fall behind the files actually served. Names are validated against the Agent Skills spec. `false` to disable; the feature turns itself off when the directory does not exist. Skills are pushed into the discovery registry, so they reach the api-catalog and the error-body recovery links.
 - **`robots.aiPolicy`** Feeds the shared user-agent list into `@nuxtjs/robots` when it's installed. Otherwise generates `/robots.txt`, skipped (with a warning) if a static `public/robots.txt` already exists.
@@ -129,7 +149,7 @@ With the built-in `@nuxt/content` source, the raw twin of every exact route patt
 
 ### The raw route
 
-`/raw/**.md` answers `text/markdown; charset=utf-8`, with a `Link` header carrying the page's `rel="canonical"` and its `rel="alternate"; type="text/html"`. The body opens on frontmatter:
+`/raw/**.md` answers `text/markdown; charset=utf-8`, with `Vary: Accept, User-Agent` and a `Link` header carrying the page's `rel="canonical"` and its `rel="alternate"; type="text/html"`. The body opens on frontmatter:
 
 ```md
 ---
@@ -142,6 +162,8 @@ canonical_url: "https://example.com/docs/getting-started"
 `canonical_url` is always there. `title` and `description` are left out when the page has none, rather than emitted empty, since an empty key reads as a value the page set to nothing on purpose.
 
 Then the page markdown, with every same-origin link absolutized. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
+
+`Vary` is on every response here, the 302 below included, even though this URL answers markdown to every client. It's where a negotiated page sends one: on a cached pattern the CDN answers `Accept: text/markdown` with a 307, so this is the response the client keeps and the one a shared cache stores. Without the header on it, whatever follows the hop lands on a URL with two representations behind it and nothing saying so. `/sitemap.md` carries it for the same reason.
 
 A path naming a section rather than a page, `/raw/docs.md` where there is no `docs` index document, redirects 302 to the section's first document when the adapter implements `firstLeaf()`. Anything else missing answers a real 404, so an agent can tell an unknown URL from an empty one. The body is the markdown error, reporting the page path the client asked for rather than the raw one.
 
@@ -384,7 +406,11 @@ Detected automatically, never a dependency. Detection happens at `modules:done`,
 
 On the `vercel` preset (skipped in dev), a Nitro `compiled` hook patches `.vercel/output/config.json` directly, the Build Output API v3, not `vercel.json`, prepending routes ahead of the ones Nitro emits from `routeRules`.
 
-The first route sets `Vary: Accept, User-Agent` across every configured pattern with `continue: true`. That flag matters: Nitro emits its own header routes from `routeRules` *after* these rewrites and without `continue`, so without it `Vary` would never reach a request that gets rewritten straight to a prerendered `/raw/**.md` file off the CDN. It skips anything with a dotted last segment, which keeps it off `/llms.txt`, `/robots.txt`, the `.md` twins and everything in `public/`: those answer the same bytes to every client, and a shared cache keyed per user-agent on them is close to no caching at all. A `Link` route on `/` carries the same `continue: true` for the same reason, the homepage's own `routeRules` entry never runs once a request is rewritten.
+The first route sets `Vary: Accept, User-Agent` across every configured pattern with `continue: true`. That flag matters: Nitro emits its own header routes from `routeRules` *after* these rewrites and without `continue`, so without it `Vary` would never reach a request that gets rewritten straight to a prerendered `/raw/**.md` file off the CDN. It skips anything with a dotted last segment, which keeps it off `/llms.txt`, `/robots.txt`, `/sitemap.xml` and everything in `public/`: those answer the same bytes to every client, and a shared cache keyed per user-agent on them is close to no caching at all.
+
+The second labels the markdown representations that route deliberately leaves out: everything under the raw prefix, the `.md` twins and `/sitemap.md`. Their handlers set the header themselves, but a prerendered file is answered off the filesystem and never reaches one, which is the whole reason this is a CDN route. A `Link` route on `/` carries the same `continue: true` for the same reason, the homepage's own `routeRules` entry never runs once a request is rewritten.
+
+With [`notAcceptable`](#strict-content-negotiation) on, a 406 route follows them, carrying the middleware's guards as `has`/`missing` matchers.
 
 Then, per route pattern, two negotiated routes: a `has` matcher on `Accept: text/markdown` and another on the agent User-Agent list. What they do depends on whether the pattern is cached:
 
@@ -400,6 +426,8 @@ The table stays O(route patterns): one set of routes per configured pattern, not
 ### Other hosts
 
 The Nitro middleware runs everywhere, dev included, covering `.md` twin URLs, `Accept: text/markdown`, and known agent User-Agents, and answers unknown pages with a markdown 404. Caveat: Nitro serves prerendered files ahead of user handlers, so on a built server an already-prerendered page is served straight off disk and bypasses the middleware entirely, staying HTML. Only never-prerendered pages and explicit `.md` URLs reach it. For prerendered pages sitting behind a generic CDN, negotiate at the edge with the Vercel preset instead, or render those routes on demand (SSR or serverless) rather than prerendering them.
+
+The same caveat applies to the headers the route handlers set. With the `@nuxt/content` source, `/sitemap.md` and the raw twin of every exact pattern are prerendered, so off Vercel they're served off disk without `Vary`. The Vercel preset labels them at the edge; anywhere else, add the header for the raw prefix and `/sitemap.md` in that host's own configuration.
 
 ### ISR and cached routes
 
