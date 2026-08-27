@@ -361,7 +361,10 @@ describe('openapi fragments', () => {
     expect(ids).toMatchObject({
       '/': 'getHomepage',
       '/raw/index.md': 'getHomepageMarkdown',
-      '/{path}': 'getPage',
+      // The fixture's own `/api/pages.json` took `getPage` and handed it over
+      // through `paths`, so the pattern that derives the same name gives way.
+      '/api/pages.json': 'getPage',
+      '/{path}': 'getPage2',
       '/raw/{path}.md': 'getPageMarkdown',
       '/sitemap.md': 'getSitemapMarkdown',
       '/llms.txt': 'getLlmsTxt',

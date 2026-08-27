@@ -71,6 +71,7 @@ export function renderAgentResources(event: H3Event, options: { heading?: string
 }
 
 export { agentDiscoveryOpenApi } from './openapi'
+export type { AgentOpenApiOptions } from './openapi'
 
 // The pieces an agent-facing tool is built from, so a site's MCP `list-pages`
 // and `get-page` stay one call each and cannot drift from what the raw route
