@@ -6,6 +6,7 @@ import { defineNitroPlugin } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import type { AgentListEntry } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { getSourcePage } from '../utils/document'
 import { hasFileExtension, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
 interface LlmsSection {
@@ -85,10 +86,10 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       // something it can resolve.
       const unresolved: LlmsSection[] = []
       for (const section of options.sections) {
-        if (section.links?.length || !source.list) {
+        if (section.links?.length) {
           continue
         }
-        const entries = await source.list(event, section as unknown as Record<string, unknown>)
+        const entries = await source.list(section as unknown as Record<string, unknown>, event)
         if (entries?.length) {
           section.links = entries.map(entry => toLink(entry, domain))
         } else if (!section.description) {
@@ -107,9 +108,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       // not count as an otherwise empty document having content.
       const hasPageLinks = options.sections.some(section => section.links?.some(link => isPageLink(link.href, domain)))
       if (!hasPageLinks) {
-        const entries = source.list
-          ? (await source.list(event)) || []
-          : (await source.routes(event)).map(route => ({ route }) as AgentListEntry)
+        const entries = (await source.list(undefined, event)) || []
         for (const [title, group] of groupBySection(entries)) {
           options.sections.push({
             title,
@@ -180,25 +179,23 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       }
     }
 
-    if (source.list) {
-      for (const section of options.sections || []) {
-        const entries = await source.list(event, section as unknown as Record<string, unknown>)
-        for (const entry of entries || []) {
-          add(entry.route)
-        }
+    for (const section of options.sections || []) {
+      const entries = await source.list(section as unknown as Record<string, unknown>, event)
+      for (const entry of entries || []) {
+        add(entry.route)
       }
     }
     // A site declaring no resolvable section still wants its whole site.
     if (!routes.length) {
-      for (const route of await source.routes(event)) {
-        add(route)
+      for (const entry of (await source.list(undefined, event)) || []) {
+        add(entry.route)
       }
     }
 
     // The same `get()` the raw route calls, so a page reads identically whether
     // an agent fetches `/raw/**.md` or the single full document.
     for (const route of routes) {
-      const page = await source.get(route, event)
+      const page = await getSourcePage(route, event)
       if (page?.markdown) {
         contents.push(page.markdown)
       }

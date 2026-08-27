@@ -1,4 +1,4 @@
-import { absolutizeMarkdownLinks, defineAgentContentSource, getAgentSiteUrl } from '#agent-discovery'
+import { defineAgentContentSource } from '#agent-discovery'
 
 /**
  * In-memory stand-in for a non-`@nuxt/content` backend (comark, a CMS, a
@@ -79,21 +79,14 @@ const label = 'Badge'
 }
 
 export default defineAgentContentSource({
-  async routes() {
-    return Object.keys(pages)
-  },
-
   async list() {
     return Object.entries(pages).map(([route, page]) => ({ route, title: page.title, description: page.description }))
   },
 
-  async get(route: string, event) {
-    const page = pages[route]
-    if (!page) {
-      return null
-    }
-    // What every adapter rendering straight to markdown has to do, so the
-    // document matches the `@nuxt/content` one byte for byte.
-    return { ...page, markdown: event ? absolutizeMarkdownLinks(page.markdown, getAgentSiteUrl(event)) : page.markdown }
+  // No link absolutization here: the module runs it over whatever `get()`
+  // returns, so this document matches the `@nuxt/content` one byte for byte
+  // without the adapter having to remember.
+  async get(route: string) {
+    return pages[route] || null
   }
 })

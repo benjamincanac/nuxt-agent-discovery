@@ -45,9 +45,7 @@ export async function listAgentPages(event: H3Event, options: AgentPageListOptio
     return []
   }
 
-  const entries = source.list
-    ? (await source.list(event)) || []
-    : (await source.routes(event)).map(route => ({ route, title: undefined, description: undefined, section: undefined }))
+  const entries = (await source.list(undefined, event)) || []
 
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
