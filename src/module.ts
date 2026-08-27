@@ -167,9 +167,10 @@ export default defineNuxtModule<ModuleOptions>({
    * matching the path it registers. A major bump moves any of those and the
    * site keeps building, with `llms.txt` quietly carrying duplicate sections.
    *
-   * Nothing else here gets a constraint: the other peers are reached through
-   * documented hooks, and capping a 0.x range would cost every adopter a
-   * release for a breakage that has not happened.
+   * Deliberately duplicates the `peerDependencies` range, which a package
+   * manager only warns about: keep the two in step when bumping. Nothing else
+   * gets an entry here, because every other integration fails loudly enough
+   * that the install-time warning is the right amount of noise.
    */
   moduleDependencies: {
     '@nuxt/content': { version: '^3.0.0', optional: true }

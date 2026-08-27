@@ -431,3 +431,18 @@ describe('nuxt-llms bridge', () => {
     expect(full).toContain(body.trim())
   })
 })
+
+// `@nuxtjs/sitemap` owns `sitemap.xml`. The raw twins are alternate
+// representations of pages it already lists, not pages of their own, so the
+// module drops them through that module's own `sitemap:input` hook.
+describe('@nuxtjs/sitemap handoff', () => {
+  it('lists the pages and none of their raw twins', async () => {
+    const xml = await fetch('/sitemap.xml').then(response => response.text())
+
+    expect(xml).toContain('<loc>')
+    expect(xml).toContain('/docs/getting-started')
+    // The filter is what keeps these out: they are prerendered, so the sitemap
+    // sources see them like any other route.
+    expect(xml).not.toContain('/raw/')
+  })
+})
