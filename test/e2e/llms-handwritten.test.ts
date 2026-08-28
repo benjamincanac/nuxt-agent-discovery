@@ -34,7 +34,10 @@ describe('llms.txt', () => {
     expect(body.split('\n').filter(line => line.startsWith('- '))).toEqual([
       `- [Handwritten](${SITE_URL}/raw/index.md)`,
       `- [Handwritten](${SITE_URL}/llms-full.txt): The curated documentation.`,
-      `- [Alpha](${SITE_URL}/raw/docs/alpha.md): The documented page.`
+      `- [Alpha](${SITE_URL}/raw/docs/alpha.md): The documented page.`,
+      // The mixed section keeps only its hand-written link: its selector
+      // resolves `/docs/beta`, which neither document may pick up.
+      `- [Alpha again](${SITE_URL}/raw/docs/alpha.md): The same page, curated by hand.`
     ])
   })
 

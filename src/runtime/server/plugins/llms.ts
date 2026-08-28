@@ -228,7 +228,11 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // keeps the first route it sees, so the order the document comes out in
     // has to be the order the sections are declared in.
     const sections = options.sections || []
-    const resolved = await mapLimit(sections, section => adapter.list?.(section as unknown as Record<string, unknown>, event) ?? null)
+    // The same guard `llms.txt` applies: a section carrying its own links owns
+    // its curation, so its selector must not smuggle in pages the index hides.
+    const resolved = await mapLimit(sections, section => section.links?.length
+      ? null
+      : (adapter.list?.(section as unknown as Record<string, unknown>, event) ?? null))
     for (const [index, section] of sections.entries()) {
       for (const entry of resolved[index] || []) {
         add(entry.route)

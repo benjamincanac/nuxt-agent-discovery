@@ -54,7 +54,11 @@ Kept out of the documentation on purpose.
 export default defineAgentContentSource({
   async list(selector) {
     if (selector) {
-      return null
+      // One recognized selector, so the mixed-section rule is testable: a
+      // section carrying its own links must not also resolve it.
+      return (selector as { docs?: boolean }).docs === true
+        ? [{ route: '/docs/beta', title: 'Beta', description: 'A page the sections leave out.' }]
+        : null
     }
     return Object.entries(pages).map(([route, page]) => ({ route, title: page.title, description: page.description }))
   },
