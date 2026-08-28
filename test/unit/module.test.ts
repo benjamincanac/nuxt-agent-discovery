@@ -265,6 +265,9 @@ describe('module setup: cached routes', () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-discovery-vercel-'))
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ routes: [] }))
     const hooks: Record<string, () => Promise<void>> = {}
+    // A distinct clone, the way `createNitro` really hands the runtime config
+    // over, so the test can also pin that this pass does not sync it.
+    const cloned = JSON.parse(JSON.stringify(config)) as NegotiationConfig
     const nitro = {
       options: {
         dev: false,
@@ -272,7 +275,7 @@ describe('module setup: cached routes', () => {
         preset: 'vercel',
         output: { dir },
         routeRules: {} as Record<string, unknown>,
-        runtimeConfig: { agentDiscovery: config }
+        runtimeConfig: { agentDiscovery: cloned }
       },
       hooks: { hook: (name: string, callback: () => Promise<void>) => { hooks[name] = callback } }
     }
@@ -284,6 +287,10 @@ describe('module setup: cached routes', () => {
     expect(config.cachedRoutes).toEqual(['/docs/**'])
     const written = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as { routes: { status?: number }[] }
     expect(written.routes.some(route => route.status === 307)).toBe(true)
+    // The runtime config was inlined before `compiled`, so this pass reaches
+    // the CDN table only. Benign: the leftover rewrite lands on `/raw/**.md`,
+    // where the middleware never takes its 307 branch.
+    expect(cloned.cachedRoutes).toEqual([])
   })
 
   it('only lists a rule the routes actually negotiate', async () => {

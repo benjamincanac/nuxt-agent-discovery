@@ -569,6 +569,11 @@ export {}
      * snapshot is authoritative, and a rule flipped back to `{ isr: false }`
      * has to drop off the list or the CDN keeps redirecting a route that is
      * no longer cached.
+     *
+     * The street runs one way only: what lands on `nuxt.options.routeRules`
+     * before `createNitro` (this module's own `/` header rule included) is
+     * defu'd into Nitro's table, so pass one still sees everything written
+     * through `nuxt.options` and the header rule reaches every preset.
      */
     const collectCachedRoutes = (routeRules?: Record<string, { isr?: unknown, swr?: unknown, cache?: unknown, static?: unknown } | undefined>) => {
       const previous = config.cachedRoutes.splice(0, config.cachedRoutes.length)
@@ -607,6 +612,13 @@ export {}
           if (!previous.includes(key)) {
             logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
           }
+        }
+      }
+      // The other direction of the rebuild, so a disappearing cache is as
+      // visible as an appearing one.
+      for (const key of previous) {
+        if (!config.cachedRoutes.includes(key)) {
+          logger.info(`Route rule \`${key}\` no longer has a response cache: the CDN routes rewrite it again instead of redirecting.`)
         }
       }
     }

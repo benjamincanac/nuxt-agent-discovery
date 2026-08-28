@@ -368,7 +368,12 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, colle
   nitro.hooks.hook('compiled', async () => {
     // The last read of the rule table before it decides rewrite or 307: an
     // inline `defineRouteRules({ isr })` only lands on it during the Nuxt
-    // build, after every module hook has run.
+    // build, after every module hook has run. The runtime config is already
+    // inlined by now, so a rule that changed between `nitro:build:before` and
+    // here reaches this table only and the origin keeps the earlier list.
+    // Benign in both directions: a rule appearing here demotes the pattern to
+    // a 307, and one disappearing leaves a rewrite landing on `/raw/**.md`,
+    // where the middleware never takes its 307 branch.
     collectCachedRoutes?.(nitro.options.routeRules)
     const vcJSON = resolve(nitro.options.output.dir, 'config.json')
     const vcConfig = JSON.parse(await readFile(vcJSON, 'utf8'))

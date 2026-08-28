@@ -4,9 +4,9 @@ on:
   push:
     branches:
       - main
+  # No base-branch filter: stacked PRs target the previous PR's branch and
+  # still need the suite to run.
   pull_request:
-    branches:
-      - main
 
 jobs:
   ci:
