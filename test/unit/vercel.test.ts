@@ -247,8 +247,9 @@ describe('vercelMarkdownRoutes: route count', () => {
   it('emits 3 rewrites for an exact pattern that is not the root', () => {
     const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/changelog' }] }))
     expect(rewrites(routes).filter(route => route.dest === '/raw/changelog.md')).toHaveLength(3)
-    // 5 rewrites/headers plus 2 canonical Link routes (page twin, raw twin).
-    expect(routes).toHaveLength(7)
+    // 5 rewrites/headers plus 3 canonical Link routes: the page twin, the raw
+    // twin, and the root twin the generated index serves on every config.
+    expect(routes).toHaveLength(8)
   })
 
   it('stays O(patterns), never O(pages)', () => {
