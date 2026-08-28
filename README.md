@@ -13,7 +13,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 - Vercel Build Output routes so prerendered pages negotiate at the edge, and a Nitro middleware for dev and every other host
 - Correct `Vary` and `Link` headers on both halves of a negotiated page, CDN-served files included
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, comark through a factory, or your own
-- A `nuxt-llms` bridge: sections, links and the full document all come from the content adapter
+- A `nuxt-llms` bridge: adapter-backed sections and the full document come from the content adapter, hand-written links stay yours
 - Markdown error bodies with recovery links for agents hitting a 404
 - `/.well-known/api-catalog` (RFC 9727), an optional MCP server card, and Agent Skills under `/.well-known/skills/`
 - `/sitemap.md`, a markdown index of every page, grouped into sections you control
@@ -37,7 +37,7 @@ export default defineNuxtConfig({
 })
 ```
 
-Zero-config works when `@nuxt/content` and `nuxt-llms` are already installed: the content source is auto-detected and every page (`/**`) negotiates markdown. Out of the box you get the raw markdown route under `/raw`, markdown for `Accept: text/markdown`, explicit `.md` twin URLs and known agent User-Agents, `Vary` on both halves of every negotiated page, a discovery `Link` header on `/`, `/.well-known/api-catalog`, `/sitemap.md`, a `robots.txt` allowing the agent list, and markdown error bodies.
+Zero-config works when `@nuxt/content` and `nuxt-llms` are already installed: the content source is auto-detected and every page (`/**`) negotiates markdown. Out of the box you get the raw markdown route under `/raw`, markdown for `Accept: text/markdown`, explicit `.md` twin URLs and known agent User-Agents, `Vary` on both halves of every negotiated page, a discovery `Link` header on `/`, the `/.well-known/api-catalog` and `/sitemap.md` documents, a `robots.txt` allowing the agent list, and markdown error bodies.
 
 ## How negotiation decides
 
@@ -186,7 +186,7 @@ export default defineAgentContentSource({
 
 ### llms.txt sections
 
-The module removes `@nuxt/content`'s llms feature and generates `llms.txt` and `llms-full.txt` from the adapter, so the documents agree with what `/raw/**.md` serves. Existing `llms.sections` config keeps working: each section is handed to the adapter, which reads the keys it declares (`contentCollection`/`contentFilters` for `@nuxt/content`, `navigation` for comark). A section carrying its own `links` is left alone, its same-origin page links rendered into the full document, and every link rewritten to its raw twin. Declare no sections at all and pages are grouped by the `section` label the adapter returns.
+The module removes `@nuxt/content`'s llms feature and generates `llms.txt` and `llms-full.txt` from the adapter, so the documents agree with what `/raw/**.md` serves. Existing `llms.sections` config keeps working: each section is handed to the adapter, which reads the keys it declares (`contentCollection`/`contentFilters` for `@nuxt/content`, `navigation` for comark). A section carrying its own `links` is left alone, its same-origin page links rendered into the full document, and each link matching a configured route rewritten to its raw twin; off-site and data links pass through untouched. Declare no sections at all and pages are grouped by the `section` label the adapter returns.
 
 `nuxt-llms` prerenders both documents unconditionally, so on a backend resolving content per request they go stale without a redeploy ([nuxt-llms#24](https://github.com/nuxtlabs/nuxt-llms/issues/24)). Until that lands, opt the two routes out yourself:
 
@@ -288,7 +288,7 @@ export default defineMcpTool({
 ```
 
 - **`listAgentPages(event, { search, prefix })`** returns every page with its title, description, section, page URL and raw markdown URL.
-- **`getAgentDocument(event, route, { sections })`** returns the exact bytes `/raw/<route>.md` serves, resolved in-process.
+- **`getAgentDocument(event, route, { sections })`** returns the exact bytes `/raw/<route>.md` serves, resolved in-process; passing `sections` narrows the document, so the byte-for-byte guarantee holds without it.
 - **`extractSections(markdown, titles)`** narrows a document to the `##` sections named, keeping frontmatter, title and description.
 
 ## Companion modules
