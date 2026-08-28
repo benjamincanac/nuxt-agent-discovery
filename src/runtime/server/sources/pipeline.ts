@@ -53,9 +53,13 @@ function appendRelatedLinks(nodes: DocNode[], links: unknown): void {
   if (!Array.isArray(links) || links.length === 0) {
     return
   }
+  // Frontmatter is user content: a `links: [null]` or a half-filled entry
+  // must be skipped, not thrown on.
   const items = links
-    .filter((link: { label?: string, to?: string }) => link.label && link.to)
-    .map((link: { label: string, to: string }) => ['li', {}, ['a', { href: link.to }, link.label]] as DocNode)
+    .filter((link): link is { label: string, to: string } => typeof link === 'object' && link !== null
+      && typeof (link as { label?: unknown }).label === 'string' && (link as { label: string }).label !== ''
+      && typeof (link as { to?: unknown }).to === 'string' && (link as { to: string }).to !== '')
+    .map(link => ['li', {}, ['a', { href: link.to }, link.label]] as DocNode)
   if (items.length > 0) {
     nodes.push(['hr', {}])
     nodes.push(['ul', {}, ...items])
