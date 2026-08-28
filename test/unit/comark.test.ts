@@ -117,7 +117,7 @@ describe('comark source', () => {
 
 describe('comark listing', () => {
   it('lists every page in the navigation', async () => {
-    const routes = ((await source.list(undefined, event)) || []).map(entry => entry.route)
+    const routes = ((await source.list!(undefined, event)) || []).map(entry => entry.route)
 
     expect(routes).toContain('/')
     expect(routes).toContain('/about')
@@ -126,7 +126,7 @@ describe('comark listing', () => {
   })
 
   it('carries the title and the navigation group into the listing', async () => {
-    const entries = await source.list(undefined, event)
+    const entries = await source.list!(undefined, event)
     const button = entries?.find(entry => entry.route === '/docs/components/button')
 
     expect(button?.title).toBe('Button')
@@ -134,7 +134,7 @@ describe('comark listing', () => {
   })
 
   it('scopes a listing to the subtree a `navigation` selector names', async () => {
-    const entries = await source.list({ navigation: '/docs' }, event)
+    const entries = await source.list!({ navigation: '/docs' }, event)
 
     expect(entries?.length).toBeGreaterThan(0)
     expect(entries?.every(entry => entry.route.startsWith('/docs'))).toBe(true)
@@ -144,7 +144,7 @@ describe('comark listing', () => {
     // A site swapping backend keeps its `llms.sections` config, so the
     // `@nuxt/content` keys arrive here. Claiming them would list the wrong
     // pages; the bridge drops the section instead.
-    expect(await source.list({ contentCollection: 'docs' }, event)).toBe(null)
+    expect(await source.list!({ contentCollection: 'docs' }, event)).toBe(null)
   })
 
   it('resolves a section path to its first document', async () => {

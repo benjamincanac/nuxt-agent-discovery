@@ -83,13 +83,18 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     if (source) {
       // Sections the site declared. One that already carries links is left
       // alone; otherwise the adapter is asked whether the section names
-      // something it can resolve.
+      // something it can resolve. Sections do not depend on each other, so the
+      // adapter is asked about all of them at once.
+      const resolved = await Promise.all(options.sections.map(section => section.links?.length
+        ? null
+        : (source?.list?.(section as unknown as Record<string, unknown>, event) ?? null)))
+
       const unresolved: LlmsSection[] = []
-      for (const section of options.sections) {
+      for (const [index, section] of options.sections.entries()) {
         if (section.links?.length) {
           continue
         }
-        const entries = await source.list(section as unknown as Record<string, unknown>, event)
+        const entries = resolved[index]
         if (entries?.length) {
           section.links = entries.map(entry => toLink(entry, domain))
         } else if (!section.description) {
@@ -108,7 +113,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       // not count as an otherwise empty document having content.
       const hasPageLinks = options.sections.some(section => section.links?.some(link => isPageLink(link.href, domain)))
       if (!hasPageLinks) {
-        const entries = (await source.list(undefined, event)) || []
+        const entries = (await source.list?.(undefined, event)) || []
         for (const [title, group] of groupBySection(entries)) {
           options.sections.push({
             title,
@@ -179,23 +184,33 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       }
     }
 
-    for (const section of options.sections || []) {
-      const entries = await source.list(section as unknown as Record<string, unknown>, event)
+    // Resolved together, then added in section order: the dedupe keeps the
+    // first route it sees, so the order the document comes out in has to be
+    // the order the sections are declared in.
+    const resolved = await Promise.all((options.sections || []).map(section => source?.list?.(section as unknown as Record<string, unknown>, event) ?? null))
+    for (const entries of resolved) {
       for (const entry of entries || []) {
         add(entry.route)
       }
     }
-    // A site declaring no resolvable section still wants its whole site.
-    if (!routes.length) {
-      for (const entry of (await source.list(undefined, event)) || []) {
+    // Nothing resolved to pages, so render them all, on the same condition
+    // `llms.txt` lists them all: sections curating page links by hand are the
+    // documentation, and dumping the whole site would contradict the index
+    // built from the very same predicate. Sections pointing only at data
+    // (`/openapi.json`, an API endpoint, a repository) name no documentation,
+    // so that site still gets its whole site, as does one with no sections.
+    const domain = options.domain || getAgentSiteUrl(event)
+    const hasPageLinks = options.sections?.some(section => section.links?.some(link => isPageLink(link.href, domain)))
+    if (!routes.length && !hasPageLinks) {
+      for (const entry of (await source.list?.(undefined, event)) || []) {
         add(entry.route)
       }
     }
 
     // The same `get()` the raw route calls, so a page reads identically whether
     // an agent fetches `/raw/**.md` or the single full document.
-    for (const route of routes) {
-      const page = await getSourcePage(route, event)
+    const pages = await Promise.all(routes.map(route => getSourcePage(route, event)))
+    for (const page of pages) {
       if (page?.markdown) {
         contents.push(page.markdown)
       }

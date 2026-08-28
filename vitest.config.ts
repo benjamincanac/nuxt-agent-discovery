@@ -7,7 +7,11 @@ export default defineConfig({
       // The server utils read their config through Nitro's `#imports`, which
       // only resolves inside a build. The stub lets them be unit tested; the
       // e2e suites run against a real fixture server and never load it.
-      '#imports': fileURLToPath(new URL('./test/unit/imports.stub.ts', import.meta.url))
+      '#imports': fileURLToPath(new URL('./test/unit/imports.stub.ts', import.meta.url)),
+      // The alias the module points at the site's content adapter, which the
+      // server utils import directly. The stub lets a test hand them an
+      // adapter of its own, an incomplete one most of all.
+      '#agent-discovery/source': fileURLToPath(new URL('./test/unit/source.stub.ts', import.meta.url))
     }
   },
   test: {

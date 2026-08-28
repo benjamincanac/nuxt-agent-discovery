@@ -98,6 +98,11 @@ export interface AgentPage {
   markdown: string
   title?: string
   description?: string
+  /**
+   * Last modification date. Adapters may supply it, and sites do, but nothing
+   * in the module reads it yet; it is reserved for freshness signals such as
+   * a sitemap `lastmod`.
+   */
   updatedAt?: string
 }
 
@@ -152,8 +157,12 @@ export interface AgentContentSource {
    * With a `selector`, a `llms.sections` entry handed over verbatim, return
    * only the pages it names, or `null` when the selector is not one this
    * adapter understands.
+   *
+   * Optional, for a backend that can resolve a route but cannot enumerate its
+   * pages. Every listing then comes out empty: `/sitemap.md` and the `llms.txt`
+   * bridge list nothing, while the documents `get()` resolves keep working.
    */
-  list: (selector: AgentSectionSelector | undefined, event: H3Event) => Promise<AgentListEntry[] | null>
+  list?: (selector: AgentSectionSelector | undefined, event: H3Event) => Promise<AgentListEntry[] | null>
   /** Resolve one route to its markdown representation, `null` when unknown. */
   get: (route: string, event: H3Event) => Promise<AgentPage | null>
   /**
