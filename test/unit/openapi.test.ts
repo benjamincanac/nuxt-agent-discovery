@@ -173,3 +173,39 @@ describe('agentDiscoveryOpenApi: dedupes against itself', () => {
     expect(result).not.toHaveProperty('/.well-known/skills/index.json')
   })
 })
+
+/** A discovery document path item, of what the mutation test reaches into. */
+interface DocumentPath {
+  get: { responses: Record<number, { description: string, content: Record<string, { schema: Record<string, unknown> }> }> }
+}
+
+// The table behind the discovery documents stored each row's response as one
+// object and handed that same reference to every document it emitted. A site
+// editing the fragment it had just merged in was editing what the next request
+// would return.
+describe('agentDiscoveryOpenApi: builds a fresh document every call', () => {
+  function emit() {
+    state.config = createConfig()
+    setRuntimeConfig({ agentDiscoveryMcp: { endpoint: '/mcp' } })
+    return agentDiscoveryOpenApi(event)
+  }
+
+  // One document either side of the split the MCP endpoint is inserted at,
+  // since the two are built by separate passes.
+  it.each([
+    ['/sitemap.md', 'Markdown index of every page.', 'text/markdown'],
+    ['/.well-known/skills/index.json', 'Skills index.', 'application/json']
+  ])('leaves a mutated %s out of the next one', (href, description, type) => {
+    const response = (emit().paths[href] as DocumentPath).get.responses[200]!
+    response.description = 'mutated'
+    response.content['text/plain'] = { schema: { type: 'string' } }
+    // Down to the nested schema, since a shallow copy of the row would still
+    // hand the same one out twice.
+    response.content[type]!.schema.deprecated = true
+
+    const next = (emit().paths[href] as DocumentPath).get.responses[200]!
+    expect(next.description).toBe(description)
+    expect(next.content).not.toHaveProperty('text/plain')
+    expect(next.content[type]!.schema).not.toHaveProperty('deprecated')
+  })
+})
