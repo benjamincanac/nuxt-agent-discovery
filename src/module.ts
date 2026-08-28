@@ -157,7 +157,9 @@ declare module '@nuxt/schema' {
      * listed before this module it fires from that module's `robots:config`
      * pass. The links array collects contributions only, and they are
      * appended after the module's own links wherever the hook fired from, so
-     * push onto it rather than reading from it.
+     * push onto it rather than reading from it. Register the listener during
+     * `setup()`: a listener registered from a later lifecycle hook can miss
+     * the early firing entirely.
      */
     'agent-discovery:extend': (registry: { links: DiscoveryLink[], userAgents: string[] }) => void | Promise<void>
   }
@@ -257,15 +259,21 @@ export default defineNuxtModule<ModuleOptions>({
       ? options.excludePrefixes.replace
       : [...EXCLUDE_PREFIXES, ...(options.excludePrefixes?.extend || [])])]
 
-    // A `raw` destination outside the raw prefix negotiates again: the
-    // middleware proxies it, re-enters itself on the destination and never
-    // resolves. Validated rather than warned, because the loop only shows up
-    // in production under load. A destination under an excluded prefix never
-    // negotiates, so a site serving its own markdown there keeps working.
+    // An exact route whose `raw` destination negotiates back to itself makes
+    // the middleware proxy itself forever. Only that fixpoint is refused: a
+    // destination under `rawPrefix` or an excluded prefix never re-enters
+    // negotiation, a wildcard pattern never reads `raw` at all, and a
+    // destination no pattern matches terminates after one hop.
     for (const route of routes) {
-      if (route.raw && route.raw !== rawPrefix && !route.raw.startsWith(`${rawPrefix}/`)
-        && !excludePrefixes.some(prefix => route.raw!.startsWith(prefix))) {
-        throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` must sit under \`${rawPrefix}\` or an excluded prefix.`)
+      if (!route.raw || route.path.includes('*') || !route.raw.endsWith('.md')
+        || route.raw === rawPrefix || route.raw.startsWith(`${rawPrefix}/`)
+        || excludePrefixes.some(prefix => route.raw!.startsWith(prefix))) {
+        continue
+      }
+      const base = route.raw.slice(0, -3)
+      const matched = matchRoute(routes, base)
+      if (matched && rawDestination({ rawPrefix } as NegotiationConfig, matched, base) === route.raw) {
+        throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
       }
     }
 
@@ -280,14 +288,8 @@ export default defineNuxtModule<ModuleOptions>({
     // module's own, so their position never depends on which consumer fired
     // the hook first.
     const hookLinks: DiscoveryLink[] = []
-    let extended = false
-    const extendRegistry = async () => {
-      if (extended) {
-        return
-      }
-      extended = true
-      await nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents })
-    }
+    let extended: Promise<void> | undefined
+    const extendRegistry = () => extended ??= nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents })
 
     // Mutated until `modules:done`, then read by the runtime and the presets.
     const config: NegotiationConfig = {

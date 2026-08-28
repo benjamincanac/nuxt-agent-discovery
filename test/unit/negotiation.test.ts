@@ -862,4 +862,11 @@ describe('encodeAgentRoute', () => {
     expect(encodeAgentRoute('/guide/c#-notes')).toBe('/guide/c%23-notes')
     expect(encodeAgentRoute('/guide/faq?basics')).toBe('/guide/faq%3Fbasics')
   })
+
+  it('keeps sub-delims literal, the way the page URL spells them', () => {
+    // `%40` and `@` are distinct under RFC 3986 normalization, so encoding
+    // them would split the canonical signal from the HTML page's.
+    expect(encodeAgentRoute('/packages/@nuxt/ui')).toBe('/packages/@nuxt/ui')
+    expect(encodeAgentRoute('/docs/a,b:c')).toBe('/docs/a,b:c')
+  })
 })

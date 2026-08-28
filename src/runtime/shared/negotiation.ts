@@ -48,12 +48,15 @@ export function normalizeAgentRoute(route: string): string {
 }
 
 /**
- * The inverse, for URLs this module emits: the decoded route re-encoded one
- * segment at a time. `encodeURI` leaves `#` and `?` alone, and either one
- * cuts a `Link` or `Location` header short at the first slug carrying it.
+ * The inverse, for URLs this module emits: the decoded route re-encoded the
+ * way a page URL is spelled. `encodeURI` alone leaves `#` and `?` in place,
+ * where either one cuts a `Link` or `Location` header short, so those two are
+ * escaped on top. Not `encodeURIComponent` per segment: that also escapes
+ * sub-delims (`@`, `:`, `,`) the HTML page's own canonical keeps literal,
+ * which would split the canonical signal into two spellings.
  */
 export function encodeAgentRoute(path: string): string {
-  return path.split('/').map(encodeURIComponent).join('/')
+  return encodeURI(path).replace(/#/g, '%23').replace(/\?/g, '%3F')
 }
 
 /** Whether the last path segment is dotted: an asset, not a page. */
@@ -307,9 +310,6 @@ export function acceptsMarkdown(accept?: string | null): boolean {
   return html === 0 && acceptQuality(entries, 'text/markdown') > 0
 }
 
-/** Lowered once per list: `isAgentUserAgent` sits in the middleware hot path. */
-const loweredAgents = new WeakMap<string[], string[]>()
-
 /**
  * Case-insensitive, so it agrees with the CDN `has` matchers: a real Vercel
  * edge has been observed anchoring the value and matching it
@@ -317,18 +317,16 @@ const loweredAgents = new WeakMap<string[], string[]>()
  * `src`, so the edge matchers spell both cases where a miss would matter
  * (`REFUSES_MARKDOWN`) and nothing depends on the observation. The origin
  * errs the same direction, towards matching.
+ *
+ * Lowered per call on purpose: Nitro klonas the runtime config per request,
+ * so a cache keyed on the list's identity could never hit across requests.
  */
 export function isAgentUserAgent(config: NegotiationConfig, userAgent?: string | null): boolean {
   if (!userAgent) {
     return false
   }
-  let agents = loweredAgents.get(config.userAgents)
-  if (!agents) {
-    agents = config.userAgents.map(agent => agent.toLowerCase())
-    loweredAgents.set(config.userAgents, agents)
-  }
   const haystack = userAgent.toLowerCase()
-  return agents.some(agent => haystack.includes(agent))
+  return config.userAgents.some(agent => haystack.includes(agent.toLowerCase()))
 }
 
 /* ------------------------------- negotiation ------------------------------ */

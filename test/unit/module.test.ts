@@ -443,7 +443,7 @@ describe('module setup: routes', () => {
     // The middleware would proxy `/about` to `/about.md`, which negotiates
     // straight back into the middleware, forever.
     await expect(runModule({ routes: [{ path: '/about', raw: '/about.md' }] }))
-      .rejects.toThrow('must sit under')
+      .rejects.toThrow('negotiates back to itself')
   })
 
   it('accepts a raw destination under an excluded prefix', async () => {
@@ -456,6 +456,22 @@ describe('module setup: routes', () => {
     })
 
     expect(config.routes[0]).toEqual({ path: '/docs/x', raw: '/docs/x.md' })
+  })
+
+  it('ignores a raw destination on a wildcard pattern', async () => {
+    // `rawDestination` never reads `raw` on a wildcard, so the value is inert
+    // and must not fail the build.
+    const config = await setupModule({ routes: [{ path: '/docs/**', raw: '/docs-md' }] })
+
+    expect(config.routes[0]).toEqual({ path: '/docs/**', raw: '/docs-md' })
+  })
+
+  it('accepts a raw destination no pattern negotiates', async () => {
+    // The inner request for the destination matches no route, so the
+    // middleware never proxies onto itself and the chain terminates.
+    const config = await setupModule({ routes: [{ path: '/docs/x', raw: '/elsewhere/x.md' }] })
+
+    expect(config.routes[0]).toEqual({ path: '/docs/x', raw: '/elsewhere/x.md' })
   })
 
   it('accepts a raw destination under the raw prefix', async () => {
