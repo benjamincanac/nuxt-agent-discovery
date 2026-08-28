@@ -610,6 +610,30 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
     expect(index[0]!.headers!.Link).not.toContain('/index')
   })
 
+  it('skips a raw destination the site serves itself', () => {
+    // An exact `raw` under an excluded prefix is the site's own document: no
+    // entry for it, and no garbage sliced into the wildcard's lookahead.
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/design', raw: '/design.md' }, { path: '/**' }],
+      excludePrefixes: ['/_', '/api/', '/design.md']
+    }))
+    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+
+    expect(links.some(route => matches(route, '/design.md'))).toBe(false)
+    expect(routes.some(route => route.src.includes('(?:ign'))).toBe(false)
+    expect(links.filter(route => matches(route, '/raw/index.md'))).toHaveLength(1)
+  })
+
+  it('maps the root twin to the site URL when only a wildcard covers `/`', () => {
+    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/**' }] }))
+    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const index = links.filter(route => matches(route, '/raw/index.md'))
+
+    expect(index).toHaveLength(1)
+    expect(index[0]!.headers!.Link).toContain('<https://example.com>; rel="canonical"')
+    expect(index[0]!.headers!.Link).not.toContain('/index')
+  })
+
   it('emits nothing without a configured site URL', () => {
     // The value embeds the page URL and the edge cannot know the request
     // host at build time, so the origin-rendered responses keep the header

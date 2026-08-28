@@ -253,26 +253,36 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       { href, rel: 'canonical' },
       { href, rel: 'alternate', type: 'text/html' }
     ])
-    // Exact twins own their URLs outright, so the wildcard capture below must
-    // not also match them and mis-derive the page path: `/raw/index.md` is
-    // `/`, never `/index`.
-    const exactRaw = config.routes
+    // Twins with a static entry of their own: every exact pattern whose raw
+    // destination sits under `rawPrefix`, plus the root twin when only a
+    // wildcard covers `/`, whose capture would otherwise mis-derive the page
+    // as `/index`. An exact destination under an excluded prefix is the
+    // site's own document and gets no entry at all.
+    const isRaw = (raw: string) => raw === config.rawPrefix || raw.startsWith(`${config.rawPrefix}/`)
+    const statics: { raw: string, href: string }[] = config.routes
       .filter(route => !route.path.includes('*'))
-      .map(route => rawDestination(config, route, route.path).slice(config.rawPrefix.length))
-    const rawExclusion = exactRaw.length ? `(?!(?:${exactRaw.map(escapeRegExp).join('|')})$)` : ''
+      .map(route => ({ raw: rawDestination(config, route, route.path), href: route.path === '/' ? config.siteUrl : `${config.siteUrl}${route.path}` }))
+      .filter(entry => isRaw(entry.raw))
+    if (!config.routes.some(route => route.path === '/')) {
+      // `/raw/index.md` folds to `/` at the origin whatever the patterns say
+      // (the generated index serves it), so the wildcard capture must never
+      // read it as `/index`.
+      statics.push({ raw: `${config.rawPrefix}/index.md`, href: config.siteUrl })
+    }
+    // The wildcard capture must not also match a statically-mapped twin.
+    const rawExclusion = statics.length ? `(?!(?:${statics.map(entry => escapeRegExp(entry.raw.slice(config.rawPrefix.length))).join('|')})$)` : ''
     for (const route of config.routes) {
       if (route.path.includes('*')) {
         const body = compilePattern(route.path).source.slice(1, -1)
         const link = canonicalLink(`${config.siteUrl}${patternDest(route.path)}`)
         routes.push({ src: `^${excluded}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
         routes.push({ src: `^${escapeRegExp(config.rawPrefix)}${rawExclusion}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
-      } else {
-        const link = canonicalLink(route.path === '/' ? config.siteUrl : `${config.siteUrl}${route.path}`)
-        if (route.path !== '/') {
-          routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
-        }
-        routes.push({ src: `^${escapeRegExp(rawDestination(config, route, route.path))}$`, headers: { Link: link }, methods: METHODS, continue: true })
+      } else if (route.path !== '/' && isRaw(rawDestination(config, route, route.path))) {
+        routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, headers: { Link: canonicalLink(`${config.siteUrl}${route.path}`) }, methods: METHODS, continue: true })
       }
+    }
+    for (const entry of statics) {
+      routes.push({ src: `^${escapeRegExp(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
     }
   }
 
