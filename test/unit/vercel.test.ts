@@ -222,16 +222,16 @@ describe('vercelMarkdownRoutes: 406', () => {
 describe('vercelMarkdownRoutes: Link', () => {
   it('emits a continue route on the homepage when links exist', () => {
     const config = createConfig({ links: LINKS })
-    const link = vercelMarkdownRoutes(config)[2]
-    expect(link?.src).toBe('^/$')
-    expect(link?.continue).toBe(true)
+    const link = vercelMarkdownRoutes(config).find(route => route.src === '^/$' && route.continue)
+    expect(link).toBeDefined()
     expect(link?.headers).toEqual({ Link: formatLinkHeader(LINKS) })
   })
 
   it('is absent without links', () => {
     const routes = vercelMarkdownRoutes(createConfig())
-    expect(routes.filter(route => route.headers?.Link)).toHaveLength(0)
-    expect(routes[2]?.dest).toBeDefined()
+    // The canonical/alternate pairs on the twins stay; only the homepage
+    // discovery route is keyed on the registry.
+    expect(routes.filter(route => route.src === '^/$' && route.headers?.Link)).toHaveLength(0)
   })
 })
 
@@ -240,20 +240,23 @@ describe('vercelMarkdownRoutes: route count', () => {
     const routes = vercelMarkdownRoutes(createConfig())
     expect(rewrites(routes).filter(route => route.dest === '/raw/docs/$1.md')).toHaveLength(3)
     expect(rewrites(routes).filter(route => route.dest === '/raw/index.md')).toHaveLength(2)
-    expect(routes).toHaveLength(7)
+    // 7 rewrites/headers plus the 3 canonical Link routes on the twins.
+    expect(routes).toHaveLength(10)
   })
 
   it('emits 3 rewrites for an exact pattern that is not the root', () => {
     const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/changelog' }] }))
     expect(rewrites(routes).filter(route => route.dest === '/raw/changelog.md')).toHaveLength(3)
-    expect(routes).toHaveLength(5)
+    // 5 rewrites/headers plus 2 canonical Link routes (page twin, raw twin).
+    expect(routes).toHaveLength(7)
   })
 
   it('stays O(patterns), never O(pages)', () => {
     const base = createConfig()
     const many = createConfig({ routes: [...base.routes, { path: '/blog/**' }, { path: '/*/docs/**' }] })
-    expect(vercelMarkdownRoutes(base)).toHaveLength(7)
-    expect(vercelMarkdownRoutes(many)).toHaveLength(7 + 3 + 3)
+    expect(vercelMarkdownRoutes(base)).toHaveLength(10)
+    // Each extra glob pattern adds 3 rewrites and 2 canonical Link routes.
+    expect(vercelMarkdownRoutes(many)).toHaveLength(10 + 5 + 5)
     // Nothing in the table depends on the pages behind a pattern.
     expect(JSON.stringify(vercelMarkdownRoutes(base))).not.toContain('foo')
   })
@@ -570,13 +573,49 @@ describe('vercelMarkdownRoutes: methods', () => {
     const config = createConfig({ notAcceptable: true, cachedRoutes: ['/docs/**'], links: LINKS })
 
     for (const route of vercelMarkdownRoutes(config)) {
-      if (route.headers?.Link) {
-        // The Link route stands in for the `/` route rule, which the origin
-        // applies to every method.
+      if (route.src === '^/$' && route.headers?.Link) {
+        // The homepage Link route stands in for the `/` route rule, which the
+        // origin applies to every method.
         expect(route.methods).toBeUndefined()
       } else {
         expect(route.methods, route.src).toEqual(['GET', 'HEAD'])
       }
     }
+  })
+})
+
+describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
+  const routes = vercelMarkdownRoutes(createConfig())
+  const linkRoutes = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+
+  it('labels both twin URL spaces of a wildcard pattern', () => {
+    // A prerendered twin is answered off the filesystem, so the handler that
+    // sets this header never runs and the table has to say it instead.
+    for (const path of ['/docs/button.md', '/raw/docs/button.md']) {
+      const route = linkRoutes.find(candidate => matches(candidate, path))
+      expect(route, path).toBeDefined()
+      const link = path.replace(new RegExp(route!.src), route!.headers!.Link!)
+      expect(link).toBe(formatLinkHeader([
+        { href: 'https://example.com/docs/button', rel: 'canonical' },
+        { href: 'https://example.com/docs/button', rel: 'alternate', type: 'text/html' }
+      ]))
+    }
+  })
+
+  it('maps an exact raw override to its page, not to the capture', () => {
+    const index = linkRoutes.filter(route => matches(route, '/raw/index.md'))
+
+    expect(index).toHaveLength(1)
+    expect(index[0]!.headers!.Link).toContain('<https://example.com>; rel="canonical"')
+    expect(index[0]!.headers!.Link).not.toContain('/index')
+  })
+
+  it('emits nothing without a configured site URL', () => {
+    // The value embeds the page URL and the edge cannot know the request
+    // host at build time, so the origin-rendered responses keep the header
+    // and the prerendered twins go without, the pre-existing behavior.
+    const bare = vercelMarkdownRoutes(createConfig({ siteUrl: '' }))
+
+    expect(bare.some(route => route.headers?.Link?.includes('rel="canonical"'))).toBe(false)
   })
 })

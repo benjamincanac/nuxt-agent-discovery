@@ -182,11 +182,12 @@ describe('vercel build output', () => {
     const exact = 1 // `/`
     const cachedRules = 2 // `/docs/components/**`, plus `/docs/late/**` from `nitro:config`
     const headerRoutes = 3 // `Vary` on the pages, `Vary` on the markdown twins, `Link`
+    const canonicalLinks = 3 // canonical/alternate per twin space: two for `/**`, one for `/`
     const refusals = 1 // `notAcceptable: true` in the fixture
     // Per pattern: an `Accept` route and a User-Agent route, plus a `.md` alias
     // for a wildcard. Per cached rule narrower than the pattern over it: its own
     // redirect pair.
-    expect(count).toBe(headerRoutes + refusals + patterns * 2 + (patterns - exact) + cachedRules * 2)
+    expect(count).toBe(headerRoutes + canonicalLinks + refusals + patterns * 2 + (patterns - exact) + cachedRules * 2)
   })
 
   // The cache-correctness path, asserted against real emitted output rather
@@ -221,6 +222,19 @@ describe('vercel build output', () => {
     expect(late).toHaveLength(2)
     expect(late.every(route => route.status === 307)).toBe(true)
     expect(late.map(route => route.has?.[0]?.key)).toEqual(['accept', 'user-agent'])
+  })
+
+  it('labels the prerendered twins with their canonical page', () => {
+    // The raw handler sets this pair, but a prerendered twin never reaches
+    // it, so the table has to carry the header for the CDN-answered files.
+    const linkRoutes = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    expect(linkRoutes.length).toBeGreaterThanOrEqual(3)
+
+    const twin = linkRoutes.find(route => new RegExp(route.src!).test('/raw/docs/getting-started.md'))
+    expect(twin).toBeDefined()
+    const link = '/raw/docs/getting-started.md'.replace(new RegExp(twin!.src!), twin!.headers!.Link!)
+    expect(link).toContain('<https://basic.example.com/docs/getting-started>; rel="canonical"')
+    expect(link).toContain('rel="alternate"; type="text/html"')
   })
 
   it('prerenders the homepage raw markdown into the static output', () => {

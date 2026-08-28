@@ -240,6 +240,42 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     continue: true
   })
 
+  // The canonical/alternate pair the raw handler sets, for the prerendered
+  // twins the CDN answers off the filesystem where no handler ever runs.
+  // Unlike `Vary` the value embeds the page URL, so it is one route per
+  // pattern with a capture reference, and it needs a configured site URL: the
+  // edge cannot know the request host at build time, so a zero-config
+  // deployment keeps the header on the origin-rendered responses only.
+  // Deliberately absent from the negotiated page rewrites: those URLs also
+  // serve the HTML representation, which carries no such pair.
+  if (config.siteUrl) {
+    const canonicalLink = (href: string) => formatLinkHeader([
+      { href, rel: 'canonical' },
+      { href, rel: 'alternate', type: 'text/html' }
+    ])
+    // Exact twins own their URLs outright, so the wildcard capture below must
+    // not also match them and mis-derive the page path: `/raw/index.md` is
+    // `/`, never `/index`.
+    const exactRaw = config.routes
+      .filter(route => !route.path.includes('*'))
+      .map(route => rawDestination(config, route, route.path).slice(config.rawPrefix.length))
+    const rawExclusion = exactRaw.length ? `(?!(?:${exactRaw.map(escapeRegExp).join('|')})$)` : ''
+    for (const route of config.routes) {
+      if (route.path.includes('*')) {
+        const body = compilePattern(route.path).source.slice(1, -1)
+        const link = canonicalLink(`${config.siteUrl}${patternDest(route.path)}`)
+        routes.push({ src: `^${excluded}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+        routes.push({ src: `^${escapeRegExp(config.rawPrefix)}${rawExclusion}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+      } else {
+        const link = canonicalLink(route.path === '/' ? config.siteUrl : `${config.siteUrl}${route.path}`)
+        if (route.path !== '/') {
+          routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+        }
+        routes.push({ src: `^${escapeRegExp(rawDestination(config, route, route.path))}$`, headers: { Link: link }, methods: METHODS, continue: true })
+      }
+    }
+  }
+
   // Opt-in: a negotiated page has exactly two representations, so an `Accept`
   // allowing neither is a 406 per RFC 9110 rather than a page the client just
   // said it cannot read. Emitted here as well as in the middleware because a
