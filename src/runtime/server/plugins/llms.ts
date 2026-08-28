@@ -4,10 +4,10 @@ import { withBase } from 'ufo'
 import type { NitroApp } from 'nitropack/types'
 import { defineNitroPlugin } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
-import type { AgentListEntry } from '../../shared/types'
+import type { AgentListEntry, NegotiationConfig } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getSourcePage } from '../utils/document'
-import { hasFileExtension, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
+import { hasFileExtension, isNegotiablePath, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
 interface LlmsSection {
   title: string
@@ -32,10 +32,40 @@ function toLocalUrl(href: string, domain: string): { pathname: string, suffix: s
   }
 }
 
-/** A link to a negotiable page, as opposed to `llms-full.txt` or an asset. */
-function isPageLink(href: string, domain: string): boolean {
+/**
+ * The page route a link points at, or `undefined` when it names something with
+ * no markdown representation: another origin, `llms-full.txt`, an asset, an
+ * endpoint under an excluded prefix, a path no configured route covers.
+ *
+ * The same predicate the negotiation itself runs, so a link counts as a page
+ * here exactly when the site serves markdown for it. Reading the extension
+ * alone counted `/openapi` and `/api/v1/tools` as documentation.
+ */
+function pageRoute(config: NegotiationConfig, href: string, domain: string): string | undefined {
   const local = toLocalUrl(href, domain)
-  return !!local && (local.pathname === '/' || !hasFileExtension(local.pathname))
+  return local && isNegotiablePath(config, local.pathname) ? local.pathname : undefined
+}
+
+/** At most this many adapter calls in flight, per fan-out. */
+const CONCURRENCY = 8
+
+/**
+ * `Promise.all` with a bounded number of workers, results in input order.
+ *
+ * A documentation site hands this hundreds of routes and sections, and firing
+ * every `get()` at once is what turns building `llms-full.txt` into a burst
+ * the content backend has to absorb in one go.
+ */
+async function mapLimit<T, R>(items: T[], task: (item: T) => R | Promise<R>): Promise<R[]> {
+  const results: R[] = []
+  let cursor = 0
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await task(items[index]!)
+    }
+  }))
+  return results
 }
 
 function toLink(entry: AgentListEntry, domain: string) {
@@ -81,13 +111,17 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     const domain = options.domain || getAgentSiteUrl(event)
 
     if (source) {
+      // Narrowed once, because the check above does not carry into the
+      // closures below.
+      const adapter = source
+
       // Sections the site declared. One that already carries links is left
       // alone; otherwise the adapter is asked whether the section names
       // something it can resolve. Sections do not depend on each other, so the
       // adapter is asked about all of them at once.
-      const resolved = await Promise.all(options.sections.map(section => section.links?.length
+      const resolved = await mapLimit(options.sections, section => section.links?.length
         ? null
-        : (source?.list?.(section as unknown as Record<string, unknown>, event) ?? null)))
+        : (adapter.list?.(section as unknown as Record<string, unknown>, event) ?? null))
 
       const unresolved: LlmsSection[] = []
       for (const [index, section] of options.sections.entries()) {
@@ -108,12 +142,13 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         options.sections.splice(options.sections.indexOf(section), 1)
       }
 
-      // Nothing resolved to pages, so list them all. `nuxt-llms` contributes a
-      // "Documentation Sets" section pointing at `llms-full.txt`, which must
-      // not count as an otherwise empty document having content.
-      const hasPageLinks = options.sections.some(section => section.links?.some(link => isPageLink(link.href, domain)))
+      // Nothing resolved to pages, so list them all. Only a link the site
+      // serves markdown for counts as a page: the "Documentation Sets" section
+      // `nuxt-llms` contributes points at `llms-full.txt`, and a site listing
+      // its API endpoints has named no documentation either.
+      const hasPageLinks = options.sections.some(section => section.links?.some(link => pageRoute(config, link.href, domain)))
       if (!hasPageLinks) {
-        const entries = (await source.list?.(undefined, event)) || []
+        const entries = (await adapter.list?.(undefined, event)) || []
         for (const [title, group] of groupBySection(entries)) {
           options.sections.push({
             title,
@@ -169,12 +204,17 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     if (!source) {
       return
     }
+    // Narrowed once, because the check above does not carry into the closures
+    // below.
+    const adapter = source
+    const config = useAgentDiscoveryConfig(event)
+    const domain = options.domain || getAgentSiteUrl(event)
 
     // The full document follows the sections the site declared, the same set
     // `llms.txt` lists. Rendering every route instead pulls in pages kept out
     // of the documentation on purpose: a landing page, a showcase, a template
-    // gallery. Sections carrying hand-written links resolve to nothing here,
-    // exactly as they did while `@nuxt/content` owned this.
+    // gallery. A section names its pages through a selector the adapter
+    // resolves, or through the links it curates by hand, and both end up here.
     const routes: string[] = []
     const seen = new Set<string>()
     const add = (route: string) => {
@@ -184,32 +224,39 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       }
     }
 
-    // Resolved together, then added in section order: the dedupe keeps the
-    // first route it sees, so the order the document comes out in has to be
-    // the order the sections are declared in.
-    const resolved = await Promise.all((options.sections || []).map(section => source?.list?.(section as unknown as Record<string, unknown>, event) ?? null))
-    for (const entries of resolved) {
-      for (const entry of entries || []) {
+    // Selectors resolved together, then added in section order: the dedupe
+    // keeps the first route it sees, so the order the document comes out in
+    // has to be the order the sections are declared in.
+    const sections = options.sections || []
+    const resolved = await mapLimit(sections, section => adapter.list?.(section as unknown as Record<string, unknown>, event) ?? null)
+    for (const [index, section] of sections.entries()) {
+      for (const entry of resolved[index] || []) {
         add(entry.route)
       }
+      // A section curating its documentation by hand names it in its links, so
+      // the pages behind them are what the full document is. Everything else a
+      // section can point at (`/openapi.json`, an API endpoint, another site)
+      // has no page to render, and `llms.txt` reads those links the same way.
+      for (const link of section.links || []) {
+        const route = pageRoute(config, link.href, domain)
+        if (route) {
+          add(route)
+        }
+      }
     }
-    // Nothing resolved to pages, so render them all, on the same condition
-    // `llms.txt` lists them all: sections curating page links by hand are the
-    // documentation, and dumping the whole site would contradict the index
-    // built from the very same predicate. Sections pointing only at data
-    // (`/openapi.json`, an API endpoint, a repository) name no documentation,
-    // so that site still gets its whole site, as does one with no sections.
-    const domain = options.domain || getAgentSiteUrl(event)
-    const hasPageLinks = options.sections?.some(section => section.links?.some(link => isPageLink(link.href, domain)))
-    if (!routes.length && !hasPageLinks) {
-      for (const entry of (await source.list?.(undefined, event)) || []) {
+    // No section named a page, so render them all, on the same condition
+    // `llms.txt` lists them all. Sections pointing only at data name no
+    // documentation, so that site still gets its whole site, as does one with
+    // no sections at all.
+    if (!routes.length) {
+      for (const entry of (await adapter.list?.(undefined, event)) || []) {
         add(entry.route)
       }
     }
 
     // The same `get()` the raw route calls, so a page reads identically whether
     // an agent fetches `/raw/**.md` or the single full document.
-    const pages = await Promise.all(routes.map(route => getSourcePage(route, event)))
+    const pages = await mapLimit(routes, route => getSourcePage(route, event))
     for (const page of pages) {
       if (page?.markdown) {
         contents.push(page.markdown)

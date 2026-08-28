@@ -9,9 +9,11 @@ import { fetch, setup } from '@nuxt/test-utils/e2e'
  * route it could find. The index stayed curated while the full document held
  * the whole site, `/private/hidden` included.
  *
- * The adapter here lists all four pages, so a document coming out short is
- * curation rather than an adapter with nothing to say: `/sitemap.md` below is
- * the control.
+ * Both documents read the same links now: the curated pages are what the full
+ * document renders, and a section pointing only at data names no page in
+ * either. The adapter here lists all four pages, so a document coming out
+ * short is curation rather than an adapter with nothing to say: `/sitemap.md`
+ * below is the control.
  */
 const SITE_URL = 'https://handwritten.example.com'
 
@@ -35,6 +37,19 @@ describe('llms.txt', () => {
       `- [Alpha](${SITE_URL}/raw/docs/alpha.md): The documented page.`
     ])
   })
+
+  it('lists every page when the hand-written links are all data', async () => {
+    // `/llms-datalinks-index.txt` runs the same hook over a section linking an
+    // API endpoint and an `openapi.json`. Neither has a markdown
+    // representation, so the section names no documentation and the listing
+    // fallback has to fire. `/api/v1/tools` carries no extension, which is
+    // what the old page-link test read it by.
+    const body = await (await fetch('/llms-datalinks-index.txt')).text()
+
+    expect(body).toContain(`- [Alpha](${SITE_URL}/raw/docs/alpha.md)`)
+    expect(body).toContain(`- [Beta](${SITE_URL}/raw/docs/beta.md)`)
+    expect(body).toContain(`- [Hidden](${SITE_URL}/raw/private/hidden.md)`)
+  })
 })
 
 describe('llms-full.txt', () => {
@@ -47,22 +62,26 @@ describe('llms-full.txt', () => {
     expect(body).not.toContain('kept out of the documentation on purpose')
   })
 
-  it('comes out empty when every section is hand-written', async () => {
+  it('renders the pages the hand-written links name', async () => {
     const response = await fetch('/llms-full.txt')
 
     expect(response.status).toBe(200)
-    // A hand-written link is not a selector the adapter can resolve back to a
-    // page, so the sections name nothing to render. Empty is what agrees with
-    // the index: the alternative was the whole site, which agreed with nothing.
-    expect((await response.text()).trim()).toBe('')
+    const body = await response.text()
+
+    // The links are the section's documentation, so the full document is the
+    // pages behind them. Answering 200 with an empty body was the other half
+    // of the bug: `llms.txt` advertised a document holding nothing.
+    expect(body.trim()).not.toBe('')
+    expect(body).toContain('# Alpha')
+    expect(body).toContain('The one page the hand-written section links.')
   })
 
   it('still renders the whole site for sections linking only data', async () => {
     // `/llms-datalinks.txt` runs the same hook over sections whose links are an
-    // `openapi.json` and a repository. Those name no documentation, so the
-    // fallback has to stay: it is the only thing such a site's full document
-    // would ever hold. `llms.txt` keys its own fallback on the same predicate,
-    // so the two documents cannot disagree about it.
+    // `openapi.json`, an API endpoint and a repository. Those name no
+    // documentation, so the fallback has to stay: it is the only thing such a
+    // site's full document would ever hold. `llms.txt` reads the links the same
+    // way, so the two documents cannot disagree about it.
     const body = await (await fetch('/llms-datalinks.txt')).text()
 
     expect(body).toContain('# Alpha')

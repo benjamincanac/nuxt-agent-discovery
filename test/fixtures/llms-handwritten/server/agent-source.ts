@@ -5,8 +5,8 @@ import { defineAgentContentSource } from '#agent-discovery'
  *
  * `list()` returns `null` for any selector, which is the contract for a
  * section the adapter does not recognise, and a hand-written section never
- * names anything it could. So every section resolves to nothing here, and the
- * pages outside the curated links have to stay out of both documents.
+ * names anything it could. So the curated links are the only thing either
+ * document has to go on, and the pages outside them have to stay out of both.
  */
 const pages: Record<string, { title: string, description: string, markdown: string }> = {
   '/': {
