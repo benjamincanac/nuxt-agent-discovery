@@ -122,9 +122,11 @@ describe('O(1) route table', () => {
     const glob = config.routes.filter(route => route.path.includes('*')).length
 
     // 3 header routes (`Vary` on the pages, `Vary` on the markdown twins,
-    // `Link`) + 2 per exact path + 3 per glob, and nothing that scales with
-    // the 5 content files or the 2 locales.
-    expect(routes).toHaveLength(3 + exact * 2 + glob * 3)
+    // `Link`) + 3 per exact path (the negotiated pair and the canonical
+    // `Link` on its raw twin) + 5 per glob (three rewrites and the canonical
+    // `Link` pair on both twin spaces), and nothing that scales with the 5
+    // content files or the 2 locales.
+    expect(routes).toHaveLength(3 + exact * 3 + glob * 5)
   })
 
   it('captures the locale segment rather than enumerating locales', async () => {
