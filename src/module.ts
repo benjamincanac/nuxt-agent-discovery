@@ -564,12 +564,15 @@ export {}
      * build after every hook here. Missing one means emitting a
      * URL-preserving rewrite onto a route that really is cached, which is the
      * one error here that poisons a cache.
+     *
+     * Rebuilt from scratch on every pass rather than accumulated: each later
+     * snapshot is authoritative, and a rule flipped back to `{ isr: false }`
+     * has to drop off the list or the CDN keeps redirecting a route that is
+     * no longer cached.
      */
     const collectCachedRoutes = (routeRules?: Record<string, { isr?: unknown, swr?: unknown, cache?: unknown, static?: unknown } | undefined>) => {
+      const previous = config.cachedRoutes.splice(0, config.cachedRoutes.length)
       for (const [key, rule] of Object.entries(routeRules || {})) {
-        if (config.cachedRoutes.includes(key)) {
-          continue
-        }
         // Every shape Nitro turns into a response cache, read the way Nitro
         // reads it. `isr: 0` and `swr: 0` are not one: the Vercel builder skips
         // a falsy `isr` outright and `normalizeRouteRules` only configures a
@@ -599,7 +602,11 @@ export {}
           : Boolean(matchRoute(routes, key)) && !hasFileExtension(key)
         if (negotiable) {
           config.cachedRoutes.push(key)
-          logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
+          // Only for rules the earlier passes had not seen, so a rebuild does
+          // not repeat the whole list on every pass.
+          if (!previous.includes(key)) {
+            logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
+          }
         }
       }
     }

@@ -228,6 +228,30 @@ describe('module setup: cached routes', () => {
     expect(cloned.cachedRoutes).toEqual(['/tools', '/docs/late'])
   })
 
+  it('drops a rule a later snapshot flipped back to uncached', async () => {
+    // Each snapshot is authoritative: a site or module overriding an earlier
+    // `{ isr }` with `{ isr: false }` really uncaches the route, and keeping
+    // the stale entry made the CDN 307 a route that serves uncached HTML.
+    const nuxt = await runModule({ routes: ['/', '/**'] }, { '/tools': { isr: 3600 } })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+
+    expect(config.cachedRoutes).toEqual(['/tools'])
+
+    const cloned = JSON.parse(JSON.stringify(config)) as NegotiationConfig
+    const nitro = {
+      options: {
+        dev: false,
+        preset: 'node-server',
+        routeRules: { '/tools': { isr: false } },
+        runtimeConfig: { agentDiscovery: cloned }
+      }
+    }
+    await nuxt.hooks.callHook('nitro:build:before' as never, nitro as never)
+
+    expect(config.cachedRoutes).toEqual([])
+    expect(cloned.cachedRoutes).toEqual([])
+  })
+
   // `experimental.inlineRouteRules` applies a page's `defineRouteRules({ isr })`
   // during the Nuxt build, after `nitro:build:before` too. The CDN table is
   // emitted late enough to honour it, and is the half that matters: the
