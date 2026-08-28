@@ -1,6 +1,6 @@
 {
   "name": "nuxt-agent-discovery",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Markdown content negotiation, CDN-level rewrites and discovery documents for AI agents on Nuxt documentation sites",
   "repository": {
     "type": "git",

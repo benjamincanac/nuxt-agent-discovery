@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.1.0...v0.1.1) (2026-08-28)
+
+### Bug Fixes
+
+* **openapi:** dedupe operation ids against the caller's ([#7](https://github.com/benjamincanac/nuxt-agent-discovery/issues/7)) ([bc7bf82](https://github.com/benjamincanac/nuxt-agent-discovery/commit/bc7bf82bce308d6711fe1655b9e14b7ff7719072))
+* set Vary on the markdown representations ([#6](https://github.com/benjamincanac/nuxt-agent-discovery/issues/6)) ([bd99433](https://github.com/benjamincanac/nuxt-agent-discovery/commit/bd99433fe64a8b990be6b77f6a8caf7db3c1548a))
+
 ## [0.1.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.0.1...v0.1.0) (2026-08-27)
 
 ### Features
