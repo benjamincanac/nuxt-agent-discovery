@@ -554,15 +554,19 @@ export {}
      * Route-rule patterns with a response cache that a negotiated pattern
      * reaches, which decide where the CDN redirects instead of rewriting.
      *
-     * Run twice: once at `modules:done`, and again at `nitro:init` for the
-     * rules that do not exist yet at the first pass. A page calling
-     * `defineRouteRules({ isr })` under `experimental.inlineRouteRules` is
-     * applied through `nitro.updateConfig` after every module has set up, and
-     * missing it means emitting a URL-preserving rewrite onto a route that
-     * really is cached, which is the one error here that poisons a cache.
+     * Collected three times, because rules keep arriving as the build goes:
+     * at `modules:done` from `nuxt.options.routeRules`, which is what the
+     * runtime config snapshots; at `nitro:build:before` from Nitro's own
+     * table, the only place a rule added in a `nitro:config` hook ever lands
+     * (`createNitro` builds a fresh object, so those never reach
+     * `nuxt.options`); and once more when the Vercel preset emits its table,
+     * for a page-level `defineRouteRules({ isr })` applied during the Nuxt
+     * build after every hook here. Missing one means emitting a
+     * URL-preserving rewrite onto a route that really is cached, which is the
+     * one error here that poisons a cache.
      */
-    const collectCachedRoutes = () => {
-      for (const [key, rule] of Object.entries(nuxt.options.routeRules || {})) {
+    const collectCachedRoutes = (routeRules?: Record<string, { isr?: unknown, swr?: unknown, cache?: unknown, static?: unknown } | undefined>) => {
+      for (const [key, rule] of Object.entries(routeRules || {})) {
         if (config.cachedRoutes.includes(key)) {
           continue
         }
@@ -798,7 +802,7 @@ export {}
       // A cached response cannot vary on Accept/User-Agent, so request-time
       // negotiation is disabled there. The CDN rewrites still cover those
       // pages because they run before the cache.
-      collectCachedRoutes()
+      collectCachedRoutes(nuxt.options.routeRules)
 
       /* ---------------------------- runtime config --------------------------- */
 
@@ -826,13 +830,23 @@ export {}
     /* ------------------------------- presets ------------------------------- */
 
     if (negotiates) {
+      // Nitro's rule table is a fresh object built at `createNitro`, so rules
+      // another module added in `nitro:config` exist only there. The runtime
+      // config was deep-cloned at the same point; syncing Nitro's copy here
+      // still reaches the server bundle, because rollup stringifies it later.
+      nuxt.hook('nitro:build:before', (nitro) => {
+        collectCachedRoutes(nitro.options.routeRules)
+        const runtime = nitro.options.runtimeConfig.agentDiscovery as NegotiationConfig | undefined
+        if (runtime) {
+          runtime.cachedRoutes = [...config.cachedRoutes]
+        }
+      })
       nuxt.hook('nitro:init', (nitro) => {
-        // Once more before the preset reads the config: a page-level
-        // `defineRouteRules({ isr })` is merged in after every module has set
-        // up, so the first pass never saw it and the pattern would get a
-        // URL-preserving rewrite onto a route that really is cached.
-        collectCachedRoutes()
-        setupVercelPreset(nitro, config)
+        // The preset collects once more when it emits its table: an inline
+        // `defineRouteRules({ isr })` lands on Nitro's rules during the Nuxt
+        // build, after both passes above, and the CDN table is the one output
+        // late enough to honour it.
+        setupVercelPreset(nitro, config, collectCachedRoutes)
       })
     }
   }

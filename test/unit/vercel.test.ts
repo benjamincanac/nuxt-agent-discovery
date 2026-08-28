@@ -562,3 +562,21 @@ describe('vercelMarkdownRoutes: explicit markdown refusal', () => {
     expect(refuses('text/markdown;q=0.1, text/html;q=0.9')).toBe(false)
   })
 })
+
+describe('vercelMarkdownRoutes: methods', () => {
+  it('scopes every route to GET/HEAD, matching the middleware', () => {
+    // The negotiation middleware returns early for anything but GET/HEAD, so
+    // an unscoped edge route 406ed or rewrote a POST the origin would serve.
+    const config = createConfig({ notAcceptable: true, cachedRoutes: ['/docs/**'], links: LINKS })
+
+    for (const route of vercelMarkdownRoutes(config)) {
+      if (route.headers?.Link) {
+        // The Link route stands in for the `/` route rule, which the origin
+        // applies to every method.
+        expect(route.methods).toBeUndefined()
+      } else {
+        expect(route.methods, route.src).toEqual(['GET', 'HEAD'])
+      }
+    }
+  })
+})

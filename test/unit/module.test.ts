@@ -1,4 +1,7 @@
 import { fileURLToPath } from 'node:url'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { nuxtCtx } from '@nuxt/kit'
 import module from '../../src/module'
@@ -198,22 +201,65 @@ describe('module setup: cached routes', () => {
     expect(await cached({ swr: 0 })).toBe(false)
   })
 
-  // `experimental.inlineRouteRules` merges a page's `defineRouteRules({ isr })`
-  // in after every module has set up, so the pass at `modules:done` never sees
-  // it. Missing it emits a URL-preserving rewrite onto a route that really is
-  // cached, which is the one error in this area that poisons a cache.
+  // A rule added inside a `nitro:config` hook only ever lands on Nitro's own
+  // table: `createNitro` builds a fresh object, so `nuxt.options.routeRules`
+  // never sees it. Missing it emits a URL-preserving rewrite onto a route that
+  // really is cached, which is the one error in this area that poisons a cache.
   it('picks up a route rule that lands after `modules:done`', async () => {
     const nuxt = await runModule({ routes: ['/', '/**'] }, { '/tools': { isr: 3600 } })
     const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
 
     expect(config.cachedRoutes).toEqual(['/tools'])
 
-    // What `nitro.updateConfig` does with an inline page rule, then the hook
-    // the preset reads the config from.
-    nuxt.options.routeRules['/docs/late'] = { isr: 60 }
-    await nuxt.hooks.callHook('nitro:init' as never, { options: { dev: false, preset: 'node-server' } } as never)
+    // The runtime config Nitro carries is a deep clone taken at `createNitro`,
+    // so the pass has to sync it as well as the module's own reference.
+    const cloned = JSON.parse(JSON.stringify(config)) as NegotiationConfig
+    const nitro = {
+      options: {
+        dev: false,
+        preset: 'node-server',
+        routeRules: { '/tools': { isr: 3600 }, '/docs/late': { isr: 60 } },
+        runtimeConfig: { agentDiscovery: cloned }
+      }
+    }
+    await nuxt.hooks.callHook('nitro:build:before' as never, nitro as never)
 
     expect(config.cachedRoutes).toEqual(['/tools', '/docs/late'])
+    expect(cloned.cachedRoutes).toEqual(['/tools', '/docs/late'])
+  })
+
+  // `experimental.inlineRouteRules` applies a page's `defineRouteRules({ isr })`
+  // during the Nuxt build, after `nitro:build:before` too. The CDN table is
+  // emitted late enough to honour it, and is the half that matters: the
+  // rewrite-or-307 decision lives there.
+  it('collects an inline rule when the Vercel preset emits its table', async () => {
+    const nuxt = await runModule({ routes: ['/', '/**'] })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+
+    expect(config.cachedRoutes).toEqual([])
+
+    const dir = mkdtempSync(join(tmpdir(), 'agent-discovery-vercel-'))
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ routes: [] }))
+    const hooks: Record<string, () => Promise<void>> = {}
+    const nitro = {
+      options: {
+        dev: false,
+        static: false,
+        preset: 'vercel',
+        output: { dir },
+        routeRules: {} as Record<string, unknown>,
+        runtimeConfig: { agentDiscovery: config }
+      },
+      hooks: { hook: (name: string, callback: () => Promise<void>) => { hooks[name] = callback } }
+    }
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+    // What the inline rule does during the build: Nitro's table only.
+    nitro.options.routeRules['/docs/**'] = { isr: 60 }
+    await hooks['compiled']!()
+
+    expect(config.cachedRoutes).toEqual(['/docs/**'])
+    const written = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as { routes: { status?: number }[] }
+    expect(written.routes.some(route => route.status === 307)).toBe(true)
   })
 
   it('only lists a rule the routes actually negotiate', async () => {

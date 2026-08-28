@@ -1,5 +1,20 @@
+import { defineNuxtModule } from 'nuxt/kit'
+
+// A companion module adding a cached rule in `nitro:config`. That rule lands
+// on Nitro's own table only, never on `nuxt.options.routeRules`, so it covers
+// the late-collection pass end to end.
+const lateCachedRule = defineNuxtModule({
+  meta: { name: 'late-cached-rule' },
+  setup(_options, nuxt) {
+    nuxt.hook('nitro:config', (config) => {
+      config.routeRules ||= {}
+      config.routeRules['/docs/late/**'] = { isr: 120 }
+    })
+  }
+})
+
 export default defineNuxtConfig({
-  modules: ['../../../src/module', '@nuxt/content', 'nuxt-llms', '@nuxtjs/mcp-toolkit', '@nuxtjs/sitemap'],
+  modules: ['../../../src/module', '@nuxt/content', 'nuxt-llms', '@nuxtjs/mcp-toolkit', '@nuxtjs/sitemap', lateCachedRule],
   devtools: { enabled: false },
   // Multi-theme highlighting makes the highlighter append a `<style>` node
   // carrying the per-document CSS variables, which the raw markdown must not

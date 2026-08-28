@@ -180,7 +180,7 @@ describe('vercel build output', () => {
 
     const patterns = 2 // `routes: ['/', '/**']`
     const exact = 1 // `/`
-    const cachedRules = 1 // `/docs/components/**`
+    const cachedRules = 2 // `/docs/components/**`, plus `/docs/late/**` from `nitro:config`
     const headerRoutes = 3 // `Vary` on the pages, `Vary` on the markdown twins, `Link`
     const refusals = 1 // `notAcceptable: true` in the fixture
     // Per pattern: an `Accept` route and a User-Agent route, plus a `.md` alias
@@ -194,21 +194,33 @@ describe('vercel build output', () => {
   // rules to know the section is cached at all.
   it('redirects the cached section and rewrites everything else', () => {
     const cached = routes.filter(route => route.status === 307)
-    expect(cached).toHaveLength(2)
+    expect(cached).toHaveLength(4)
 
-    for (const route of cached) {
-      expect(route.headers?.Location).toBe('/raw/docs/components/$1.md')
+    const components = cached.filter(route => route.headers?.Location === '/raw/docs/components/$1.md')
+    expect(components).toHaveLength(2)
+    for (const route of components) {
       expect(route.headers?.Vary).toBe(MARKDOWN_VARY)
       expect(route.dest).toBeUndefined()
       expect(new RegExp(route.src!).test('/docs/components/button')).toBe(true)
       expect(new RegExp(route.src!).test('/docs/getting-started')).toBe(false)
     }
-    expect(cached.map(route => route.has?.[0]?.key)).toEqual(['accept', 'user-agent'])
+    expect(components.map(route => route.has?.[0]?.key)).toEqual(['accept', 'user-agent'])
 
-    // The catch-all is untouched by the narrower rule.
+    // The catch-all is untouched by the narrower rules.
     const catchAll = routes.filter(route => route.dest === '/raw/$1.md' && route.has)
     expect(catchAll).toHaveLength(2)
     expect(catchAll.every(route => route.check && !route.status)).toBe(true)
+  })
+
+  // The rule arrives through a companion module's `nitro:config` hook, so it
+  // exists only on Nitro's own table. Missing it emitted a URL-preserving
+  // rewrite onto a cached route, which poisons a path-keyed response cache.
+  it('redirects a section cached through `nitro:config`', () => {
+    const late = routes.filter(route => route.headers?.Location === '/raw/docs/late/$1.md')
+
+    expect(late).toHaveLength(2)
+    expect(late.every(route => route.status === 307)).toBe(true)
+    expect(late.map(route => route.has?.[0]?.key)).toEqual(['accept', 'user-agent'])
   })
 
   it('prerenders the homepage raw markdown into the static output', () => {
