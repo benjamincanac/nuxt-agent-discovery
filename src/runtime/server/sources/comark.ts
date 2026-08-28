@@ -1,11 +1,9 @@
 import type { H3Event } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
-import { absolutizeTreeLinks } from '../../shared/negotiation'
+import { prepareDocumentTree } from './pipeline'
+import type { DocNode } from './pipeline'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
-
-/** Same shape minimark uses: `[tag, props, ...children]`. */
-type ComarkNode = [string, Record<string, unknown>, ...unknown[]]
 
 interface ComarkNavigationItem {
   title?: string
@@ -129,10 +127,10 @@ export function createComarkSource(getContent: (event: H3Event) => Promise<Comar
     },
 
     /**
-     * Step for step what the `@nuxt/content` adapter does to a minimark tree,
-     * on a comark one. The two have to come out byte-identical: a site moving
-     * backend changes the adapter and nothing else, and `test/e2e/expected.ts`
-     * is what holds them to it.
+     * The shared document pipeline on a comark tree, with only the fetch and
+     * the render around it. The two adapters have to come out byte-identical:
+     * a site moving backend changes the adapter and nothing else, and
+     * `test/e2e/expected.ts` is what holds them to it.
      */
     async get(route: string, event: H3Event) {
       const content = await getContent(event)
@@ -153,43 +151,20 @@ export function createComarkSource(getContent: (event: H3Event) => Promise<Comar
       // so a transformer can swap them wholesale.
       await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
 
-      const nodes = page.nodes as ComarkNode[]
+      const nodes = page.nodes as DocNode[]
       const frontmatter = (page.data || {}) as { title?: string, description?: string, links?: unknown }
 
       // comark 0.6 declares `removeLastStyle` and reads it nowhere, so a
       // highlighter's `<style>` node would render into the markdown verbatim.
-      // Dropped here rather than at the end for the same reason as the other
-      // adapter: the related links below would strand it mid-document.
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        if (nodes[i]?.[0] === 'style') {
-          nodes.splice(i, 1)
-        }
-      }
-
-      // Pushed as nodes, not as a `# ${title}` string, so the title and the
-      // description go through the same escaper the body does.
-      if (!(Array.isArray(nodes[0]) && nodes[0][0] === 'h1')) {
-        if (frontmatter.description) {
-          nodes.unshift(['blockquote', {}, frontmatter.description])
-        }
-        if (frontmatter.title) {
-          nodes.unshift(['h1', {}, frontmatter.title])
-        }
-      }
-
-      // comark keeps all frontmatter in `data`, with no `meta` split.
-      const links = frontmatter.links
-      if (Array.isArray(links) && links.length > 0) {
-        const items = links
-          .filter((link: { label?: string, to?: string }) => link.label && link.to)
-          .map((link: { label: string, to: string }) => ['li', {}, ['a', { href: link.to }, link.label]] as ComarkNode)
-        if (items.length > 0) {
-          nodes.push(['hr', {}])
-          nodes.push(['ul', {}, ...items])
-        }
-      }
-
-      absolutizeTreeLinks(nodes, getAgentSiteUrl(event))
+      // The pipeline drops it, along with the rest of what the `@nuxt/content`
+      // adapter does to its tree. comark keeps all frontmatter in `data`, with
+      // no `meta` split, so the links come from there.
+      prepareDocumentTree(nodes, {
+        title: frontmatter.title,
+        description: frontmatter.description,
+        links: frontmatter.links,
+        siteUrl: getAgentSiteUrl(event)
+      })
 
       // `render`, not `renderMarkdown`: the latter routes through
       // `renderFrontmatter`, which re-emits `data` as a YAML block the raw

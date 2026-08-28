@@ -3,6 +3,7 @@ import { useNitroApp } from 'nitropack/runtime'
 import { useRuntimeConfig } from '#imports'
 import { listMcpDefinitions } from '#agent-discovery/mcp'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
+import { absolutizeHref } from '../../shared/negotiation'
 
 interface McpServerCardConfig {
   endpoint: string
@@ -41,7 +42,6 @@ interface McpDefinition {
 export default defineEventHandler(async (event) => {
   const card = useRuntimeConfig(event).agentDiscoveryMcp as McpServerCardConfig
   const siteUrl = getAgentSiteUrl(event)
-  const absolute = (href: string) => href.startsWith('/') ? `${siteUrl}${href}` : href
 
   // No `$schema`: the URL this used to carry 404s, and so does the one the
   // draft that would define it (SEP-2127) proposes, because that draft is
@@ -55,14 +55,14 @@ export default defineEventHandler(async (event) => {
       ...(card.title ? { title: card.title } : {}),
       ...(card.description ? { description: card.description } : {}),
       homepage: siteUrl,
-      ...(card.documentation ? { documentation: absolute(card.documentation) } : {}),
+      ...(card.documentation ? { documentation: absolutizeHref(card.documentation, siteUrl) } : {}),
       ...(card.license ? { license: card.license } : {}),
       ...(card.repository ? { repository: card.repository } : {})
     },
     endpoints: [
       {
         type: 'streamable-http',
-        url: absolute(card.endpoint)
+        url: absolutizeHref(card.endpoint, siteUrl)
       }
     ],
     authentication: {
@@ -77,10 +77,10 @@ export default defineEventHandler(async (event) => {
       prompts: McpDefinition[]
     }
     // Groups come from the subdirectory a definition sits in, which is how a
-    // site separates its admin tools from the ones anybody may call.
-    // Extends the default rather than replacing it: a site naming its own
-    // private group should not silently start publishing its admin tools.
-    const excluded = new Set(['admin', ...(card.excludeGroups ?? [])])
+    // site separates its admin tools from the ones anybody may call. The
+    // `admin` default is merged into `excludeGroups` at build time, next to
+    // the other defaults in `defaults.ts`.
+    const excluded = new Set(card.excludeGroups ?? [])
     const isPublic = (definition: McpDefinition) => !definition.group || !excluded.has(definition.group)
 
     serverCard.capabilities = {

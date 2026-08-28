@@ -1,6 +1,6 @@
 import type { NitroErrorHandler } from 'nitropack/types'
-import { getRequestHeader, getRequestURL, send, setResponseHeader, setResponseStatus } from 'h3'
-import { useAgentDiscoveryConfig } from './utils/agent-discovery'
+import { getRequestHeader, send, setResponseHeader, setResponseStatus } from 'h3'
+import { getAgentSiteUrl, useAgentDiscoveryConfig } from './utils/agent-discovery'
 import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
 
 /**
@@ -57,7 +57,7 @@ const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler })
     // Not sanitized on the way here: `createError` only warns about an unsafe
     // status message, and Nitro returns it verbatim. `errorMarkdown` strips it.
     statusMessage: res.statusText,
-    siteUrl: config.siteUrl || getRequestURL(event).origin
+    siteUrl: getAgentSiteUrl(event)
   }))
 }
 

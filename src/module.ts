@@ -15,7 +15,8 @@ import {
 import { defu } from 'defu'
 import { join } from 'pathe'
 import { withLeadingSlash, withoutTrailingSlash } from 'ufo'
-import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
+import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES, MCP_EXCLUDED_GROUPS } from './defaults'
+import { SKILLS_INDEX, SKILLS_PREFIX } from './runtime/shared/paths'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { setupVercelPreset } from './presets/vercel'
@@ -40,8 +41,10 @@ export interface McpServerCardOptions {
   version?: string
   /**
    * Definition groups kept off the public card, by the subdirectory they live
-   * in under `server/mcp/tools`. Admin tools behind a bearer token are on the
-   * server but are not something to advertise.
+   * in under `server/mcp/tools`. Extends the built-in default (`admin`, see
+   * `MCP_EXCLUDED_GROUPS` in `defaults.ts`) rather than replacing it: admin
+   * tools behind a bearer token are on the server but are not something to
+   * advertise.
    */
   excludeGroups?: string[]
 }
@@ -411,7 +414,13 @@ export default defineNuxtModule<ModuleOptions>({
       addServerHandler({ route: '/.well-known/api-catalog', handler: resolve('./runtime/server/routes/api-catalog') })
     }
     if (options.discovery?.mcpServerCard) {
-      runtimeConfig.agentDiscoveryMcp = options.discovery.mcpServerCard
+      // The default lives in `defaults.ts` with the other lists, and the
+      // option extends it rather than replacing it, so the merge happens here
+      // and the route reads the resolved list.
+      runtimeConfig.agentDiscoveryMcp = {
+        ...options.discovery.mcpServerCard,
+        excludeGroups: [...new Set([...MCP_EXCLUDED_GROUPS, ...(options.discovery.mcpServerCard.excludeGroups || [])])]
+      }
       addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: resolve('./runtime/server/routes/mcp-server-card') })
     }
 
@@ -581,11 +590,11 @@ export {}
         nitroConfig.serverAssets.push({ baseName: 'agentSkills', dir: skillsDir })
       })
 
-      addServerHandler({ route: '/.well-known/skills/index.json', handler: resolve('./runtime/server/routes/skills-index') })
-      addServerHandler({ route: '/.well-known/skills/**', handler: resolve('./runtime/server/routes/skills-files') })
+      addServerHandler({ route: SKILLS_INDEX, handler: resolve('./runtime/server/routes/skills-index') })
+      addServerHandler({ route: `${SKILLS_PREFIX}**`, handler: resolve('./runtime/server/routes/skills-files') })
       addPrerenderRoutes([
-        '/.well-known/skills/index.json',
-        ...skills.flatMap(skill => skill.files.map(file => `/.well-known/skills/${skill.name}/${file}`))
+        SKILLS_INDEX,
+        ...skills.flatMap(skill => skill.files.map(file => `${SKILLS_PREFIX}${skill.name}/${file}`))
       ])
     }
 
@@ -812,11 +821,11 @@ export {}
         }
       }
       if (skills.length) {
-        links.push({ href: '/.well-known/skills/index.json', rel: 'index', type: 'application/json', title: 'Agent skills index: every skill published by this site' })
+        links.push({ href: SKILLS_INDEX, rel: 'index', type: 'application/json', title: 'Agent skills index: every skill published by this site' })
         // The skills themselves stay out of the `Link` header, which
         // advertises the discovery documents rather than every resource.
         for (const skill of skills) {
-          links.push({ href: `/.well-known/skills/${skill.name}/SKILL.md`, rel: 'service-doc', type: 'text/markdown', title: `Agent skill: ${skill.name}`, anchor: '/', header: false })
+          links.push({ href: `${SKILLS_PREFIX}${skill.name}/SKILL.md`, rel: 'service-doc', type: 'text/markdown', title: `Agent skill: ${skill.name}`, anchor: '/', header: false })
         }
       }
       if (matchRoute(routes, '/')) {

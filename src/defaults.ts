@@ -27,5 +27,14 @@ export const AGENT_USER_AGENTS = [
   'Bytespider'
 ]
 
+/**
+ * MCP definition groups the public server card hides. Groups come from the
+ * subdirectory a definition sits in under `server/mcp/tools`, and
+ * `mcpServerCard.excludeGroups` extends this list rather than replacing it: a
+ * site naming its own private group should not silently start publishing its
+ * admin tools.
+ */
+export const MCP_EXCLUDED_GROUPS = ['admin']
+
 /** Paths owned by the framework or the API, never markdown. */
 export const EXCLUDE_PREFIXES = ['/_', '/api/', '/mcp', '/.well-known/']

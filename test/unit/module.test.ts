@@ -426,6 +426,15 @@ describe('module setup: companion modules', () => {
     expect(nuxt.options.nitro.alias?.['#agent-discovery/mcp']).toContain('mcp/none')
   })
 
+  it('merges the default excluded MCP group into the card config', async () => {
+    // `excludeGroups` extends the `admin` default rather than replacing it: a
+    // site naming its own private group should not silently start publishing
+    // its admin tools.
+    const nuxt = await runModule({ discovery: { mcpServerCard: { endpoint: '/mcp', name: 'Basic', excludeGroups: ['internal'] } } })
+
+    expect((nuxt.options.runtimeConfig.agentDiscoveryMcp as { excludeGroups?: string[] }).excludeGroups).toEqual(['admin', 'internal'])
+  })
+
   it('keeps the MCP stub when the toolkit is installed but disabled', async () => {
     // It registers none of the virtual modules the definitions re-export
     // imports in that state, so aliasing them would fail the Nitro build.
