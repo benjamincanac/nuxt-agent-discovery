@@ -4,6 +4,7 @@ import { useRuntimeConfig } from '#imports'
 import { listMcpDefinitions } from '#agent-discovery/mcp'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
 import { absolutizeHref } from '../../shared/negotiation'
+import { mcpExcludedGroups } from '../../shared/defaults'
 
 interface McpServerCardConfig {
   endpoint: string
@@ -77,10 +78,13 @@ export default defineEventHandler(async (event) => {
       prompts: McpDefinition[]
     }
     // Groups come from the subdirectory a definition sits in, which is how a
-    // site separates its admin tools from the ones anybody may call. The
-    // `admin` default is merged into `excludeGroups` at build time, next to
-    // the other defaults in `defaults.ts`.
-    const excluded = new Set(card.excludeGroups ?? [])
+    // site separates its admin tools from the ones anybody may call. The build
+    // merges the `admin` default into `excludeGroups` already, but this list
+    // arrives through runtime config, where
+    // `NUXT_AGENT_DISCOVERY_MCP_EXCLUDE_GROUPS` replaces it wholesale. Unioning
+    // the defaults back in keeps a deploy-time override from publishing the
+    // admin tools.
+    const excluded = mcpExcludedGroups(card.excludeGroups)
     const isPublic = (definition: McpDefinition) => !definition.group || !excluded.has(definition.group)
 
     serverCard.capabilities = {

@@ -28,13 +28,13 @@ export const AGENT_USER_AGENTS = [
 ]
 
 /**
- * MCP definition groups the public server card hides. Groups come from the
- * subdirectory a definition sits in under `server/mcp/tools`, and
- * `mcpServerCard.excludeGroups` extends this list rather than replacing it: a
- * site naming its own private group should not silently start publishing its
- * admin tools.
+ * MCP definition groups the public server card hides.
+ *
+ * Defined in `runtime/shared/defaults.ts`, since the card route applies it
+ * again per request rather than trusting the merged runtime config, and
+ * re-exported here so the defaults still read as one list.
  */
-export const MCP_EXCLUDED_GROUPS = ['admin']
+export { MCP_EXCLUDED_GROUPS } from './runtime/shared/defaults'
 
 /** Paths owned by the framework or the API, never markdown. */
 export const EXCLUDE_PREFIXES = ['/_', '/api/', '/mcp', '/.well-known/']
