@@ -3,7 +3,7 @@ import { useNitroApp } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
 import { extractSections } from '../../shared/sections'
-import { absolutizeMarkdownLinks, normalizeAgentRoute } from '../../shared/negotiation'
+import { absolutizeMarkdownLinks, encodeAgentRoute, normalizeAgentRoute } from '../../shared/negotiation'
 import type { AgentIndex, AgentPage } from '../../shared/types'
 
 /** A resolved markdown document, or where to go instead. */
@@ -106,7 +106,9 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
   const siteUrl = getAgentSiteUrl(event)
   // Re-encoded because `normalizeAgentRoute` decoded the path above, and this
   // URL lands in a `Link` header, where Node rejects anything above U+00FF.
-  const canonicalUrl = `${siteUrl}${path === '/' ? '' : encodeURI(path)}` || siteUrl
+  // Per segment: `encodeURI` would leave a `#` or `?` in a slug alone, and
+  // either one cuts the URL short right there.
+  const canonicalUrl = `${siteUrl}${path === '/' ? '' : encodeAgentRoute(path)}` || siteUrl
 
   const page = await getSourcePage(path, event)
   if (!page) {

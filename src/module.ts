@@ -155,9 +155,9 @@ declare module '@nuxt/schema' {
      *
      * Fires once, but not always at the same point: with `@nuxtjs/robots`
      * listed before this module it fires from that module's `robots:config`
-     * pass, before this module has assembled its own links, so the registry
-     * handed in may be empty at that moment. Push onto it rather than reading
-     * from it.
+     * pass. The links array collects contributions only, and they are
+     * appended after the module's own links wherever the hook fired from, so
+     * push onto it rather than reading from it.
      */
     'agent-discovery:extend': (registry: { links: DiscoveryLink[], userAgents: string[] }) => void | Promise<void>
   }
@@ -236,15 +236,6 @@ export default defineNuxtModule<ModuleOptions>({
     const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
       .map(route => typeof route === 'string' ? { path: route } : route)
       .map(route => ({ ...route, path: withLeadingSlash(route.path) }))
-    // A `raw` destination outside the raw prefix negotiates again: the
-    // middleware proxies it, re-enters itself on the destination and never
-    // resolves. Validated rather than warned, because the loop only shows up
-    // in production under load.
-    for (const route of routes) {
-      if (route.raw && route.raw !== rawPrefix && !route.raw.startsWith(`${rawPrefix}/`)) {
-        throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` must sit under \`${rawPrefix}\`.`)
-      }
-    }
     // Copied, not aliased. `agent-discovery:extend` lets a site push onto this
     // list, and a `replace` array comes straight from the site's config, which
     // in a monorepo can be one const imported by two apps.
@@ -266,6 +257,18 @@ export default defineNuxtModule<ModuleOptions>({
       ? options.excludePrefixes.replace
       : [...EXCLUDE_PREFIXES, ...(options.excludePrefixes?.extend || [])])]
 
+    // A `raw` destination outside the raw prefix negotiates again: the
+    // middleware proxies it, re-enters itself on the destination and never
+    // resolves. Validated rather than warned, because the loop only shows up
+    // in production under load. A destination under an excluded prefix never
+    // negotiates, so a site serving its own markdown there keeps working.
+    for (const route of routes) {
+      if (route.raw && route.raw !== rawPrefix && !route.raw.startsWith(`${rawPrefix}/`)
+        && !excludePrefixes.some(prefix => route.raw!.startsWith(prefix))) {
+        throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` must sit under \`${rawPrefix}\` or an excluded prefix.`)
+      }
+    }
+
     // The discovery-link registry, assembled at `modules:done` and extended
     // through `agent-discovery:extend`. The hook fires once, from whichever
     // consumer needs it first: `@nuxtjs/robots` snapshots the user agents when
@@ -273,13 +276,17 @@ export default defineNuxtModule<ModuleOptions>({
     // ours whenever it is listed first, so waiting for our own `modules:done`
     // handed it the un-extended list.
     const links: DiscoveryLink[] = []
+    // Hook contributions land in their own list and are appended after the
+    // module's own, so their position never depends on which consumer fired
+    // the hook first.
+    const hookLinks: DiscoveryLink[] = []
     let extended = false
     const extendRegistry = async () => {
       if (extended) {
         return
       }
       extended = true
-      await nuxt.callHook('agent-discovery:extend', { links, userAgents })
+      await nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents })
     }
 
     // Mutated until `modules:done`, then read by the runtime and the presets.
@@ -810,6 +817,9 @@ export {}
       links.push(...(options.discovery?.links || []))
 
       await extendRegistry()
+      // Wherever the hook fired from, its links slot in after the built-ins
+      // and the site's own.
+      links.push(...hookLinks)
 
       // After the hook, so a link contributed by another module counts too.
       if (options.discovery?.apiCatalog && links.some(link => link.anchor && (link.rel === 'service-desc' || link.rel === 'service-doc'))) {

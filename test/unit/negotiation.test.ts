@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   MARKDOWN_VARY,
   absolutizeMarkdownLinks,
+  encodeAgentRoute,
   acceptQuality,
   acceptsMarkdown,
   compilePattern,
@@ -849,5 +850,16 @@ describe('absolutizeMarkdownLinks', () => {
 
   it('drops a trailing slash on the site URL', () => {
     expect(absolutizeMarkdownLinks('[a](/docs)', 'https://example.com/')).toBe('[a](https://example.com/docs)')
+  })
+})
+
+describe('encodeAgentRoute', () => {
+  it('re-encodes a decoded route per segment', () => {
+    expect(encodeAgentRoute('/docs/getting-started')).toBe('/docs/getting-started')
+    expect(encodeAgentRoute('/docs/\u6587\u6863')).toBe('/docs/%E6%96%87%E6%A1%A3')
+    // `encodeURI` leaves both of these alone, and either one cuts a header
+    // URL short at the slug that carries it.
+    expect(encodeAgentRoute('/guide/c#-notes')).toBe('/guide/c%23-notes')
+    expect(encodeAgentRoute('/guide/faq?basics')).toBe('/guide/faq%3Fbasics')
   })
 })

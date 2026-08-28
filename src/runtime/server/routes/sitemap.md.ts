@@ -76,6 +76,11 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
   setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+  // Same rule as the api-catalog: every URL below embeds the request origin
+  // when no site URL is configured, so the body is host-dependent.
+  if (!config.siteUrl) {
+    setResponseHeader(event, 'Cache-Control', 'no-cache')
+  }
 
   return lines.join('\n')
 })

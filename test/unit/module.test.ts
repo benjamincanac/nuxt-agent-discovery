@@ -355,16 +355,22 @@ describe('module setup: companion modules', () => {
     // snapshot the user agents at that moment. The extend hook has to have
     // run by then or an agent added through it never reaches `robots.txt`.
     const groups: { userAgent: string[] }[] = []
-    await runModule(robots, {}, installLate('@nuxtjs/robots'), (nuxt) => {
+    const nuxt = await runModule(robots, {}, installLate('@nuxtjs/robots'), (nuxt) => {
       nuxt.hook('modules:done', (async () => {
         await nuxt.hooks.callHook('robots:config' as never, { groups } as never)
       }) as never)
-      nuxt.hook('agent-discovery:extend', ((registry: { userAgents: string[] }) => {
+      nuxt.hook('agent-discovery:extend', ((registry: { userAgents: string[], links: { href: string, rel: string, title?: string }[] }) => {
         registry.userAgents.push('MyCorpBot')
+        registry.links.push({ href: '/corp.txt', rel: 'describedby', title: 'Corp' })
       }) as never)
     })
 
     expect(groups.some(group => group.userAgent.includes('MyCorpBot'))).toBe(true)
+
+    // Even fired early, hook links slot in after the module's own.
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+    const hrefs = config.links.map(link => link.href)
+    expect(hrefs.indexOf('/corp.txt')).toBeGreaterThan(hrefs.indexOf('/sitemap.md'))
   })
 
   it('contributes to `robots:config` whenever that module ends up installed', async () => {
@@ -438,6 +444,18 @@ describe('module setup: routes', () => {
     // straight back into the middleware, forever.
     await expect(runModule({ routes: [{ path: '/about', raw: '/about.md' }] }))
       .rejects.toThrow('must sit under')
+  })
+
+  it('accepts a raw destination under an excluded prefix', async () => {
+    // `isExcluded` runs before the `.md` branch in `negotiatedRawPath`, so an
+    // excluded destination never negotiates and cannot loop. A site serving
+    // its own markdown there worked before the validation and keeps working.
+    const config = await setupModule({
+      routes: [{ path: '/docs/x', raw: '/docs/x.md' }, '/**'],
+      excludePrefixes: { extend: ['/docs/x.md'] }
+    })
+
+    expect(config.routes[0]).toEqual({ path: '/docs/x', raw: '/docs/x.md' })
   })
 
   it('accepts a raw destination under the raw prefix', async () => {

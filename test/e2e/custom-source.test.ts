@@ -114,3 +114,4 @@ describe('@nuxtjs/robots handoff', () => {
     expect(body).toContain('Content-Signal: search=yes, ai-train=yes, ai-input=yes')
   })
 })
+

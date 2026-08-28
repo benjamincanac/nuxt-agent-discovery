@@ -47,6 +47,15 @@ export function normalizeAgentRoute(route: string): string {
   return path === '/index' || path === '' ? '/' : path
 }
 
+/**
+ * The inverse, for URLs this module emits: the decoded route re-encoded one
+ * segment at a time. `encodeURI` leaves `#` and `?` alone, and either one
+ * cuts a `Link` or `Location` header short at the first slug carrying it.
+ */
+export function encodeAgentRoute(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/')
+}
+
 /** Whether the last path segment is dotted: an asset, not a page. */
 export function hasFileExtension(pathname: string): boolean {
   const segment = pathname.slice(pathname.lastIndexOf('/') + 1)
@@ -298,17 +307,28 @@ export function acceptsMarkdown(accept?: string | null): boolean {
   return html === 0 && acceptQuality(entries, 'text/markdown') > 0
 }
 
+/** Lowered once per list: `isAgentUserAgent` sits in the middleware hot path. */
+const loweredAgents = new WeakMap<string[], string[]>()
+
 /**
  * Case-insensitive, so it agrees with the CDN `has` matchers: a real Vercel
- * edge matches matcher values case-insensitively (see the note in
- * `presets/vercel.ts`), so the origin has to read the header the same way.
+ * edge has been observed anchoring the value and matching it
+ * case-insensitively. The Build Output docs only document `caseSensitive` for
+ * `src`, so the edge matchers spell both cases where a miss would matter
+ * (`REFUSES_MARKDOWN`) and nothing depends on the observation. The origin
+ * errs the same direction, towards matching.
  */
 export function isAgentUserAgent(config: NegotiationConfig, userAgent?: string | null): boolean {
   if (!userAgent) {
     return false
   }
+  let agents = loweredAgents.get(config.userAgents)
+  if (!agents) {
+    agents = config.userAgents.map(agent => agent.toLowerCase())
+    loweredAgents.set(config.userAgents, agents)
+  }
   const haystack = userAgent.toLowerCase()
-  return config.userAgents.some(agent => haystack.includes(agent.toLowerCase()))
+  return agents.some(agent => haystack.includes(agent))
 }
 
 /* ------------------------------- negotiation ------------------------------ */

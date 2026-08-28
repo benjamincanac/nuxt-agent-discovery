@@ -44,8 +44,10 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * serves HTML for `Accept: text/markdown;q=0, text/html`. A CDN matcher is a
  * plain regex over the raw header, with no way to express "markdown, but not at
  * q=0" as a positive match. A `missing` matcher says it directly: the rewrite
- * applies only when this does not match. Confirmed against a real Vercel edge,
- * which anchors the value and matches it case-insensitively.
+ * applies only when this does not match. A real Vercel edge has been observed
+ * anchoring the value and matching it case-insensitively; the Build Output
+ * docs only document `caseSensitive` for `src`, so the `[qQ]` below spells
+ * both cases and nothing here depends on the observation.
  *
  * `q=0.5` and friends must not match, hence the `(\.0+)?` rather than a loose
  * tail, and the boundary that follows keeps `q=0.05` (a real quality) out. The
