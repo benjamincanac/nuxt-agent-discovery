@@ -15,7 +15,8 @@ import {
 import { defu } from 'defu'
 import { join } from 'pathe'
 import { withLeadingSlash, withoutTrailingSlash } from 'ufo'
-import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES, MCP_EXCLUDED_GROUPS } from './defaults'
+import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
+import { mcpExcludedGroups } from './runtime/shared/defaults'
 import { SKILLS_INDEX, SKILLS_PREFIX } from './runtime/shared/paths'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
@@ -419,7 +420,7 @@ export default defineNuxtModule<ModuleOptions>({
       // and the route reads the resolved list.
       runtimeConfig.agentDiscoveryMcp = {
         ...options.discovery.mcpServerCard,
-        excludeGroups: [...new Set([...MCP_EXCLUDED_GROUPS, ...(options.discovery.mcpServerCard.excludeGroups || [])])]
+        excludeGroups: [...mcpExcludedGroups(options.discovery.mcpServerCard.excludeGroups)]
       }
       addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: resolve('./runtime/server/routes/mcp-server-card') })
     }
