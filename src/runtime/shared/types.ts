@@ -145,38 +145,6 @@ export interface AgentListEntry extends Partial<AgentPage> {
  */
 export type AgentSectionSelector = Record<string, unknown>
 
-/** One link in a `llms.txt` section. */
-export interface LlmsLink {
-  title: string
-  description?: string
-  href: string
-}
-
-/**
- * One `llms.txt` section, the shape `nuxt-llms` renders. Extra keys are
- * adapter selectors (`contentCollection` for `@nuxt/content`, `navigation` for
- * comark) and travel through to `list()` untouched.
- */
-export interface LlmsSection {
-  title: string
-  description?: string
-  links?: LlmsLink[]
-  [selector: string]: unknown
-}
-
-/**
- * The document handed to the `llms:generate` hooks, mutated in place. The same
- * shape `nuxt-llms` passes, so a hook written against either module behaves
- * identically under both.
- */
-export interface LlmsDocument {
-  domain?: string
-  title?: string
-  description?: string
-  notes?: string[]
-  sections: LlmsSection[]
-}
-
 /**
  * The content adapter seam. The module never serves raw markdown itself, it
  * routes to whatever implements this.
