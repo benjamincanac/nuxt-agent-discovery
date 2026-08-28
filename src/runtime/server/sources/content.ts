@@ -93,18 +93,19 @@ const source: AgentContentSource = {
     if (prefix.includes('%')) {
       return null
     }
-    // Queried in parallel, read back in collection order, so the collection
-    // that wins is still the first one declared with a match.
-    const results = await Promise.all(pageCollections().map(async (collection) => {
-      return await queryCollection(event, collection)
+    // One collection at a time, returning on the first match. `list()` needs
+    // every collection and parallelizes; this one needs the first that answers,
+    // so a later collection is a query nothing asked for. It is also the raw
+    // route's 404 path, where the common case is no match at all, and a
+    // `Promise.all` there would reject the whole lookup over a collection the
+    // answer never depended on.
+    for (const collection of pageCollections()) {
+      const pages = await queryCollection(event, collection)
         .select('path', 'stem')
         .where('path', 'LIKE', `${prefix}%`)
         .where('path', 'NOT LIKE', '%/.navigation')
         .order('stem', 'ASC')
         .all() as { path: string }[]
-    }))
-
-    for (const pages of results) {
       // `where` has no `ESCAPE` clause, and the path comes from the URL, where
       // `%` and `_` are `LIKE` wildcards: `/raw/do_s.md` matches `/docs/...`.
       // The pattern only ever widens the match, so a plain prefix check on the
