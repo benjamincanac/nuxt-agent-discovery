@@ -298,12 +298,17 @@ export function acceptsMarkdown(accept?: string | null): boolean {
   return html === 0 && acceptQuality(entries, 'text/markdown') > 0
 }
 
-/** Case-sensitive on purpose, so it agrees with the CDN `has` matchers. */
+/**
+ * Case-insensitive, so it agrees with the CDN `has` matchers: a real Vercel
+ * edge matches matcher values case-insensitively (see the note in
+ * `presets/vercel.ts`), so the origin has to read the header the same way.
+ */
 export function isAgentUserAgent(config: NegotiationConfig, userAgent?: string | null): boolean {
   if (!userAgent) {
     return false
   }
-  return config.userAgents.some(agent => userAgent.includes(agent))
+  const haystack = userAgent.toLowerCase()
+  return config.userAgents.some(agent => haystack.includes(agent.toLowerCase()))
 }
 
 /* ------------------------------- negotiation ------------------------------ */

@@ -104,7 +104,9 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
   const path = normalizeAgentRoute(route)
 
   const siteUrl = getAgentSiteUrl(event)
-  const canonicalUrl = `${siteUrl}${path === '/' ? '' : path}` || siteUrl
+  // Re-encoded because `normalizeAgentRoute` decoded the path above, and this
+  // URL lands in a `Link` header, where Node rejects anything above U+00FF.
+  const canonicalUrl = `${siteUrl}${path === '/' ? '' : encodeURI(path)}` || siteUrl
 
   const page = await getSourcePage(path, event)
   if (!page) {

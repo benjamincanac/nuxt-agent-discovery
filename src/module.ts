@@ -150,7 +150,15 @@ interface AgentDiscoveryPublicRuntimeConfig {
 
 declare module '@nuxt/schema' {
   interface NuxtHooks {
-    /** Lets other modules add discovery links and agent user agents. */
+    /**
+     * Lets other modules add discovery links and agent user agents.
+     *
+     * Fires once, but not always at the same point: with `@nuxtjs/robots`
+     * listed before this module it fires from that module's `robots:config`
+     * pass, before this module has assembled its own links, so the registry
+     * handed in may be empty at that moment. Push onto it rather than reading
+     * from it.
+     */
     'agent-discovery:extend': (registry: { links: DiscoveryLink[], userAgents: string[] }) => void | Promise<void>
   }
   interface RuntimeConfig extends AgentDiscoveryRuntimeConfig {}
@@ -228,6 +236,15 @@ export default defineNuxtModule<ModuleOptions>({
     const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
       .map(route => typeof route === 'string' ? { path: route } : route)
       .map(route => ({ ...route, path: withLeadingSlash(route.path) }))
+    // A `raw` destination outside the raw prefix negotiates again: the
+    // middleware proxies it, re-enters itself on the destination and never
+    // resolves. Validated rather than warned, because the loop only shows up
+    // in production under load.
+    for (const route of routes) {
+      if (route.raw && route.raw !== rawPrefix && !route.raw.startsWith(`${rawPrefix}/`)) {
+        throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` must sit under \`${rawPrefix}\`.`)
+      }
+    }
     // Copied, not aliased. `agent-discovery:extend` lets a site push onto this
     // list, and a `replace` array comes straight from the site's config, which
     // in a monorepo can be one const imported by two apps.
@@ -248,6 +265,22 @@ export default defineNuxtModule<ModuleOptions>({
     const excludePrefixes = [...new Set(options.excludePrefixes?.replace
       ? options.excludePrefixes.replace
       : [...EXCLUDE_PREFIXES, ...(options.excludePrefixes?.extend || [])])]
+
+    // The discovery-link registry, assembled at `modules:done` and extended
+    // through `agent-discovery:extend`. The hook fires once, from whichever
+    // consumer needs it first: `@nuxtjs/robots` snapshots the user agents when
+    // it fires `robots:config` from its own `modules:done`, which runs before
+    // ours whenever it is listed first, so waiting for our own `modules:done`
+    // handed it the un-extended list.
+    const links: DiscoveryLink[] = []
+    let extended = false
+    const extendRegistry = async () => {
+      if (extended) {
+        return
+      }
+      extended = true
+      await nuxt.callHook('agent-discovery:extend', { links, userAgents })
+    }
 
     // Mutated until `modules:done`, then read by the runtime and the presets.
     const config: NegotiationConfig = {
@@ -450,9 +483,12 @@ export {}
       const contentSignal = options.robots.contentSignal
       const onRobotsConfig = nuxt.hook as unknown as (
         name: 'robots:config',
-        cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void
+        cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void | Promise<void>
       ) => void
-      onRobotsConfig('robots:config', (robotsConfig) => {
+      onRobotsConfig('robots:config', async (robotsConfig) => {
+        // The groups below snapshot the user-agent list, so anything a site
+        // adds through `agent-discovery:extend` has to be in it already.
+        await extendRegistry()
         // `Content-Signal` belongs on the wildcard group, which this module's
         // own `robots.txt` route emits too. Without it the directive would be
         // lost the moment a site adds `@nuxtjs/robots`.
@@ -719,7 +755,6 @@ export {}
 
       /* ------------------------------ registry ----------------------------- */
 
-      const links: DiscoveryLink[] = []
       // Advertised only when something serves it. This module does not generate
       // `sitemap.xml`, so keying on the option alone meant a zero-config site
       // pointed agents, the api-catalog and `robots.txt` at a 404. A site that
@@ -774,7 +809,7 @@ export {}
       }
       links.push(...(options.discovery?.links || []))
 
-      await nuxt.callHook('agent-discovery:extend', { links, userAgents })
+      await extendRegistry()
 
       // After the hook, so a link contributed by another module counts too.
       if (options.discovery?.apiCatalog && links.some(link => link.anchor && (link.rel === 'service-desc' || link.rel === 'service-doc'))) {
@@ -835,7 +870,12 @@ export {}
 
     /* ------------------------------ prerender ------------------------------ */
 
-    if (builtinContentSource) {
+    // With a server behind the site, only the built-in source prerenders: a
+    // custom adapter (comark) reads content at request time on purpose. A
+    // fully static build has no server to fall back to, so everything the
+    // discovery documents advertise must be prerendered whatever the source.
+    const staticBuild = Boolean(nuxt.options.nitro?.static) || (nuxt.options as { _generate?: boolean })._generate === true
+    if (sourcePath && (builtinContentSource || staticBuild)) {
       for (const route of routes) {
         if (!route.path.includes('*')) {
           addPrerenderRoutes(rawDestination(config, route, route.path))

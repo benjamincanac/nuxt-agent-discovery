@@ -215,8 +215,11 @@ describe('negotiatedRawPath: headers', () => {
     expect(negotiatedRawPath(config, '/docs/foo', { userAgent: 'GPTBot/1.2' })).toBe('/raw/docs/foo.md')
   })
 
-  it('matches user agents case-sensitively', () => {
-    expect(negotiatedRawPath(config, '/docs/foo', { userAgent: 'claudebot/1.0' })).toBeUndefined()
+  it('matches user agents case-insensitively, the way the edge matchers do', () => {
+    // A real Vercel edge matches `has` values case-insensitively, so the
+    // origin has to read the header the same way or a lowercased agent gets
+    // markdown for prerendered pages and HTML for the rest.
+    expect(negotiatedRawPath(config, '/docs/foo', { userAgent: 'claudebot/1.0' })).toBe('/raw/docs/foo.md')
   })
 
   it('does not serve markdown to a browser', () => {

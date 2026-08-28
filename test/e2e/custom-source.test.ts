@@ -31,6 +31,33 @@ describe('content negotiation', () => {
 
     expect(response.status).not.toBe(406)
   })
+
+  // The route slug is decoded before the adapter sees it, so the canonical URL
+  // built from it carries the raw CJK unless something encodes it again. Node
+  // refuses to write a header byte above U+00FF, so getting this wrong is a 500
+  // on the response rather than a wrong URL in it.
+  it('serves a page whose route needs percent-encoding', async () => {
+    const response = await fetch('/raw/guide/%E6%96%87%E6%A1%A3.md')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+
+    const link = response.headers.get('link')
+    expect(link).toContain(`${SITE_URL}/guide/%E6%96%87%E6%A1%A3`)
+    expect(link).not.toContain('文档')
+
+    const body = await response.text()
+    expect(body).toContain(`canonical_url: "${SITE_URL}/guide/%E6%96%87%E6%A1%A3"`)
+    expect(body).toContain('# 文档')
+  })
+
+  it('negotiates the same page from its encoded HTML URL', async () => {
+    const response = await fetch('/guide/%E6%96%87%E6%A1%A3', { headers: { Accept: 'text/markdown' } })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+    expect(await response.text()).toContain('# 文档')
+  })
 })
 
 describe('discovery documents', () => {
@@ -61,6 +88,16 @@ describe('discovery documents', () => {
     expect(body).toContain(`[Basic](${SITE_URL}/raw/index.md)`)
     expect(body).toContain(`[Getting Started](${SITE_URL}/raw/docs/getting-started.md)`)
     expect(body).toContain(`[Button](${SITE_URL}/raw/docs/components/button.md)`)
+  })
+
+  // The section labels are looked up in a plain record, so a section named
+  // after an `Object.prototype` member used to resolve to the prototype's own
+  // value and print the source of `Object` as a heading.
+  it('labels a section named after an `Object.prototype` member from its key', async () => {
+    const body = await (await fetch('/sitemap.md')).text()
+
+    expect(body).toContain('## Constructor')
+    expect(body).not.toContain('native code')
   })
 })
 

@@ -71,8 +71,10 @@ type FakeNuxt = ReturnType<typeof createNuxt>
  * `modules:done`, which is where Nuxt installs a module's declarative
  * `moduleDependencies`.
  */
-async function runModule(options: Partial<ModuleOptions> = {}, routeRules: Record<string, unknown> = {}, installLate?: (nuxt: FakeNuxt) => void): Promise<FakeNuxt> {
+async function runModule(options: Partial<ModuleOptions> = {}, routeRules: Record<string, unknown> = {}, installLate?: (nuxt: FakeNuxt) => void, preInstall?: (nuxt: FakeNuxt) => void): Promise<FakeNuxt> {
   const nuxt = createNuxt(routeRules)
+  // Stands in for a module listed before this one: its hooks register first.
+  preInstall?.(nuxt)
   // `set`, not `callAsync`: unctx only restores an async context in code the
   // Nuxt transform has processed, and this file is plain vitest.
   nuxtCtx.set(nuxt as never, true)
@@ -347,6 +349,24 @@ describe('module setup: companion modules', () => {
     expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(false)
   })
 
+  it('extends the user agents before an earlier robots module snapshots them', async () => {
+    // `@nuxtjs/robots` listed first registers its `modules:done` before this
+    // module's and fires `robots:config` from it, so the groups it builds
+    // snapshot the user agents at that moment. The extend hook has to have
+    // run by then or an agent added through it never reaches `robots.txt`.
+    const groups: { userAgent: string[] }[] = []
+    await runModule(robots, {}, installLate('@nuxtjs/robots'), (nuxt) => {
+      nuxt.hook('modules:done', (async () => {
+        await nuxt.hooks.callHook('robots:config' as never, { groups } as never)
+      }) as never)
+      nuxt.hook('agent-discovery:extend', ((registry: { userAgents: string[] }) => {
+        registry.userAgents.push('MyCorpBot')
+      }) as never)
+    })
+
+    expect(groups.some(group => group.userAgent.includes('MyCorpBot'))).toBe(true)
+  })
+
   it('contributes to `robots:config` whenever that module ends up installed', async () => {
     // Registered in `setup()`, before detection can say either way: the robots
     // module fires this from its own `modules:done`, which runs first when a
@@ -409,6 +429,54 @@ describe('module setup: companion modules', () => {
     })
 
     expect(nuxt.options.nitro.alias?.['#agent-discovery/mcp']).toContain('mcp/none')
+  })
+})
+
+describe('module setup: routes', () => {
+  it('refuses a raw destination outside the raw prefix', async () => {
+    // The middleware would proxy `/about` to `/about.md`, which negotiates
+    // straight back into the middleware, forever.
+    await expect(runModule({ routes: [{ path: '/about', raw: '/about.md' }] }))
+      .rejects.toThrow('must sit under')
+  })
+
+  it('accepts a raw destination under the raw prefix', async () => {
+    const config = await setupModule({ routes: [{ path: '/', raw: '/raw/index.md' }, '/**'] })
+
+    expect(config.routes[0]).toEqual({ path: '/', raw: '/raw/index.md' })
+  })
+})
+
+describe('module setup: prerender', () => {
+  const prerendered = async (options: Partial<ModuleOptions>, preInstall?: (nuxt: FakeNuxt) => void) => {
+    const nuxt = await runModule(options, {}, undefined, preInstall)
+    const ctx = { routes: new Set<string>() }
+    await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+    return ctx.routes
+  }
+
+  it('prerenders the twins and `/sitemap.md` for the built-in source', async () => {
+    const routes = await prerendered({ routes: ['/', '/**'] })
+
+    expect(routes.has('/raw/index.md')).toBe(true)
+    expect(routes.has('/sitemap.md')).toBe(true)
+  })
+
+  it('keeps a custom source request-time on a server build', async () => {
+    const routes = await prerendered({ routes: ['/', '/**'], source: '~~/server/agent-source' })
+
+    expect(routes.has('/sitemap.md')).toBe(false)
+  })
+
+  it('prerenders a custom source on a fully static build', async () => {
+    // `nuxt generate` has no server behind the advertised URLs, so every
+    // discovery document and twin must exist as a file or it 404s.
+    const routes = await prerendered({ routes: ['/', '/**'], source: '~~/server/agent-source' }, (nuxt) => {
+      nuxt.options.nitro.static = true
+    })
+
+    expect(routes.has('/raw/index.md')).toBe(true)
+    expect(routes.has('/sitemap.md')).toBe(true)
   })
 })
 

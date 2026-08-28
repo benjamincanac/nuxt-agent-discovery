@@ -64,7 +64,9 @@ export default defineEventHandler(async (event) => {
   ]
 
   for (const [key, pages] of sections) {
-    const label = labels[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/-/g, ' ')
+    // Own keys only: a section named `constructor` or `toString` would
+    // otherwise read a function off `Object.prototype` and print it as a label.
+    const label = (Object.hasOwn(labels, key) && labels[key]) || key.charAt(0).toUpperCase() + key.slice(1).replace(/-/g, ' ')
     lines.push(`## ${label}`, '')
     for (const page of pages) {
       lines.push(`- [${escapeLabel(page.title)}](${page.href})`)

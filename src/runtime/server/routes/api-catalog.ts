@@ -27,7 +27,9 @@ export default defineEventHandler((event) => {
 
   setResponseHeader(event, 'Content-Type', 'application/linkset+json; charset=utf-8')
   // Built from `discovery.links`, which is settled at build time, so the
-  // document is identical for every request a deployment ever serves.
-  setResponseHeader(event, 'Cache-Control', 'public, max-age=3600')
+  // document is host-independent only when a site URL is configured. Without
+  // one the body carries the request origin, which must never be cached and
+  // handed to the next host that asks.
+  setResponseHeader(event, 'Cache-Control', config.siteUrl ? 'public, max-age=3600' : 'no-cache')
   return { linkset: [...groups.values()] }
 })
