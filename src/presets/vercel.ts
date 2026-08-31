@@ -240,6 +240,74 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     continue: true
   })
 
+  // The canonical/alternate pair the raw handler sets, for the prerendered
+  // twins the CDN answers off the filesystem where no handler ever runs.
+  // Unlike `Vary` the value embeds the page URL, so it is one route per
+  // pattern with a capture reference, and it needs a configured site URL: the
+  // edge cannot know the request host at build time, so a zero-config
+  // deployment keeps the header on the origin-rendered responses only.
+  // Deliberately absent from the negotiated page rewrites: those URLs also
+  // serve the HTML representation, which carries no such pair.
+  if (config.siteUrl) {
+    const canonicalLink = (href: string) => formatLinkHeader([
+      { href, rel: 'canonical' },
+      { href, rel: 'alternate', type: 'text/html' }
+    ])
+    // Twins with a static entry of their own: every exact pattern whose raw
+    // destination sits under `rawPrefix`, plus the root twin when only a
+    // wildcard covers `/`, whose capture would otherwise mis-derive the page
+    // as `/index`. An exact destination under an excluded prefix is the
+    // site's own document and gets no entry at all.
+    const isRaw = (raw: string) => raw === config.rawPrefix || raw.startsWith(`${config.rawPrefix}/`)
+    const rootTwin = `${config.rawPrefix}/index.md`
+    const statics: { raw: string, href: string }[] = []
+    for (const route of config.routes) {
+      if (route.path.includes('*')) {
+        continue
+      }
+      const raw = rawDestination(config, route, route.path)
+      // Two exact routes can name the same twin (`/` and `/index` both map to
+      // the root twin): one entry per `src`, or the table carries two
+      // conflicting headers. The root twin is always the site URL, because
+      // the origin folds `/index` into `/` whichever route named it.
+      if (!isRaw(raw) || statics.some(entry => entry.raw === raw)) {
+        continue
+      }
+      // The origin folds a trailing `/index` into the directory it indexes,
+      // so `/docs/index`'s twin advertises `/docs`, the URL that answers.
+      const page = route.path.endsWith('/index') ? route.path.slice(0, -6) || '/' : route.path
+      statics.push({ raw, href: page === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${page}` })
+    }
+    if (!statics.some(entry => entry.raw === rootTwin)) {
+      // `/raw/index.md` folds to `/` at the origin whatever the patterns say
+      // (the generated index serves it), so the wildcard capture must never
+      // read it as `/index`. Keyed on the twin, not on a `/` route existing:
+      // a `/` route with a `raw` override elsewhere leaves the twin unowned.
+      statics.push({ raw: rootTwin, href: config.siteUrl })
+    }
+    // The wildcard capture must not also match a statically-mapped twin.
+    const rawExclusion = statics.length ? `(?!(?:${statics.map(entry => escapeRegExp(entry.raw.slice(config.rawPrefix.length))).join('|')})$)` : ''
+    // A trailing `/index` folds away at the origin, so a capture reading
+    // `/docs/index.md` would advertise `/docs/index`, a page URL the handler
+    // never serves. Those twins carry no edge pair rather than a wrong one.
+    const noIndex = String.raw`(?!.*/index\.md$)`
+    for (const route of config.routes) {
+      if (route.path.includes('*')) {
+        const body = compilePattern(route.path).source.slice(1, -1)
+        const link = canonicalLink(`${config.siteUrl}${patternDest(route.path)}`)
+        routes.push({ src: `^${excluded}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+        routes.push({ src: `^${escapeRegExp(config.rawPrefix)}${rawExclusion}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+      } else if (route.path !== '/' && !route.path.endsWith('/index') && isRaw(rawDestination(config, route, route.path))) {
+        // An index-shaped exact path folds like the wildcard capture above,
+        // so its page twin gets no entry either.
+        routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, headers: { Link: canonicalLink(`${config.siteUrl}${route.path}`) }, methods: METHODS, continue: true })
+      }
+    }
+    for (const entry of statics) {
+      routes.push({ src: `^${escapeRegExp(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
+    }
+  }
+
   // Opt-in: a negotiated page has exactly two representations, so an `Accept`
   // allowing neither is a 406 per RFC 9110 rather than a page the client just
   // said it cannot read. Emitted here as well as in the middleware because a
