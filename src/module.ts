@@ -9,7 +9,6 @@ import {
   defineNuxtModule,
   hasNuxtModule,
   resolvePath,
-  tryResolveModule,
   useLogger
 } from '@nuxt/kit'
 import { defu } from 'defu'
@@ -20,14 +19,12 @@ import { mcpExcludedGroups } from './runtime/shared/defaults'
 import { SKILLS_INDEX, SKILLS_PREFIX } from './runtime/shared/paths'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
+import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, hasFileExtension, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
-
-/** `@nuxt/content`'s llms nitro plugin, by the path its feature registers. */
-const CONTENT_LLMS_PLUGIN = /features[\\/]llms[\\/]runtime[\\/]server[\\/]content-llms\.plugin/
 
 export interface McpServerCardOptions {
   /** MCP endpoint the card describes, e.g. `/mcp`. */
@@ -325,26 +322,12 @@ export default defineNuxtModule<ModuleOptions>({
     let builtinContentSource = false
     let minimarkStringify: string | undefined
     if (options.source === 'content' || (options.source === 'auto' && hasNuxtModule('@nuxt/content'))) {
-      sourcePath = resolve('./runtime/server/sources/content')
+      // Everything the built-in adapter needs from the site's `@nuxt/content`
+      // install, in `build/content.ts` with the rest of that backend.
+      const contentSource = await resolveContentSource(nuxt, resolve)
+      sourcePath = contentSource.sourcePath
+      minimarkStringify = contentSource.minimarkStringify
       builtinContentSource = true
-      // `minimark` is the tree format `@nuxt/content` stores and serializes
-      // with, not a format this module owns: comark sources render through
-      // `comark/render` and custom sources bring their own. So the stringifier
-      // has to be the one that produced the tree. Resolved from this module's
-      // own dependencies it would pin a version that can disagree with the
-      // content backend's, and a major bump changes the markdown of every page
-      // (attribute serialization, code-fence meta, ...). Resolve it from
-      // `@nuxt/content` instead, so the two can never drift.
-      const contentEntry = await tryResolveModule('@nuxt/content', nuxt.options.modulesDir)
-      minimarkStringify = contentEntry ? await tryResolveModule('minimark/stringify', [contentEntry]) : undefined
-      if (!minimarkStringify) {
-        // Points at the cause rather than the symptom: reached with
-        // `source: 'content'` on a site that has no `@nuxt/content` at all,
-        // where the next failure is an unresolvable `@nuxt/content/server`.
-        logger.warn(contentEntry
-          ? 'Could not resolve `minimark/stringify` from `@nuxt/content`, so raw markdown may differ from what it produces.'
-          : 'The content source is enabled but `@nuxt/content` could not be resolved. Install it, or set `agentDiscovery.source` to a file exporting an `AgentContentSource`.')
-      }
     } else if (options.source === 'comark') {
       throw new Error('[nuxt-agent-discovery] comark sites construct their content instance themselves, so pass a source file instead: `source: \'~~/server/utils/agent-source\'`, exporting `createComarkSource(() => getContent())` from `#agent-discovery/comark`.')
     } else if (typeof options.source === 'string' && options.source !== 'auto') {
@@ -603,12 +586,7 @@ export {}
 
     const hasLlms = hasNuxtModule('nuxt-llms')
     if (hasLlms && sourcePath) {
-      // This module serves the raw markdown route from the adapter, so the
-      // route survives a content-backend swap. Works whichever module runs
-      // first: `@nuxt/content` normalizes `contentRawMarkdown` into runtime
-      // config at `modules:done`, and its handler is dropped below.
-      const llmsOptions = nuxt.options as unknown as { llms?: Record<string, unknown> }
-      llmsOptions.llms = { ...llmsOptions.llms, contentRawMarkdown: false }
+      disableContentRawMarkdown(nuxt)
     }
 
     /**
@@ -729,52 +707,9 @@ export {}
       }
 
       if (hasLlms && sourcePath) {
-        // `@nuxt/content` installs its llms feature from inside its own setup,
-        // so the supported off switch (`nuxt.options['content.llms'] = false`,
-        // the literal key its `configKey` declares) is already too late unless
-        // this module happens to be listed first. Drop what the feature
-        // registered instead, which does not depend on module order:
-        //
-        // - the raw markdown handler, because this module serves that route
-        //   from the adapter so it survives a content-backend swap
-        // - the nitro plugin, because it builds `llms.txt` sections and renders
-        //   `llms-full.txt` through a second markdown pipeline (`toHast` plus
-        //   `@nuxtjs/mdc`), which disagrees with what `/raw/**.md` returns and
-        //   has no comark equivalent. Both now come from the adapter.
-        //
-        // Reversible upstream: gating that `installModule` on `@nuxt/content`'s
-        // own `options.llms !== false` would make `content: { llms: false }`
-        // work and let all of this go.
-        const handlers = nuxt.options.serverHandlers
-        for (let i = handlers.length - 1; i >= 0; i--) {
-          const handler = handlers[i]!
-          if (handler.route === '/raw/**:slug.md' && String(handler.handler).includes('llms')) {
-            handlers.splice(i, 1)
-          }
-        }
-
-        // At `nitro:config` rather than here: `@nuxt/content` does not await
-        // that `installModule`, so the plugin is registered by a floating
-        // promise with no ordering guarantee against `modules:done`. It has
-        // always landed in time in practice, but `nitro:config` fires later and
-        // receives the same array, so there is nothing to gain by relying on it.
-        nuxt.hook('nitro:config', (nitroConfig) => {
-          const plugins = nitroConfig.plugins || []
-          const index = plugins.findIndex(plugin => CONTENT_LLMS_PLUGIN.test(String(plugin)))
-          if (index !== -1) {
-            plugins.splice(index, 1)
-            return
-          }
-
-          // Only a feature that actually ran must have left a plugin behind. A
-          // site setting `nuxt.options['content.llms'] = false` itself, or a
-          // future `@nuxt/content` without the feature, is not a problem.
-          const feature = (nuxt.options._installedModules || []).find(module => module.meta?.configKey === 'content.llms')
-          if (feature && !(feature.meta as { disabled?: boolean } | undefined)?.disabled) {
-            logger.warn('`@nuxt/content`\'s llms plugin is installed but could not be found to remove it, so `llms.txt` may come out with duplicate sections. Please report this with the `@nuxt/content` version.')
-          }
-        })
-
+        // Whatever `@nuxt/content`'s own llms feature registered goes first,
+        // because this plugin builds `llms.txt` from the adapter instead.
+        dropContentLlmsFeature(nuxt)
         addServerPlugin(resolve('./runtime/server/plugins/llms'))
       }
 
