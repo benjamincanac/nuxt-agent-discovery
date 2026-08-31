@@ -469,6 +469,28 @@ describe('module setup: routes', () => {
       .rejects.toThrow('negotiates back to itself')
   })
 
+  it('refuses a raw cycle through another route', async () => {
+    // `/a` proxies to `/b.md`, which negotiates through `/b` back to `/a.md`,
+    // forever, and neither hop is a one-step fixpoint.
+    await expect(runModule({ routes: [{ path: '/a', raw: '/b.md' }, { path: '/b', raw: '/a.md' }] }))
+      .rejects.toThrow('negotiates back to itself')
+  })
+
+  it('refuses a raw destination without an extension', async () => {
+    // `/x` negotiates markdown for itself: the middleware fetches `/x` from
+    // `/x`, forever. The `.md` spelling is not what loops, the negotiation is.
+    await expect(runModule({ routes: [{ path: '/x', raw: '/x' }] }))
+      .rejects.toThrow('negotiates back to itself')
+  })
+
+  it('accepts a chain that terminates', async () => {
+    // `/a.md` negotiates through `/a`, whose own destination sits under the
+    // raw prefix: one extra hop, then done.
+    const config = await setupModule({ routes: [{ path: '/a', raw: '/raw/a.md' }, { path: '/b', raw: '/a.md' }] })
+
+    expect(config.routes[1]).toEqual({ path: '/b', raw: '/a.md' })
+  })
+
   it('accepts a raw destination under an excluded prefix', async () => {
     // `isExcluded` runs before the `.md` branch in `negotiatedRawPath`, so an
     // excluded destination never negotiates and cannot loop. A site serving
