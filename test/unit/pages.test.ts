@@ -62,4 +62,27 @@ describe('listAgentPages: an adapter without `list()`', () => {
       rawUrl: 'https://example.com/raw/docs/getting-started.md'
     }])
   })
+
+  it('spells a non-ASCII route like the canonical URL', async () => {
+    // The raw route's `Link` header and `canonical_url` frontmatter encode
+    // the path, so the listing has to spell it the same way or an agent sees
+    // two names for one page.
+    setAgentContentSource({
+      async list() {
+        return [{ route: '/guide/文档', title: '文档' }]
+      },
+      async get() {
+        return { markdown: '# 文档\n' }
+      }
+    })
+
+    await expect(listAgentPages(event)).resolves.toEqual([{
+      route: '/guide/文档',
+      title: '文档',
+      description: undefined,
+      section: undefined,
+      url: 'https://example.com/guide/%E6%96%87%E6%A1%A3',
+      rawUrl: 'https://example.com/raw/guide/%E6%96%87%E6%A1%A3.md'
+    }])
+  })
 })

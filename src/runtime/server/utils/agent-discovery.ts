@@ -2,7 +2,7 @@ import type { H3Event } from 'h3'
 import { getRequestURL } from 'h3'
 import { useRuntimeConfig } from '#imports'
 import type { AgentContentSource, NegotiationConfig } from '../../shared/types'
-import { absolutizeHref, hasFileExtension, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
+import { absolutizeHref, encodeAgentRoute, hasFileExtension, matchRoute, normalizeAgentRoute, rawDestination } from '../../shared/negotiation'
 
 export function useAgentDiscoveryConfig(event?: H3Event): NegotiationConfig {
   // Through `unknown`: a site's generated `runtimeConfig` type narrows the
@@ -46,10 +46,13 @@ export function rawUrl(event: H3Event, path: string): string {
     }
   }
 
-  pathname = normalizePathname(pathname)
+  // Decoded like the raw handler decodes its slug, then re-encoded on the way
+  // out, so a non-ASCII route is spelled here exactly as the `Link` header
+  // and `canonical_url` frontmatter spell it.
+  pathname = normalizeAgentRoute(pathname)
   const route = pathname === '/' || !hasFileExtension(pathname) ? matchRoute(config.routes, pathname) : undefined
 
-  return `${siteUrl}${route ? rawDestination(config, route, pathname) : pathname}${suffix}`
+  return `${siteUrl}${encodeAgentRoute(route ? rawDestination(config, route, pathname) : pathname)}${suffix}`
 }
 
 /**
