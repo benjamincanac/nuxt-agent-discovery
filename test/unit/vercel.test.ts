@@ -670,6 +670,17 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
     expect(links.some(route => matches(route, '/index.md'))).toBe(false)
   })
 
+  it('folds an index-shaped exact route in its static entry', () => {
+    // The origin folds `/docs/index` into `/docs`, so the twin's static
+    // entry has to advertise the folded URL, the one that answers.
+    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/docs/index' }, { path: '/**' }] }))
+    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const entry = links.filter(route => matches(route, '/raw/docs/index.md'))
+
+    expect(entry).toHaveLength(1)
+    expect(entry[0]!.headers!.Link).toContain('<https://example.com/docs>; rel="canonical"')
+  })
+
   it('emits nothing without a configured site URL', () => {
     // The value embeds the page URL and the edge cannot know the request
     // host at build time, so the origin-rendered responses keep the header

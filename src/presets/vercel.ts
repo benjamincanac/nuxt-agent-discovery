@@ -273,7 +273,10 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       if (!isRaw(raw) || statics.some(entry => entry.raw === raw)) {
         continue
       }
-      statics.push({ raw, href: route.path === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${route.path}` })
+      // The origin folds a trailing `/index` into the directory it indexes,
+      // so `/docs/index`'s twin advertises `/docs`, the URL that answers.
+      const page = route.path.endsWith('/index') ? route.path.slice(0, -6) || '/' : route.path
+      statics.push({ raw, href: page === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${page}` })
     }
     if (!statics.some(entry => entry.raw === rootTwin)) {
       // `/raw/index.md` folds to `/` at the origin whatever the patterns say
