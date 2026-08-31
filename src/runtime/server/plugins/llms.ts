@@ -175,7 +175,9 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // `/raw/index.md` for it, so without this nothing links the document an
     // agent is most likely to want first.
     const linked = options.sections.some(section => section.links?.some(link => toLocalUrl(link.href, domain)?.pathname === '/'))
-    if (source && !linked && matchRoute(config.routes, '/')) {
+    // The exclusion guard is for symmetry with the fallback listings: a site
+    // excluding `/` has said the landing page is not agent surface.
+    if (source && !linked && !isExcluded('/', config) && matchRoute(config.routes, '/')) {
       options.sections.unshift({
         title: 'Overview',
         links: [{ title: config.siteName || 'Landing page', href: withBase('/', domain) }]
@@ -277,7 +279,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // The landing page, mirroring the index hook: `llms.txt` links `/` (or
     // its generated `/raw/index.md`) whenever no section names it, so the
     // full document has to hold the page it advertises.
-    if (!seen.has('/') && matchRoute(config.routes, '/')) {
+    if (!seen.has('/') && !isExcluded('/', config) && matchRoute(config.routes, '/')) {
       routes.unshift('/')
     }
 
