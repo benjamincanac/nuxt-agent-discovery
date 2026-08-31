@@ -88,7 +88,7 @@ export default defineNuxtConfig({
 - **`siteName`** Used in `sitemap.md` and the generated `/raw/index.md`. Falls back to `site.name`.
 - **`rawPrefix`** Where raw markdown representations live.
 - **`source`** `'auto'` detects `@nuxt/content`, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
-- **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one segment, `**` one or more. `raw` overrides the raw destination on exact patterns and must sit under `rawPrefix` or an excluded prefix. Pages the content source doesn't hold answer agents a 404 by design, so on a site mixing hand-written pages with a partial content directory, narrow the patterns or use `excludePrefixes`.
+- **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one segment, `**` one or more. `raw` overrides the raw destination on exact patterns; point it under `rawPrefix` or an excluded prefix so the destination never re-enters negotiation, and the build refuses one that negotiates back to itself. Pages the content source doesn't hold answer agents a 404 by design, so on a site mixing hand-written pages with a partial content directory, narrow the patterns or use `excludePrefixes`.
 - **`excludePrefixes.extend`** Extra path prefixes on top of the defaults (`/_`, `/api/`, `/mcp`, `/.well-known/`). Excluded paths never negotiate. Add any standalone `.md` document the site serves itself. **`.replace`** replaces the list.
 - **`userAgents.extend`** Extra user agents on top of the defaults (18 agents from `ai.robots.txt`, see `src/defaults.ts`). **`.replace`** replaces the list.
 - **`discovery.link`** Emit the discovery `Link` header on `/`.
@@ -182,7 +182,7 @@ export default defineAgentContentSource({
 })
 ```
 
-`list(selector, event)` returns every markdown-representable page and feeds `sitemap.md`, `listAgentPages()` and the `nuxt-llms` bridge; with a `selector` (a `llms.sections` entry handed over verbatim) it returns only the pages the selector names, or `null` when it isn't one it understands. `get(route, event)` resolves one route to its markdown. `firstLeaf(route, event)` is optional and resolves a section path to its first document. Site-relative links are absolutized for you.
+`list(selector, event)` returns every markdown-representable page and feeds `sitemap.md`, `listAgentPages()` and the `nuxt-llms` bridge; with a `selector` (a `llms.sections` entry handed over verbatim) it returns only the pages the selector names, or `null` when it isn't one it understands. It is optional for a get-only source: the listings come out empty and `get()` keeps serving documents. `get(route, event)` resolves one route to its markdown. `firstLeaf(route, event)` is optional and resolves a section path to its first document. Site-relative links are absolutized for you.
 
 ### llms.txt sections
 
@@ -305,7 +305,7 @@ Detected automatically, never a dependency, `@nuxtjs/seo`-installed included:
 
 On the `vercel` preset, a Nitro `compiled` hook prepends routes to `.vercel/output/config.json` (Build Output API v3): `continue: true` header routes carrying `Vary`, the discovery `Link` on `/` and the canonical/alternate pair for the prerendered twins, then, per configured pattern, a rewrite on `Accept: text/markdown` and one on the agent User-Agent list. Prerendered pages negotiate at the edge this way, before the CDN cache sees the request, and the table stays O(patterns), never O(pages).
 
-Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so only the outright refusal `text/markdown;q=0` is covered at the edge; the rare divergences are fail-safe, towards serving the page.
+Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so only the outright refusal `text/markdown;q=0` is covered at the edge. The known divergence: the matcher reads `Accept` by substring, so a prerendered page asked for with a low-q `text/markdown` next to a preferred `text/html` is rewritten to markdown, where the origin ranks per RFC 9110 and serves the HTML.
 
 ### Other hosts
 
