@@ -35,6 +35,7 @@ describe('llms.txt', () => {
       `- [Handwritten](${SITE_URL}/raw/index.md)`,
       `- [Handwritten](${SITE_URL}/llms-full.txt): The curated documentation.`,
       `- [Alpha](${SITE_URL}/raw/docs/alpha.md): The documented page.`,
+      `- [Café](${SITE_URL}/raw/docs/caf%C3%A9.md): The accented page.`,
       // The mixed section keeps only its hand-written link: its selector
       // resolves `/docs/beta`, which neither document may pick up.
       `- [Alpha again](${SITE_URL}/raw/docs/alpha.md): The same page, curated by hand.`
@@ -77,6 +78,10 @@ describe('llms-full.txt', () => {
     expect(body.trim()).not.toBe('')
     expect(body).toContain('# Alpha')
     expect(body).toContain('The one page the hand-written section links.')
+    // The link arrives percent-encoded through `URL.pathname` while the
+    // adapter stores the decoded slug, so the route has to be decoded on the
+    // way to `get()` or the page silently drops out of the full document.
+    expect(body).toContain('# Café')
   })
 
   it('still renders the whole site for sections linking only data', async () => {

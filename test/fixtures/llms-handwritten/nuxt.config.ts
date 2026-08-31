@@ -20,7 +20,12 @@ export default defineNuxtConfig({
     sections: [{
       title: 'Docs',
       description: 'The one page this site puts in front of an agent.',
-      links: [{ title: 'Alpha', href: '/docs/alpha', description: 'The documented page.' }]
+      links: [
+        { title: 'Alpha', href: '/docs/alpha', description: 'The documented page.' },
+        // A non-ASCII slug: `URL.pathname` spells it percent-encoded while the
+        // adapter stores it decoded, so the full document has to decode it.
+        { title: 'Café', href: '/docs/café', description: 'The accented page.' }
+      ]
     }, {
       // Hand-written links next to a selector the adapter resolves: the links
       // own the section, so the selector must stay unread in both documents.

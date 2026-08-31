@@ -7,7 +7,7 @@ import source from '#agent-discovery/source'
 import type { AgentListEntry, NegotiationConfig } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getSourcePage } from '../utils/document'
-import { hasFileExtension, isNegotiablePath, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
+import { hasFileExtension, isNegotiablePath, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
 interface LlmsSection {
   title: string
@@ -43,7 +43,14 @@ function toLocalUrl(href: string, domain: string): { pathname: string, suffix: s
  */
 function pageRoute(config: NegotiationConfig, href: string, domain: string): string | undefined {
   const local = toLocalUrl(href, domain)
-  return local && isNegotiablePath(config, local.pathname) ? local.pathname : undefined
+  if (!local) {
+    return undefined
+  }
+  // `URL.pathname` comes out percent-encoded while every backend stores
+  // decoded paths, so the route is decoded the same way the raw handler
+  // decodes its slug, or a curated link to `/docs/café` resolves no page.
+  const route = normalizeAgentRoute(local.pathname)
+  return isNegotiablePath(config, route) ? route : undefined
 }
 
 /** At most this many adapter calls in flight, per fan-out. */

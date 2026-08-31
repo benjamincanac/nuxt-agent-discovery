@@ -29,6 +29,16 @@ Browse the [documentation](/docs/alpha).
 The one page the hand-written section links.
 `
   },
+  '/docs/café': {
+    title: 'Café',
+    description: 'The accented page.',
+    markdown: `# Café
+
+> The accented page.
+
+Stored under a decoded slug, linked through a percent-encoded URL.
+`
+  },
   '/docs/beta': {
     title: 'Beta',
     description: 'A page the sections leave out.',
