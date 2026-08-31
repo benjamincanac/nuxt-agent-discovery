@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.2](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.1.1...v0.1.2) (2026-08-31)
+
+### Bug Fixes
+
+* follow-up correctness pass from the stack review ([#19](https://github.com/benjamincanac/nuxt-agent-discovery/issues/19)) ([d62204e](https://github.com/benjamincanac/nuxt-agent-discovery/commit/d62204e851b09aa71ce6d3a14decc997807dc94d))
+* **llms:** make list() optional and gate the full-document fallback ([#11](https://github.com/benjamincanac/nuxt-agent-discovery/issues/11)) ([ecd7835](https://github.com/benjamincanac/nuxt-agent-discovery/commit/ecd783508320cc5dd792a94f2dfad77afb64f941))
+* runtime correctness pass ([#10](https://github.com/benjamincanac/nuxt-agent-discovery/issues/10)) ([9095fed](https://github.com/benjamincanac/nuxt-agent-discovery/commit/9095feddc9fee40364fc1ccd04234947fbec51c8))
+* **vercel:** carry the canonical Link pair onto prerendered twins ([#15](https://github.com/benjamincanac/nuxt-agent-discovery/issues/15)) ([92d91b7](https://github.com/benjamincanac/nuxt-agent-discovery/commit/92d91b7476dae6eb62f86f03b046718e9262c560))
+* **vercel:** collect late route rules and scope edge routes to GET/HEAD ([#9](https://github.com/benjamincanac/nuxt-agent-discovery/issues/9)) ([9e43599](https://github.com/benjamincanac/nuxt-agent-discovery/commit/9e43599751ddf8b3f8a543a7f9fb351dcc35d4dd))
+
 ## [0.1.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.1.0...v0.1.1) (2026-08-28)
 
 ### Bug Fixes
