@@ -27,5 +27,14 @@ export const AGENT_USER_AGENTS = [
   'Bytespider'
 ]
 
+/**
+ * MCP definition groups the public server card hides.
+ *
+ * Defined in `runtime/shared/defaults.ts`, since the card route applies it
+ * again per request rather than trusting the merged runtime config, and
+ * re-exported here so the defaults still read as one list.
+ */
+export { MCP_EXCLUDED_GROUPS } from './runtime/shared/defaults'
+
 /** Paths owned by the framework or the API, never markdown. */
 export const EXCLUDE_PREFIXES = ['/_', '/api/', '/mcp', '/.well-known/']

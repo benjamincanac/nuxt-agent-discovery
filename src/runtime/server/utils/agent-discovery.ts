@@ -2,7 +2,7 @@ import type { H3Event } from 'h3'
 import { getRequestURL } from 'h3'
 import { useRuntimeConfig } from '#imports'
 import type { AgentContentSource, NegotiationConfig } from '../../shared/types'
-import { hasFileExtension, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
+import { absolutizeHref, hasFileExtension, matchRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
 export function useAgentDiscoveryConfig(event?: H3Event): NegotiationConfig {
   // Through `unknown`: a site's generated `runtimeConfig` type narrows the
@@ -65,7 +65,7 @@ export function renderAgentResources(event: H3Event, options: { heading?: string
 
   const lines = config.links
     .filter(link => link.title)
-    .map(link => `- [${link.title}](${link.href.startsWith('/') ? `${siteUrl}${link.href}` : link.href})`)
+    .map(link => `- [${link.title}](${absolutizeHref(link.href, siteUrl)})`)
 
   return lines.length ? [`## ${heading}`, '', ...lines, ''].join('\n') : ''
 }

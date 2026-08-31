@@ -341,7 +341,7 @@ export function isAgentUserAgent(config: NegotiationConfig, userAgent?: string |
 export function negotiatedRawPath(config: NegotiationConfig, path: string, options: { accept?: string | null, userAgent?: string | null } = {}): string | undefined {
   const pathname = normalizePathname(path)
 
-  if (pathname === config.rawPrefix || pathname.startsWith(`${config.rawPrefix}/`)) {
+  if (isRawPath(config, pathname)) {
     return undefined
   }
 
@@ -377,7 +377,7 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
  * configured pattern covers.
  */
 function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRoute | undefined {
-  if (pathname === config.rawPrefix || pathname.startsWith(`${config.rawPrefix}/`)) {
+  if (isRawPath(config, pathname)) {
     return undefined
   }
   if (isExcluded(pathname, config)) {
@@ -387,6 +387,15 @@ function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRout
     return undefined
   }
   return matchRoute(config.routes, pathname)
+}
+
+/**
+ * Whether a normalized pathname is the raw prefix itself or sits under it.
+ * The one definition of "this URL is a raw markdown twin", shared with the
+ * sitemap plugin so every consumer agrees on it.
+ */
+export function isRawPath(config: Pick<NegotiationConfig, 'rawPrefix'>, pathname: string): boolean {
+  return isUnder(pathname, config.rawPrefix)
 }
 
 /**
@@ -506,7 +515,7 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
 
   const pathname = normalizePathname(options.path)
 
-  if (pathname === config.rawPrefix || pathname.startsWith(`${config.rawPrefix}/`)) {
+  if (isRawPath(config, pathname)) {
     return true
   }
 
@@ -625,6 +634,15 @@ export function absolutizeMarkdownLinks(markdown: string, siteUrl: string): stri
   }).join('\n')
 }
 
+/**
+ * Prefixes a site-relative href with the site origin, leaving absolute and
+ * protocol-relative ones alone. Every discovery surface renders its links
+ * through this so they all agree on what "absolute" means.
+ */
+export function absolutizeHref(href: string, siteUrl: string): string {
+  return href.startsWith('/') && !href.startsWith('//') ? `${siteUrl}${href}` : href
+}
+
 const LINK_PROPS = ['href', 'src', 'to']
 
 /**
@@ -723,10 +741,7 @@ export function errorMarkdown(config: NegotiationConfig, options: { path: string
 
   const links = config.links
     .filter(link => link.title)
-    .map((link) => {
-      const href = link.href.startsWith('/') ? `${siteUrl}${link.href}` : link.href
-      return `- [${link.title}](${href})`
-    })
+    .map(link => `- [${link.title}](${absolutizeHref(link.href, siteUrl)})`)
 
   return [
     '---',

@@ -1,6 +1,7 @@
 import type { H3Event } from 'h3'
 import { useRuntimeConfig } from '#imports'
 import { useAgentDiscoveryConfig } from './agent-discovery'
+import { SKILLS_INDEX } from '../../shared/paths'
 import type { AgentRoute, NegotiationConfig } from '../../shared/types'
 
 /**
@@ -33,6 +34,9 @@ import type { AgentRoute, NegotiationConfig } from '../../shared/types'
  *
  * Spreading the site's own values last means any path here can be replaced
  * with a richer, site-specific description.
+ *
+ * Every call builds its fragments from scratch, so what comes back is the
+ * caller's to edit in place. Nothing is shared with the next call.
  *
  * Pass the `paths` being merged in and every `operationId` in them is claimed
  * before one is derived here, so a site's own operation keeps its name and the
@@ -87,7 +91,7 @@ const DISCOVERY_OPERATIONS: Record<string, string> = {
   '/llms-full.txt': 'getLlmsFullTxt',
   '/.well-known/api-catalog': 'getApiCatalog',
   '/.well-known/mcp/server-card.json': 'getMcpServerCard',
-  '/.well-known/skills/index.json': 'getSkillsIndex'
+  [SKILLS_INDEX]: 'getSkillsIndex'
 }
 
 /** The MCP endpoint, which follows the server card rather than a link of its own. */
@@ -274,6 +278,83 @@ function discoveryDocument(operationId: string, summary: string, description: st
   return { get: { tags: ['Discovery'], operationId, summary, description, responses: { 200: response } } }
 }
 
+/** A row of {@link DOCUMENTS}: everything about a discovery document that varies between them. */
+interface DocumentRow {
+  href: string
+  summary: string
+  description: string
+  /**
+   * Built per call, not stored. The document handed back is the caller's to
+   * merge into and edit, and a row holding one object would put that same
+   * reference in every document this module ever emits, so one caller's edit
+   * would land in the next request's response.
+   */
+  response: () => Json
+}
+
+/**
+ * The discovery documents that are a plain `href` → response mapping, in
+ * insertion order. The MCP endpoint's own path is not one of these: it is a
+ * `post` with a request body, not a document with a `get`, and it sits
+ * between the api catalog and the server card below, so building `paths`
+ * splits this table at {@link MCP_SPLIT} rather than walking it in one pass.
+ */
+const DOCUMENTS: DocumentRow[] = [
+  {
+    href: '/sitemap.md',
+    summary: 'Markdown sitemap',
+    description: 'Every page, grouped into sections, linking to the Markdown URLs.',
+    response: () => markdown('Markdown index of every page.')
+  },
+  {
+    href: '/sitemap.xml',
+    summary: 'XML sitemap',
+    description: 'Every indexable page, in the sitemaps.org XML format.',
+    response: () => ({ description: 'Sitemap in the sitemaps.org XML format.', content: { 'application/xml': { schema: { type: 'string' } } } })
+  },
+  {
+    href: '/llms.txt',
+    summary: 'llms.txt index',
+    description: 'Index of the documentation for LLMs, following the llms.txt convention.',
+    response: () => text('Markdown index.')
+  },
+  {
+    href: '/llms-full.txt',
+    summary: 'Full documentation for LLMs',
+    description: 'Every documentation page concatenated as Markdown. Large response.',
+    response: () => text('Full documentation as Markdown.')
+  },
+  {
+    href: '/.well-known/api-catalog',
+    summary: 'API catalog (RFC 9727)',
+    description: 'Linkset pointing at the documents this site publishes for agents.',
+    response: () => ({ description: 'Linkset document.', content: { 'application/linkset+json': { schema: { $ref: '#/components/schemas/Linkset' } } } })
+  },
+  {
+    href: '/.well-known/mcp/server-card.json',
+    summary: 'MCP server card',
+    description: 'Describes the MCP endpoint, its capabilities and what it exposes.',
+    response: () => ({ description: 'MCP server card, following the schema it declares in `$schema`.', content: { 'application/json': { schema: { type: 'object' } } } })
+  },
+  {
+    href: SKILLS_INDEX,
+    summary: 'Agent skills index',
+    description: 'Lists the agent skills published by this site and the files each one is made of, served under `/.well-known/skills/{name}/`.',
+    response: () => ({ description: 'Skills index.', content: { 'application/json': { schema: { $ref: '#/components/schemas/SkillsIndex' } } } })
+  }
+]
+
+/** Index of the first row in {@link DOCUMENTS} that comes after the MCP endpoint's own path. */
+const MCP_SPLIT = DOCUMENTS.findIndex(document => document.href === '/.well-known/mcp/server-card.json')
+
+// Rename or drop that row and the split silently becomes `slice(0, -1)` and
+// `slice(-1)`, which are both valid: the skills index moves ahead of the other
+// documents and the MCP endpoint lands in the wrong place, with nothing to say
+// so. Cheaper to refuse to load.
+if (MCP_SPLIT === -1) {
+  throw new Error('nuxt-agent-discovery: no `/.well-known/mcp/server-card.json` row in the OpenAPI document table, so the MCP endpoint has nowhere to sit. Restore the row, or split the table on whatever replaced it.')
+}
+
 export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptions = {}): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
   const config = useAgentDiscoveryConfig(event)
   const has = (href: string) => config.links.some(link => link.href === href)
@@ -309,45 +390,10 @@ export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptio
     )
   }
 
-  if (has('/sitemap.md')) {
-    paths['/sitemap.md'] = discoveryDocument(
-      discovery['/sitemap.md']!,
-      'Markdown sitemap',
-      'Every page, grouped into sections, linking to the Markdown URLs.',
-      markdown('Markdown index of every page.')
-    )
-  }
-  if (has('/sitemap.xml')) {
-    paths['/sitemap.xml'] = discoveryDocument(
-      discovery['/sitemap.xml']!,
-      'XML sitemap',
-      'Every indexable page, in the sitemaps.org XML format.',
-      { description: 'Sitemap in the sitemaps.org XML format.', content: { 'application/xml': { schema: { type: 'string' } } } }
-    )
-  }
-  if (has('/llms.txt')) {
-    paths['/llms.txt'] = discoveryDocument(
-      discovery['/llms.txt']!,
-      'llms.txt index',
-      'Index of the documentation for LLMs, following the llms.txt convention.',
-      text('Markdown index.')
-    )
-  }
-  if (has('/llms-full.txt')) {
-    paths['/llms-full.txt'] = discoveryDocument(
-      discovery['/llms-full.txt']!,
-      'Full documentation for LLMs',
-      'Every documentation page concatenated as Markdown. Large response.',
-      text('Full documentation as Markdown.')
-    )
-  }
-  if (has('/.well-known/api-catalog')) {
-    paths['/.well-known/api-catalog'] = discoveryDocument(
-      discovery['/.well-known/api-catalog']!,
-      'API catalog (RFC 9727)',
-      'Linkset pointing at the documents this site publishes for agents.',
-      { description: 'Linkset document.', content: { 'application/linkset+json': { schema: { $ref: '#/components/schemas/Linkset' } } } }
-    )
+  for (const document of DOCUMENTS.slice(0, MCP_SPLIT)) {
+    if (has(document.href)) {
+      paths[document.href] = discoveryDocument(discovery[document.href]!, document.summary, document.description, document.response())
+    }
   }
   // The MCP endpoint itself, alongside the card that describes it. Not a route
   // this module serves, the same as `/sitemap.xml` and the two llms documents
@@ -377,21 +423,10 @@ export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptio
       }
     }
   }
-  if (has('/.well-known/mcp/server-card.json')) {
-    paths['/.well-known/mcp/server-card.json'] = discoveryDocument(
-      discovery['/.well-known/mcp/server-card.json']!,
-      'MCP server card',
-      'Describes the MCP endpoint, its capabilities and what it exposes.',
-      { description: 'MCP server card, following the schema it declares in `$schema`.', content: { 'application/json': { schema: { type: 'object' } } } }
-    )
-  }
-  if (has('/.well-known/skills/index.json')) {
-    paths['/.well-known/skills/index.json'] = discoveryDocument(
-      discovery['/.well-known/skills/index.json']!,
-      'Agent skills index',
-      'Lists the agent skills published by this site and the files each one is made of, served under `/.well-known/skills/{name}/`.',
-      { description: 'Skills index.', content: { 'application/json': { schema: { $ref: '#/components/schemas/SkillsIndex' } } } }
-    )
+  for (const document of DOCUMENTS.slice(MCP_SPLIT)) {
+    if (has(document.href)) {
+      paths[document.href] = discoveryDocument(discovery[document.href]!, document.summary, document.description, document.response())
+    }
   }
 
   const schemas: Json = {}
@@ -427,7 +462,7 @@ export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptio
       }
     }
   }
-  if (has('/.well-known/skills/index.json')) {
+  if (has(SKILLS_INDEX)) {
     schemas.SkillsIndex = {
       type: 'object',
       description: 'Agent skills published by this site, served under `/.well-known/skills/{name}/`.',

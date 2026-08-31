@@ -6,10 +6,9 @@ import type { H3Event } from 'h3'
 import collections from '#content/manifest'
 import { useNitroApp } from 'nitropack/runtime'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
-import { absolutizeTreeLinks } from '../../shared/negotiation'
+import { prepareDocumentTree } from './pipeline'
+import type { DocNode } from './pipeline'
 import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
-
-type MinimarkNode = [string, Record<string, unknown>, ...unknown[]]
 
 /** What `@nuxt/content`'s own llms feature reads off a `llms.sections` entry. */
 interface ContentSelector {
@@ -55,8 +54,10 @@ const source: AgentContentSource = {
       return null
     }
 
-    const entries: AgentListEntry[] = []
-    for (const collection of names) {
+    // One query per collection, all in flight at once. `Promise.all` keeps the
+    // results in the order the collections were declared, which is the order
+    // the flattened listing has to come out in.
+    const results = await Promise.all(names.map(async (collection) => {
       const query = queryCollection(event, collection)
         .select('path', 'title', 'description')
         .where('path', 'NOT LIKE', '%/.navigation')
@@ -64,14 +65,14 @@ const source: AgentContentSource = {
         query.where(filter.field as never, filter.operator as never, filter.value as never)
       }
       const pages = await query.order('path', 'ASC').all() as { path: string, title?: string, description?: string }[]
-      entries.push(...pages.map(page => ({
+      return pages.map((page): AgentListEntry => ({
         route: page.path,
         title: page.title,
         description: page.description,
         section: titleCase(String(collection))
-      })))
-    }
-    return entries
+      }))
+    }))
+    return results.flat()
   },
 
   /**
@@ -92,6 +93,12 @@ const source: AgentContentSource = {
     if (prefix.includes('%')) {
       return null
     }
+    // One collection at a time, returning on the first match. `list()` needs
+    // every collection and parallelizes; this one needs the first that answers,
+    // so a later collection is a query nothing asked for. It is also the raw
+    // route's 404 path, where the common case is no match at all, and a
+    // `Promise.all` there would reject the whole lookup over a collection the
+    // answer never depended on.
     for (const collection of pageCollections()) {
       const pages = await queryCollection(event, collection)
         .select('path', 'stem')
@@ -136,40 +143,17 @@ const source: AgentContentSource = {
     // markdown) without replacing the whole source.
     await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
 
-    const value = page.body.value as unknown as MinimarkNode[]
-
-    // Syntax highlighters append a `<style>` node carrying the per-document
-    // CSS variables. It is meaningless in a markdown representation, and the
-    // stringifier only drops it while it is the last node, so anything
-    // appended below (the related links) would otherwise expose it.
-    for (let i = value.length - 1; i >= 0; i--) {
-      if (value[i]?.[0] === 'style') {
-        value.splice(i, 1)
-      }
-    }
-
-    if (value[0]?.[0] !== 'h1') {
-      if (page.description) {
-        value.unshift(['blockquote', {}, page.description])
-      }
-      if (page.title) {
-        value.unshift(['h1', {}, page.title])
-      }
-    }
-
-    // Append related links at the end if present, like @nuxt/content does.
-    const links = (page as unknown as Record<string, unknown>).links || (page.meta as Record<string, unknown> | undefined)?.links
-    if (Array.isArray(links) && links.length > 0) {
-      const items = links
-        .filter((link: { label?: string, to?: string }) => link.label && link.to)
-        .map((link: { label: string, to: string }) => ['li', {}, ['a', { href: link.to }, link.label]] as MinimarkNode)
-      if (items.length > 0) {
-        value.push(['hr', {}])
-        value.push(['ul', {}, ...items])
-      }
-    }
-
-    absolutizeTreeLinks(value, getAgentSiteUrl(event))
+    // Mutated in place: `page.body` below stringifies this same array. The
+    // minimark stringifier drops a highlighter's `<style>` node only while it
+    // is the last one, so the pipeline strips it before appending anything.
+    // `@nuxt/content` keeps `links` either at the root or under `meta`,
+    // depending on the collection schema.
+    prepareDocumentTree(page.body.value as unknown as DocNode[], {
+      title: page.title,
+      description: page.description,
+      links: (page as unknown as Record<string, unknown>).links || (page.meta as Record<string, unknown> | undefined)?.links,
+      siteUrl: getAgentSiteUrl(event)
+    })
 
     return {
       markdown: stringify({ ...page.body, type: 'minimark' }, { format: 'markdown/html' }),

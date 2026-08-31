@@ -1,6 +1,7 @@
 import { parseURL } from 'ufo'
 import { defineNitroPlugin } from 'nitropack/runtime'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { isRawPath } from '../../shared/negotiation'
 
 /** A sitemap URL as the sources hand it over, before `@nuxtjs/sitemap` normalizes it. */
 type SitemapUrlInput = string | { loc?: string }
@@ -25,7 +26,6 @@ interface SitemapInputContext {
  */
 export default defineNitroPlugin((nitroApp) => {
   const { rawPrefix } = useAgentDiscoveryConfig()
-  const prefix = `${rawPrefix}/`
 
   const onSitemapInput = nitroApp.hooks.hook as unknown as (
     name: 'sitemap:input',
@@ -36,7 +36,7 @@ export default defineNitroPlugin((nitroApp) => {
     ctx.urls = ctx.urls.filter((url) => {
       const loc = typeof url === 'string' ? url : url?.loc
       // Sources may hand over absolute URLs, so compare on the pathname.
-      return !loc || !(parseURL(loc).pathname || loc).startsWith(prefix)
+      return !loc || !isRawPath({ rawPrefix }, parseURL(loc).pathname || loc)
     })
   })
 })

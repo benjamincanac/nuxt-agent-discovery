@@ -2,6 +2,7 @@ import { createError, defineEventHandler, getRequestURL, setResponseHeader } fro
 import { useStorage } from 'nitropack/runtime'
 import { useRuntimeConfig } from '#imports'
 import type { SkillEntry } from '../../shared/types'
+import { SKILLS_PREFIX } from '../../shared/paths'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.md': 'text/markdown; charset=utf-8',
@@ -25,16 +26,15 @@ function contentType(path: string): string {
  * outside the skills directory.
  */
 export default defineEventHandler(async (event) => {
-  const prefix = '/.well-known/skills/'
   const pathname = getRequestURL(event).pathname
-  const index = pathname.indexOf(prefix)
+  const index = pathname.indexOf(SKILLS_PREFIX)
   if (index === -1) {
     throw createError({ statusCode: 404, statusMessage: 'Not Found' })
   }
 
   let path: string
   try {
-    path = decodeURIComponent(pathname.slice(index + prefix.length))
+    path = decodeURIComponent(pathname.slice(index + SKILLS_PREFIX.length))
   } catch {
     // A malformed escape (`%`, `%zz`) is a bad request, not a server error.
     throw createError({ statusCode: 400, statusMessage: 'Bad Request' })
