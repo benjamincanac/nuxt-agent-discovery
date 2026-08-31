@@ -19,7 +19,7 @@ import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, hasFileExtension, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { formatLinkHeader, hasFileExtension, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -263,16 +263,22 @@ export default defineNuxtModule<ModuleOptions>({
     // the middleware proxy itself forever. Only that fixpoint is refused: a
     // destination under `rawPrefix` or an excluded prefix never re-enters
     // negotiation, a wildcard pattern never reads `raw` at all, and a
-    // destination no pattern matches terminates after one hop.
+    // destination no pattern matches terminates after one hop. The checks run
+    // on the normalized pathname, the spelling the inner request re-enters
+    // with, so a query string or trailing slash cannot hide the fixpoint.
     for (const route of routes) {
-      if (!route.raw || route.path.includes('*') || !route.raw.endsWith('.md')
-        || route.raw === rawPrefix || route.raw.startsWith(`${rawPrefix}/`)
-        || excludePrefixes.some(prefix => route.raw!.startsWith(prefix))) {
+      if (!route.raw || route.path.includes('*')) {
         continue
       }
-      const base = route.raw.slice(0, -3)
+      const raw = normalizePathname(route.raw)
+      if (!raw.endsWith('.md')
+        || raw === rawPrefix || raw.startsWith(`${rawPrefix}/`)
+        || excludePrefixes.some(prefix => raw.startsWith(prefix))) {
+        continue
+      }
+      const base = raw.slice(0, -3)
       const matched = matchRoute(routes, base)
-      if (matched && rawDestination({ rawPrefix } as NegotiationConfig, matched, base) === route.raw) {
+      if (matched && normalizePathname(rawDestination({ rawPrefix } as NegotiationConfig, matched, base)) === raw) {
         throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
       }
     }

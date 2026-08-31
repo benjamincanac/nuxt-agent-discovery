@@ -446,6 +446,20 @@ describe('module setup: routes', () => {
       .rejects.toThrow('negotiates back to itself')
   })
 
+  it('refuses a raw destination whose query string hides the fixpoint', async () => {
+    // The middleware forwards the query, but the inner request negotiates on
+    // the pathname alone, so `/about.md?variant=1` re-enters as `/about.md`.
+    await expect(runModule({ routes: [{ path: '/about', raw: '/about.md?variant=1' }] }))
+      .rejects.toThrow('negotiates back to itself')
+  })
+
+  it('refuses a raw destination whose trailing slash hides the fixpoint', async () => {
+    // `normalizePathname` folds `/about.md/` into `/about.md` on the inner
+    // request, so the trailing slash loops all the same.
+    await expect(runModule({ routes: [{ path: '/about', raw: '/about.md/' }] }))
+      .rejects.toThrow('negotiates back to itself')
+  })
+
   it('accepts a raw destination under an excluded prefix', async () => {
     // `isExcluded` runs before the `.md` branch in `negotiatedRawPath`, so an
     // excluded destination never negotiates and cannot loop. A site serving
