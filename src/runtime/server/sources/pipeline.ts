@@ -54,12 +54,14 @@ function appendRelatedLinks(nodes: DocNode[], links: unknown): void {
     return
   }
   // Frontmatter is user content: a `links: [null]` or a half-filled entry
-  // must be skipped, not thrown on.
+  // must be skipped, not thrown on. A numeric label stays a label, because
+  // YAML reads `label: 2024` as a number and the adapters rendered it before.
   const items = links
-    .filter((link): link is { label: string, to: string } => typeof link === 'object' && link !== null
-      && typeof (link as { label?: unknown }).label === 'string' && (link as { label: string }).label !== ''
+    .filter((link): link is { label: string | number, to: string } => typeof link === 'object' && link !== null
+      && (typeof (link as { label?: unknown }).label === 'number'
+        || (typeof (link as { label?: unknown }).label === 'string' && (link as { label: string }).label !== ''))
       && typeof (link as { to?: unknown }).to === 'string' && (link as { to: string }).to !== '')
-    .map(link => ['li', {}, ['a', { href: link.to }, link.label]] as DocNode)
+    .map(link => ['li', {}, ['a', { href: link.to }, String(link.label)]] as DocNode)
   if (items.length > 0) {
     nodes.push(['hr', {}])
     nodes.push(['ul', {}, ...items])

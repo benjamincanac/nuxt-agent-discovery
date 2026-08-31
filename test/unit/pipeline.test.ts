@@ -18,6 +18,21 @@ describe('prepareDocumentTree: related links', () => {
     expect(list!.slice(2)).toHaveLength(1)
   })
 
+  it('renders a numeric label as text', () => {
+    // YAML reads `label: 2024` as a number, and both adapters rendered it
+    // before the malformed-entry guard landed.
+    const nodes: DocNode[] = [['h1', {}, 'Title']]
+    prepareDocumentTree(nodes, {
+      title: 'Title',
+      links: [{ label: 2024, to: '/releases/2024' }],
+      siteUrl: 'https://example.com'
+    })
+
+    const list = nodes.find(node => node[0] === 'ul')
+    expect(list).toBeDefined()
+    expect(list!.slice(2)).toEqual([['li', {}, ['a', { href: 'https://example.com/releases/2024' }, '2024']]])
+  })
+
   it('appends nothing when no entry survives', () => {
     const nodes: DocNode[] = [['h1', {}, 'Title']]
     prepareDocumentTree(nodes, { title: 'Title', links: [null], siteUrl: 'https://example.com' })
