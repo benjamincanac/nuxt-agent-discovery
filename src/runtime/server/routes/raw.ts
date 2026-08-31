@@ -2,7 +2,7 @@ import { createError, defineEventHandler, sendRedirect, setResponseHeader } from
 import source from '#agent-discovery/source'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
-import { normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
+import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves the raw markdown representation of a page from the content adapter.
@@ -44,12 +44,22 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeader(event, 'Vary', MARKDOWN_VARY)
 
+  // The canonical URL and every absolutized link fall back to the request
+  // origin when no site URL is configured, so the body is host-dependent and
+  // must not enter a shared cache.
+  if (!config.siteUrl) {
+    setResponseHeader(event, 'Cache-Control', 'no-cache')
+  }
+
   if ('redirect' in document) {
-    return sendRedirect(event, `${config.rawPrefix}${document.redirect}.md`, 302)
+    return sendRedirect(event, `${config.rawPrefix}${encodeAgentRoute(document.redirect)}.md`, 302)
   }
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
-  setResponseHeader(event, 'Link', `<${document.canonicalUrl}>; rel="canonical", <${document.canonicalUrl}>; rel="alternate"; type="text/html"`)
+  setResponseHeader(event, 'Link', formatLinkHeader([
+    { href: document.canonicalUrl, rel: 'canonical' },
+    { href: document.canonicalUrl, rel: 'alternate', type: 'text/html' }
+  ]))
 
   return document.markdown
 })

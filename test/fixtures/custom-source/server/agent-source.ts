@@ -8,6 +8,12 @@ import { defineAgentContentSource } from '#agent-discovery'
  * `@nuxt/content` pages stringify to, minus the frontmatter, which
  * `runtime/server/routes/raw.ts` adds itself. `test/e2e/custom-source.test.ts`
  * asserts both fixtures serve identical documents.
+ *
+ * The last two pages have no counterpart in the other fixtures. They sit in
+ * sections of their own so the documents `test/e2e/expected.ts` pins stay
+ * byte-identical, and they cover the two things a route path can carry that
+ * plain ASCII does not: characters that have to be percent-encoded before they
+ * reach a header, and a section key that names an `Object.prototype` member.
  */
 const pages: Record<string, { title: string, description: string, markdown: string }> = {
   '/': {
@@ -74,6 +80,26 @@ const label = 'Badge'
 
 - [Reka UI](https://reka-ui.com/docs/components/badge)
 - [GitHub](https://github.com/nuxt/ui)
+`
+  },
+  '/guide/文档': {
+    title: '文档',
+    description: 'A page whose route needs percent-encoding.',
+    markdown: `# 文档
+
+> A page whose route needs percent-encoding.
+
+The slug is CJK, so every URL it appears in has to be encoded.
+`
+  },
+  '/constructor/page': {
+    title: 'Constructor Page',
+    description: 'A page whose section key names an Object.prototype member.',
+    markdown: `# Constructor Page
+
+> A page whose section key names an Object.prototype member.
+
+The section label must come from the key, not from the prototype.
 `
   }
 }

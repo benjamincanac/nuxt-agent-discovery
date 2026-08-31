@@ -19,7 +19,7 @@ import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, hasFileExtension, matchRoute, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { formatLinkHeader, hasFileExtension, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -150,7 +150,17 @@ interface AgentDiscoveryPublicRuntimeConfig {
 
 declare module '@nuxt/schema' {
   interface NuxtHooks {
-    /** Lets other modules add discovery links and agent user agents. */
+    /**
+     * Lets other modules add discovery links and agent user agents.
+     *
+     * Fires once, but not always at the same point: with `@nuxtjs/robots`
+     * listed before this module it fires from that module's `robots:config`
+     * pass. The links array collects contributions only, and they are
+     * appended after the module's own links wherever the hook fired from, so
+     * push onto it rather than reading from it. Register the listener during
+     * `setup()`: a listener registered from a later lifecycle hook can miss
+     * the early firing entirely.
+     */
     'agent-discovery:extend': (registry: { links: DiscoveryLink[], userAgents: string[] }) => void | Promise<void>
   }
   interface RuntimeConfig extends AgentDiscoveryRuntimeConfig {}
@@ -248,6 +258,44 @@ export default defineNuxtModule<ModuleOptions>({
     const excludePrefixes = [...new Set(options.excludePrefixes?.replace
       ? options.excludePrefixes.replace
       : [...EXCLUDE_PREFIXES, ...(options.excludePrefixes?.extend || [])])]
+
+    // An exact route whose `raw` destination negotiates back to itself makes
+    // the middleware proxy itself forever. Only that fixpoint is refused: a
+    // destination under `rawPrefix` or an excluded prefix never re-enters
+    // negotiation, a wildcard pattern never reads `raw` at all, and a
+    // destination no pattern matches terminates after one hop. The checks run
+    // on the normalized pathname, the spelling the inner request re-enters
+    // with, so a query string or trailing slash cannot hide the fixpoint.
+    for (const route of routes) {
+      if (!route.raw || route.path.includes('*')) {
+        continue
+      }
+      const raw = normalizePathname(route.raw)
+      if (!raw.endsWith('.md')
+        || raw === rawPrefix || raw.startsWith(`${rawPrefix}/`)
+        || excludePrefixes.some(prefix => raw.startsWith(prefix))) {
+        continue
+      }
+      const base = raw.slice(0, -3)
+      const matched = matchRoute(routes, base)
+      if (matched && normalizePathname(rawDestination({ rawPrefix } as NegotiationConfig, matched, base)) === raw) {
+        throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
+      }
+    }
+
+    // The discovery-link registry, assembled at `modules:done` and extended
+    // through `agent-discovery:extend`. The hook fires once, from whichever
+    // consumer needs it first: `@nuxtjs/robots` snapshots the user agents when
+    // it fires `robots:config` from its own `modules:done`, which runs before
+    // ours whenever it is listed first, so waiting for our own `modules:done`
+    // handed it the un-extended list.
+    const links: DiscoveryLink[] = []
+    // Hook contributions land in their own list and are appended after the
+    // module's own, so their position never depends on which consumer fired
+    // the hook first.
+    const hookLinks: DiscoveryLink[] = []
+    let extended: Promise<void> | undefined
+    const extendRegistry = () => extended ??= nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents })
 
     // Mutated until `modules:done`, then read by the runtime and the presets.
     const config: NegotiationConfig = {
@@ -450,9 +498,12 @@ export {}
       const contentSignal = options.robots.contentSignal
       const onRobotsConfig = nuxt.hook as unknown as (
         name: 'robots:config',
-        cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void
+        cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void | Promise<void>
       ) => void
-      onRobotsConfig('robots:config', (robotsConfig) => {
+      onRobotsConfig('robots:config', async (robotsConfig) => {
+        // The groups below snapshot the user-agent list, so anything a site
+        // adds through `agent-discovery:extend` has to be in it already.
+        await extendRegistry()
         // `Content-Signal` belongs on the wildcard group, which this module's
         // own `robots.txt` route emits too. Without it the directive would be
         // lost the moment a site adds `@nuxtjs/robots`.
@@ -719,7 +770,6 @@ export {}
 
       /* ------------------------------ registry ----------------------------- */
 
-      const links: DiscoveryLink[] = []
       // Advertised only when something serves it. This module does not generate
       // `sitemap.xml`, so keying on the option alone meant a zero-config site
       // pointed agents, the api-catalog and `robots.txt` at a 404. A site that
@@ -774,7 +824,10 @@ export {}
       }
       links.push(...(options.discovery?.links || []))
 
-      await nuxt.callHook('agent-discovery:extend', { links, userAgents })
+      await extendRegistry()
+      // Wherever the hook fired from, its links slot in after the built-ins
+      // and the site's own.
+      links.push(...hookLinks)
 
       // After the hook, so a link contributed by another module counts too.
       if (options.discovery?.apiCatalog && links.some(link => link.anchor && (link.rel === 'service-desc' || link.rel === 'service-doc'))) {
@@ -835,7 +888,12 @@ export {}
 
     /* ------------------------------ prerender ------------------------------ */
 
-    if (builtinContentSource) {
+    // With a server behind the site, only the built-in source prerenders: a
+    // custom adapter (comark) reads content at request time on purpose. A
+    // fully static build has no server to fall back to, so everything the
+    // discovery documents advertise must be prerendered whatever the source.
+    const staticBuild = Boolean(nuxt.options.nitro?.static) || (nuxt.options as { _generate?: boolean })._generate === true
+    if (sourcePath && (builtinContentSource || staticBuild)) {
       for (const route of routes) {
         if (!route.path.includes('*')) {
           addPrerenderRoutes(rawDestination(config, route, route.path))

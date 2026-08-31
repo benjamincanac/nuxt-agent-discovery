@@ -28,7 +28,9 @@ export default defineEventHandler((event) => {
 
   setResponseHeader(event, 'Content-Type', 'text/plain; charset=utf-8')
   // Same as the api-catalog: the agent list and the content signal are both
-  // build-time configuration.
-  setResponseHeader(event, 'Cache-Control', 'public, max-age=3600')
+  // build-time configuration, but the sitemap line is only host-independent
+  // when a site URL is configured. Without one the body carries the request
+  // origin, which must never be cached and handed to the next host that asks.
+  setResponseHeader(event, 'Cache-Control', config.siteUrl ? 'public, max-age=3600' : 'no-cache')
   return lines.join('\n')
 })
