@@ -36,16 +36,16 @@ export interface AgentPageListOptions {
  * `routes` changes. Both URLs here come from the same `rawUrl()` the
  * negotiation and the `llms.txt` bridge resolve.
  *
- * Without `list()` on the adapter this falls back to bare `routes()`, with no
- * metadata: filling each entry in would cost a full render per page, and
- * neither caller is worth that.
+ * An adapter that cannot enumerate its pages leaves `list()` off, and the
+ * listing comes back empty. There is no fallback: rebuilding it out of `get()`
+ * would cost a full render per page, and neither caller is worth that.
  */
 export async function listAgentPages(event: H3Event, options: AgentPageListOptions = {}): Promise<AgentPageListing[]> {
   if (!source) {
     return []
   }
 
-  const entries = (await source.list(undefined, event)) || []
+  const entries = (await source.list?.(undefined, event)) ?? []
 
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
