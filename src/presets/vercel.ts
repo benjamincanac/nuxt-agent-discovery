@@ -14,9 +14,18 @@ export interface VercelRoute {
   has?: RouteMatcher[]
   /** Negated matchers: the route applies only when none of them match. */
   missing?: RouteMatcher[]
+  /** Methods the route applies to; absent means every method. */
+  methods?: string[]
   check?: boolean
   continue?: boolean
 }
+
+/**
+ * The negotiation middleware returns early for anything but GET/HEAD, so every
+ * emitted route carries the same restriction. Without it a POST to a page path
+ * was rewritten or 406ed at the edge where the origin runs its handler.
+ */
+const METHODS = ['GET', 'HEAD']
 
 interface RouteMatcher {
   type: string
@@ -130,11 +139,11 @@ const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
  */
 function negotiatedRoute(src: string, dest: string, has: RouteMatcher[], cached: boolean, missing?: RouteMatcher[]): VercelRoute {
   if (cached) {
-    return { src, status: 307, headers: { Location: dest, Vary: MARKDOWN_VARY }, has, ...(missing ? { missing } : {}) }
+    return { src, status: 307, headers: { Location: dest, Vary: MARKDOWN_VARY }, has, ...(missing ? { missing } : {}), methods: METHODS }
   }
   // `check: true` looks the destination up in the filesystem first, which is
   // where prerendered raw files live.
-  return { src, dest, has, ...(missing ? { missing } : {}), check: true }
+  return { src, dest, has, ...(missing ? { missing } : {}), methods: METHODS, check: true }
 }
 
 /**
@@ -190,6 +199,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   routes.push({
     src: `^${NO_DOTTED_LAST_SEGMENT}${excluded}(?:${varySources.join('|')})$`,
     headers: { Vary: MARKDOWN_VARY },
+    methods: METHODS,
     continue: true
   })
 
@@ -224,6 +234,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   routes.push({
     src: `^(?:${markdownSources.join('|')})$`,
     headers: { Vary: MARKDOWN_VARY },
+    methods: METHODS,
     continue: true
   })
 
@@ -249,12 +260,14 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
         { type: 'header', key: 'accept', value: ACCEPTS_A_REPRESENTATION },
         { type: 'header', key: 'sec-fetch-mode', value: 'navigate' },
         ...(agentUserAgent ? [agentUserAgent] : [])
-      ]
+      ],
+      methods: METHODS
     })
   }
 
   // The `/` routeRule carries the same `Link` header, but a homepage request
   // rewritten below to a prerendered raw markdown file never reaches it.
+  // Deliberately method-agnostic, mirroring the route rule it stands in for.
   const linkHeader = config.linkHeader ? formatLinkHeader(config.links) : ''
   if (linkHeader) {
     routes.push({
@@ -315,7 +328,8 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       // capture stops before the suffix thanks to the `\.md$` anchor.
       routes.push({
         src: `^${excluded}${body}\\.md$`,
-        dest
+        dest,
+        methods: METHODS
       })
       // The dotted-last-segment lookahead keeps `.md` URLs on the rewrite above
       // and assets (`_payload.json`, images) out.
@@ -323,7 +337,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     } else {
       const dest = rawDestination(config, route, route.path)
       if (route.path !== '/') {
-        routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, dest })
+        routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, dest, methods: METHODS })
       }
       // The same two guards the wildcard branch carries. Without them an exact
       // pattern negotiated at the edge where the runtime refuses it: a dotted
@@ -343,7 +357,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
  * documented on the Source route type:
  * https://vercel.com/docs/build-output-api/configuration
  */
-export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig) {
+export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, collectCachedRoutes?: (routeRules: Nitro['options']['routeRules']) => void) {
   // `nuxt generate` on Vercel resolves the `vercel-static` preset, whose name
   // contains "vercel" but which emits no function routes at all. Patching the
   // table there leaves rewrites pointing at a filesystem that only holds what
@@ -352,6 +366,15 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig) {
     return
   }
   nitro.hooks.hook('compiled', async () => {
+    // The last read of the rule table before it decides rewrite or 307: an
+    // inline `defineRouteRules({ isr })` only lands on it during the Nuxt
+    // build, after every module hook has run. The runtime config is already
+    // inlined by now, so a rule that changed between `nitro:build:before` and
+    // here reaches this table only and the origin keeps the earlier list.
+    // Benign in both directions: a rule appearing here demotes the pattern to
+    // a 307, and one disappearing leaves a rewrite landing on `/raw/**.md`,
+    // where the middleware never takes its 307 branch.
+    collectCachedRoutes?.(nitro.options.routeRules)
     const vcJSON = resolve(nitro.options.output.dir, 'config.json')
     const vcConfig = JSON.parse(await readFile(vcJSON, 'utf8'))
     vcConfig.routes.unshift(...vercelMarkdownRoutes(config))
