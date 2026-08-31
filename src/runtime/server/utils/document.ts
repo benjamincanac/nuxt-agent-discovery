@@ -85,6 +85,16 @@ export async function getSourcePage(route: string, event: H3Event): Promise<Agen
 }
 
 /**
+ * The generated landing page, in the same shape `getSourcePage` returns, for
+ * a consumer rendering `/` on an adapter with no `/` entry. The raw route
+ * reaches the same document through `getAgentDocument`'s own fallback.
+ */
+export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
+  const index = await generatedIndex(event, getAgentSiteUrl(event))
+  return { title: index.title, description: index.description, markdown: index.markdown }
+}
+
+/**
  * Resolves a page route to the exact document `/raw/<path>.md` serves.
  *
  * The HTTP route is a thin shell over this so that anything else reaching for

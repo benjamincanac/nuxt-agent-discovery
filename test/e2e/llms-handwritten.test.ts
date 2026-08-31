@@ -78,6 +78,9 @@ describe('llms-full.txt', () => {
     expect(body.trim()).not.toBe('')
     expect(body).toContain('# Alpha')
     expect(body).toContain('The one page the hand-written section links.')
+    // The landing page `llms.txt` advertises as its first link: the full
+    // document has to hold the page behind it, mirroring the index hook.
+    expect(body).toContain('# Handwritten')
     // The link arrives percent-encoded through `URL.pathname` while the
     // adapter stores the decoded slug, so the route has to be decoded on the
     // way to `get()` or the page silently drops out of the full document.

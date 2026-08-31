@@ -6,8 +6,8 @@ import { defineNitroPlugin } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import type { AgentListEntry, NegotiationConfig } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { getSourcePage } from '../utils/document'
-import { hasFileExtension, isNegotiablePath, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
+import { generatedIndexPage, getSourcePage } from '../utils/document'
+import { hasFileExtension, isExcluded, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
 interface LlmsSection {
   title: string
@@ -35,11 +35,13 @@ function toLocalUrl(href: string, domain: string): { pathname: string, suffix: s
 /**
  * The page route a link points at, or `undefined` when it names something with
  * no markdown representation: another origin, `llms-full.txt`, an asset, an
- * endpoint under an excluded prefix, a path no configured route covers.
+ * endpoint under an excluded prefix.
  *
- * The same predicate the negotiation itself runs, so a link counts as a page
- * here exactly when the site serves markdown for it. Reading the extension
- * alone counted `/openapi` and `/api/v1/tools` as documentation.
+ * Judged by exclusion and extension alone, not by `routes`: a curated section
+ * may name pages outside the negotiated patterns, and listing them is its
+ * call, so a site narrowing `routes` must not get its curation duplicated by
+ * the whole-site fallback. What has to stay out is data, `/openapi.json` by
+ * its extension and `/api/v1/tools` by its prefix.
  */
 function pageRoute(config: NegotiationConfig, href: string, domain: string): string | undefined {
   const local = toLocalUrl(href, domain)
@@ -50,7 +52,7 @@ function pageRoute(config: NegotiationConfig, href: string, domain: string): str
   // decoded paths, so the route is decoded the same way the raw handler
   // decodes its slug, or a curated link to `/docs/café` resolves no page.
   const route = normalizeAgentRoute(local.pathname)
-  return isNegotiablePath(config, route) ? route : undefined
+  return !isExcluded(route, config) && (route === '/' || !hasFileExtension(route)) ? route : undefined
 }
 
 /** At most this many adapter calls in flight, per fan-out. */
@@ -155,7 +157,9 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       // its API endpoints has named no documentation either.
       const hasPageLinks = options.sections.some(section => section.links?.some(link => pageRoute(config, link.href, domain)))
       if (!hasPageLinks) {
-        const entries = (await adapter.list?.(undefined, event)) || []
+        // The same filter `listAgentPages` applies, so the fallback cannot
+        // advertise pages `sitemap.md` deliberately hides.
+        const entries = ((await adapter.list?.(undefined, event)) || []).filter(entry => !isExcluded(entry.route, config))
         for (const [title, group] of groupBySection(entries)) {
           options.sections.push({
             title,
@@ -192,8 +196,10 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
 
         // Off-site links keep whatever they were written as, but a same-origin
         // one has to come out absolute: `llms.txt` is read detached from the
-        // site, so a relative href in it points nowhere.
-        const route = pathname === '/' || !hasFileExtension(pathname)
+        // site, so a relative href in it points nowhere. An excluded path is
+        // the site's own document, not a page with a raw twin: rewriting it
+        // would mint a URL that 404s.
+        const route = (pathname === '/' || !hasFileExtension(pathname)) && !isExcluded(pathname, config)
           ? matchRoute(config.routes, pathname)
           : undefined
         if (!route) {
@@ -261,13 +267,26 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // no sections at all.
     if (!routes.length) {
       for (const entry of (await adapter.list?.(undefined, event)) || []) {
-        add(entry.route)
+        // The same filter `listAgentPages` applies, matching the index hook.
+        if (!isExcluded(entry.route, config)) {
+          add(entry.route)
+        }
       }
     }
 
-    // The same `get()` the raw route calls, so a page reads identically whether
-    // an agent fetches `/raw/**.md` or the single full document.
-    const pages = await mapLimit(routes, route => getSourcePage(route, event))
+    // The landing page, mirroring the index hook: `llms.txt` links `/` (or
+    // its generated `/raw/index.md`) whenever no section names it, so the
+    // full document has to hold the page it advertises.
+    if (!seen.has('/') && matchRoute(config.routes, '/')) {
+      routes.unshift('/')
+    }
+
+    // The same `get()` the raw route calls, so a page reads identically
+    // whether an agent fetches `/raw/**.md` or the single full document. `/`
+    // is the one route with a fallback: an adapter with no `/` entry still
+    // has the generated index behind `/raw/index.md`.
+    const pages = await mapLimit(routes, async route =>
+      await getSourcePage(route, event) ?? (route === '/' ? await generatedIndexPage(event) : null))
     for (const page of pages) {
       if (page?.markdown) {
         contents.push(page.markdown)
