@@ -21,7 +21,7 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, hasFileExtension, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -260,27 +260,40 @@ export default defineNuxtModule<ModuleOptions>({
       ? options.excludePrefixes.replace
       : [...EXCLUDE_PREFIXES, ...(options.excludePrefixes?.extend || [])])]
 
-    // An exact route whose `raw` destination negotiates back to itself makes
-    // the middleware proxy itself forever. Only that fixpoint is refused: a
-    // destination under `rawPrefix` or an excluded prefix never re-enters
-    // negotiation, a wildcard pattern never reads `raw` at all, and a
-    // destination no pattern matches terminates after one hop. The checks run
-    // on the normalized pathname, the spelling the inner request re-enters
-    // with, so a query string or trailing slash cannot hide the fixpoint.
+    // An exact route whose `raw` destination negotiates back into the
+    // middleware makes it proxy itself forever, in one hop (`/about` →
+    // `/about.md`) or through other routes (`/a` → `/b.md` → `/a.md` → …).
+    // The walk mirrors the runtime chain on normalized pathnames, the
+    // spelling the inner request re-enters with: a destination under
+    // `rawPrefix` or an excluded prefix never re-enters negotiation, a
+    // wildcard destination always lands under `rawPrefix`, a dotted
+    // non-`.md` path reads as an asset, and a path no pattern matches
+    // terminates after one hop. Revisiting a pathname is the loop.
+    const negotiationConfig = { rawPrefix } as NegotiationConfig
+    const nextHop = (pathname: string): string | undefined => {
+      if (isRawPath(negotiationConfig, pathname)
+        || excludePrefixes.some(prefix => pathname.startsWith(prefix))) {
+        return undefined
+      }
+      const base = pathname.endsWith('.md') ? pathname.slice(0, -3) : pathname
+      if (base.length <= 1 || (base === pathname && hasFileExtension(base))) {
+        return undefined
+      }
+      const matched = matchRoute(routes, base)
+      return matched ? normalizePathname(rawDestination(negotiationConfig, matched, base)) : undefined
+    }
     for (const route of routes) {
       if (!route.raw || route.path.includes('*')) {
         continue
       }
-      const raw = normalizePathname(route.raw)
-      if (!raw.endsWith('.md')
-        || raw === rawPrefix || raw.startsWith(`${rawPrefix}/`)
-        || excludePrefixes.some(prefix => raw.startsWith(prefix))) {
-        continue
-      }
-      const base = raw.slice(0, -3)
-      const matched = matchRoute(routes, base)
-      if (matched && normalizePathname(rawDestination({ rawPrefix } as NegotiationConfig, matched, base)) === raw) {
-        throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
+      const visited = new Set<string>()
+      let hop = nextHop(normalizePathname(route.raw))
+      while (hop) {
+        if (visited.has(hop)) {
+          throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
+        }
+        visited.add(hop)
+        hop = nextHop(hop)
       }
     }
 

@@ -155,10 +155,10 @@ describe('vercel build output', () => {
       expect(route.dest ? route.check : route.status).toBeTruthy()
 
       const pattern = route.has!.find(has => has.key === 'user-agent')!.value
-      expect(pattern).toContain('ClaudeBot')
-      expect(pattern).toContain('GPTBot')
-      // The bot list must be the shared one, not a `curl`-only match.
+      // The bot list must be the shared one, not a `curl`-only match, and it
+      // matches case-insensitively like the origin does.
       expect(new RegExp(pattern).test('Mozilla/5.0 (compatible; ClaudeBot/1.0)')).toBe(true)
+      expect(new RegExp(pattern).test('gptbot/1.0')).toBe(true)
     }
   })
 

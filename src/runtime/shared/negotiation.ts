@@ -66,7 +66,7 @@ export function hasFileExtension(pathname: string): boolean {
 }
 
 /** Plain prefix match, so `/_` covers `/_nuxt` and `/api/` covers `/api/x`. */
-function isExcluded(pathname: string, config: NegotiationConfig): boolean {
+export function isExcluded(pathname: string, config: NegotiationConfig): boolean {
   return config.excludePrefixes.some(prefix => pathname.startsWith(prefix))
 }
 

@@ -139,6 +139,12 @@ const source: AgentContentSource = {
       return null
     }
 
+    // Copied before anything touches it, the way the comark adapter does:
+    // whether `queryCollection` hands back a shared object is its business,
+    // and both the hook below and the pipeline mutate the tree in place.
+    // `appendRelatedLinks` in particular is not idempotent.
+    page = { ...page, body: { ...page.body, value: structuredClone(page.body.value) } }
+
     // Lets sites transform the minimark tree (MDC components → plain
     // markdown) without replacing the whole source.
     await useNitroApp().hooks.callHook('agent-discovery:document', event, page)

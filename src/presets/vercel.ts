@@ -1,7 +1,7 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Nitro } from 'nitropack'
-import { compilePattern, formatLinkHeader, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { compilePattern, formatLinkHeader, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
 export interface VercelRoute {
@@ -94,9 +94,16 @@ const ACCEPTS_A_REPRESENTATION = String.raw`(([^"]|"[^"]*")*,)?\s*(text/(html|ma
  */
 const ANY_MEDIA_RANGE = String.raw`(.*,)?\s*${TOKEN}/${TOKEN}\s*([;,].*)?`
 
-/** `has` matcher for the Vercel Build Output API, which anchors the value. */
+/**
+ * `has` matcher for the Vercel Build Output API, which anchors the value.
+ *
+ * Case-folded letter by letter, the way `REFUSES_MARKDOWN` spells `[qQ]`: the
+ * origin matches user agents case-insensitively, an observed edge does too,
+ * and nothing here may depend on the observation.
+ */
 function agentUserAgentPattern(config: NegotiationConfig): string {
-  return `.*(${config.userAgents.map(escapeRegExp).join('|')}).*`
+  const fold = (value: string) => value.replace(/[a-z]/gi, letter => `[${letter.toLowerCase()}${letter.toUpperCase()}]`)
+  return `.*(${config.userAgents.map(agent => fold(escapeRegExp(agent))).join('|')}).*`
 }
 
 /** Pattern wildcards replaced by their capture references: `/docs/**` → `/docs/$1`. */
@@ -258,7 +265,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     // wildcard covers `/`, whose capture would otherwise mis-derive the page
     // as `/index`. An exact destination under an excluded prefix is the
     // site's own document and gets no entry at all.
-    const isRaw = (raw: string) => raw === config.rawPrefix || raw.startsWith(`${config.rawPrefix}/`)
+    const isRaw = (raw: string) => isRawPath(config, raw)
     const rootTwin = `${config.rawPrefix}/index.md`
     const statics: { raw: string, href: string }[] = []
     for (const route of config.routes) {

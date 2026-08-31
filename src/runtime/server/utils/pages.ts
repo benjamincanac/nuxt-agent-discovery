@@ -1,6 +1,7 @@
 import type { H3Event } from 'h3'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from './agent-discovery'
+import { encodeAgentRoute } from '../../shared/negotiation'
 
 /** One page in a listing, with both URLs an agent might want. */
 export interface AgentPageListing {
@@ -70,7 +71,9 @@ export async function listAgentPages(event: H3Event, options: AgentPageListOptio
       title: entry.title,
       description: entry.description,
       section: entry.section,
-      url: `${siteUrl}${entry.route === '/' ? '' : entry.route}` || siteUrl,
+      // Encoded like `canonical_url`, so the two spellings of a non-ASCII
+      // page cannot diverge between the listing and the document itself.
+      url: `${siteUrl}${entry.route === '/' ? '' : encodeAgentRoute(entry.route)}` || siteUrl,
       rawUrl: rawUrl(event, entry.route)
     }))
 }
