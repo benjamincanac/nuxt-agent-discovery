@@ -179,7 +179,7 @@ describe('vercelMarkdownRoutes: 406', () => {
     expect(present.test('text/html/extra')).toBe(false)
 
     expect(matcher(refusal, 'sec-fetch-mode', 'missing')).toBe('navigate')
-    expect(matcher(refusal, 'user-agent', 'missing')).toContain('ClaudeBot')
+    expect(new RegExp(matcher(refusal, 'user-agent', 'missing') || '$^').test('ClaudeBot/1.0')).toBe(true)
   })
 
   // A bare substring matched a supported type inside a parameter value, so
@@ -491,8 +491,8 @@ describe('vercelMarkdownRoutes: user-agent matcher', () => {
   const uaRoute = vercelMarkdownRoutes(config).find(route => route.has?.[0]?.key === 'user-agent')
   const value = uaRoute?.has?.[0]?.value || ''
 
-  it('escapes regex specials', () => {
-    expect(value).toBe('.*(ClaudeBot|GPTBot|curl/8\\.4).*')
+  it('escapes regex specials and folds the case', () => {
+    expect(value).toBe('.*([cC][lL][aA][uU][dD][eE][bB][oO][tT]|[gG][pP][tT][bB][oO][tT]|[cC][uU][rR][lL]/8\\.4).*')
     expect(new RegExp(value).test('curl/8x4')).toBe(false)
   })
 
@@ -503,8 +503,12 @@ describe('vercelMarkdownRoutes: user-agent matcher', () => {
     expect(new RegExp(value).test('Mozilla/5.0 (Macintosh) Chrome/131.0')).toBe(false)
   })
 
-  it('stays case-sensitive, like the runtime', () => {
-    expect(new RegExp(value).test('claudebot/1.0')).toBe(false)
+  it('matches case-insensitively, like the runtime', () => {
+    // Spelled into the pattern, `[qQ]`-style: the origin lowercases both
+    // sides, and whether the edge's `has` matching is case-insensitive is an
+    // observation nothing may depend on.
+    expect(new RegExp(value).test('claudebot/1.0')).toBe(true)
+    expect(new RegExp(value).test('GPTBOT')).toBe(true)
   })
 })
 

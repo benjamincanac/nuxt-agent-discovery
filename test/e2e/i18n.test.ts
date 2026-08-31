@@ -138,7 +138,7 @@ describe('O(1) route table', () => {
     expect(localeRewrites).toHaveLength(3)
     expect(localeRewrites.every(route => route.dest === '/raw/$1/docs/$2.md')).toBe(true)
     expect(localeRewrites.some(route => route.has?.some(has => has.key === 'accept'))).toBe(true)
-    expect(localeRewrites.some(route => route.has?.some(has => has.key === 'user-agent' && has.value.includes('ClaudeBot')))).toBe(true)
+    expect(localeRewrites.some(route => route.has?.some(has => has.key === 'user-agent' && new RegExp(has.value).test('ClaudeBot/1.0')))).toBe(true)
 
     // The homepage keeps its explicit `raw` destination.
     expect(routes.filter(route => route.dest === '/raw/index.md')).toHaveLength(2)
