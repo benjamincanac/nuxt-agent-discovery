@@ -259,25 +259,44 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     // as `/index`. An exact destination under an excluded prefix is the
     // site's own document and gets no entry at all.
     const isRaw = (raw: string) => raw === config.rawPrefix || raw.startsWith(`${config.rawPrefix}/`)
-    const statics: { raw: string, href: string }[] = config.routes
-      .filter(route => !route.path.includes('*'))
-      .map(route => ({ raw: rawDestination(config, route, route.path), href: route.path === '/' ? config.siteUrl : `${config.siteUrl}${route.path}` }))
-      .filter(entry => isRaw(entry.raw))
-    if (!config.routes.some(route => route.path === '/')) {
+    const rootTwin = `${config.rawPrefix}/index.md`
+    const statics: { raw: string, href: string }[] = []
+    for (const route of config.routes) {
+      if (route.path.includes('*')) {
+        continue
+      }
+      const raw = rawDestination(config, route, route.path)
+      // Two exact routes can name the same twin (`/` and `/index` both map to
+      // the root twin): one entry per `src`, or the table carries two
+      // conflicting headers. The root twin is always the site URL, because
+      // the origin folds `/index` into `/` whichever route named it.
+      if (!isRaw(raw) || statics.some(entry => entry.raw === raw)) {
+        continue
+      }
+      statics.push({ raw, href: route.path === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${route.path}` })
+    }
+    if (!statics.some(entry => entry.raw === rootTwin)) {
       // `/raw/index.md` folds to `/` at the origin whatever the patterns say
       // (the generated index serves it), so the wildcard capture must never
-      // read it as `/index`.
-      statics.push({ raw: `${config.rawPrefix}/index.md`, href: config.siteUrl })
+      // read it as `/index`. Keyed on the twin, not on a `/` route existing:
+      // a `/` route with a `raw` override elsewhere leaves the twin unowned.
+      statics.push({ raw: rootTwin, href: config.siteUrl })
     }
     // The wildcard capture must not also match a statically-mapped twin.
     const rawExclusion = statics.length ? `(?!(?:${statics.map(entry => escapeRegExp(entry.raw.slice(config.rawPrefix.length))).join('|')})$)` : ''
+    // A trailing `/index` folds away at the origin, so a capture reading
+    // `/docs/index.md` would advertise `/docs/index`, a page URL the handler
+    // never serves. Those twins carry no edge pair rather than a wrong one.
+    const noIndex = String.raw`(?!.*/index\.md$)`
     for (const route of config.routes) {
       if (route.path.includes('*')) {
         const body = compilePattern(route.path).source.slice(1, -1)
         const link = canonicalLink(`${config.siteUrl}${patternDest(route.path)}`)
-        routes.push({ src: `^${excluded}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
-        routes.push({ src: `^${escapeRegExp(config.rawPrefix)}${rawExclusion}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
-      } else if (route.path !== '/' && isRaw(rawDestination(config, route, route.path))) {
+        routes.push({ src: `^${excluded}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+        routes.push({ src: `^${escapeRegExp(config.rawPrefix)}${rawExclusion}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+      } else if (route.path !== '/' && !route.path.endsWith('/index') && isRaw(rawDestination(config, route, route.path))) {
+        // An index-shaped exact path folds like the wildcard capture above,
+        // so its page twin gets no entry either.
         routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, headers: { Link: canonicalLink(`${config.siteUrl}${route.path}`) }, methods: METHODS, continue: true })
       }
     }

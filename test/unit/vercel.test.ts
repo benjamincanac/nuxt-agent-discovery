@@ -635,6 +635,41 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
     expect(index[0]!.headers!.Link).not.toContain('/index')
   })
 
+  it('leaves an index-shaped twin to its frontmatter', () => {
+    // `/docs/index.md` folds to `/docs` at the origin, so a capture-derived
+    // header would advertise a page URL the handler never serves. No pair
+    // beats a wrong one: the document still carries `canonical_url`.
+    for (const path of ['/index.md', '/docs/index.md', '/raw/docs/index.md']) {
+      expect(linkRoutes.some(route => matches(route, path)), path).toBe(false)
+    }
+  })
+
+  it('keeps the root twin entry when `/` negotiates through another raw', () => {
+    // The guard is keyed on the twin having an owner, not on a `/` route
+    // existing: with a `raw` override the route no longer names
+    // `/raw/index.md`, which the origin serves regardless.
+    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/', raw: '/raw/home.md' }, { path: '/**' }] }))
+    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const index = links.filter(route => matches(route, '/raw/index.md'))
+
+    expect(index).toHaveLength(1)
+    expect(index[0]!.headers!.Link).toContain('<https://example.com>; rel="canonical"')
+    expect(links.filter(route => matches(route, '/raw/home.md'))).toHaveLength(1)
+  })
+
+  it('collapses routes naming the same twin into one entry', () => {
+    // `/` and `/index` both map to `/raw/index.md`: two entries would stack
+    // two conflicting headers on one response, and the origin folds `/index`
+    // into `/` anyway.
+    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/' }, { path: '/index' }, { path: '/**' }] }))
+    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const index = links.filter(route => matches(route, '/raw/index.md'))
+
+    expect(index).toHaveLength(1)
+    expect(index[0]!.headers!.Link).toContain('<https://example.com>; rel="canonical"')
+    expect(links.some(route => matches(route, '/index.md'))).toBe(false)
+  })
+
   it('emits nothing without a configured site URL', () => {
     // The value embeds the page URL and the edge cannot know the request
     // host at build time, so the origin-rendered responses keep the header
