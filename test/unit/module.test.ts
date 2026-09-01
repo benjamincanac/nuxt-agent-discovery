@@ -349,6 +349,17 @@ describe('module setup: companion modules', () => {
     expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(false)
   })
 
+  it('serves `/robots.txt` itself when the companion is installed but disabled', async () => {
+    // `@nuxtjs/robots` returns early from its own setup on `enabled: false`,
+    // registering no route, so deferring to it would serve nobody the policy.
+    const nuxt = await runModule(robots, {}, (nuxt) => {
+      installLate('@nuxtjs/robots')(nuxt)
+      Object.assign(nuxt.options, { robots: { enabled: false } })
+    })
+
+    expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(true)
+  })
+
   it('extends the user agents before an earlier robots module snapshots them', async () => {
     // `@nuxtjs/robots` listed first registers its `modules:done` before this
     // module's and fires `robots:config` from it, so the groups it builds
@@ -408,6 +419,26 @@ describe('module setup: companion modules', () => {
     const nuxt = await runModule()
 
     expect((nuxt.options.nitro.plugins || []).some(plugin => String(plugin).includes('plugins/sitemap'))).toBe(false)
+  })
+
+  it('treats a sitemap module installed but disabled as absent', async () => {
+    // The same early return as the robots and MCP companions: `enabled: false`
+    // leaves the module installed while it serves nothing, so the plugin would
+    // filter a sitemap that never builds and the advertised `/sitemap.xml`
+    // would 404.
+    const enabled = await runModule({}, {}, installLate('@nuxtjs/sitemap'))
+    const enabledLinks = (enabled.options.runtimeConfig.agentDiscovery as NegotiationConfig).links
+
+    expect(enabledLinks.some(link => link.href === '/sitemap.xml')).toBe(true)
+
+    const disabled = await runModule({}, {}, (nuxt) => {
+      installLate('@nuxtjs/sitemap')(nuxt)
+      Object.assign(nuxt.options, { sitemap: { enabled: false } })
+    })
+    const disabledLinks = (disabled.options.runtimeConfig.agentDiscovery as NegotiationConfig).links
+
+    expect((disabled.options.nitro.plugins || []).some(plugin => String(plugin).includes('plugins/sitemap'))).toBe(false)
+    expect(disabledLinks.some(link => link.href === '/sitemap.xml')).toBe(false)
   })
 
   it('resolves the MCP definitions for a toolkit installed after `setup()`', async () => {

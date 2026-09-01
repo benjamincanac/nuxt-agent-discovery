@@ -2,13 +2,7 @@ import { parseURL } from 'ufo'
 import { defineNitroPlugin } from 'nitropack/runtime'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { isRawPath } from '../../shared/negotiation'
-
-/** A sitemap URL as the sources hand it over, before `@nuxtjs/sitemap` normalizes it. */
-type SitemapUrlInput = string | { loc?: string }
-
-interface SitemapInputContext {
-  urls: SitemapUrlInput[]
-}
+import type { SitemapInputCtx } from '@nuxtjs/sitemap'
 
 /**
  * Drops the raw markdown twins from every sitemap `@nuxtjs/sitemap` builds.
@@ -27,9 +21,13 @@ interface SitemapInputContext {
 export default defineNitroPlugin((nitroApp) => {
   const { rawPrefix } = useAgentDiscoveryConfig()
 
+  // Typed with the context `@nuxtjs/sitemap` exports, so a shape change in a
+  // sitemap major fails this build instead of silently filtering nothing. The
+  // cast is only for the hook name, which that module declares through no
+  // global augmentation.
   const onSitemapInput = nitroApp.hooks.hook as unknown as (
     name: 'sitemap:input',
-    cb: (ctx: SitemapInputContext) => void
+    cb: (ctx: SitemapInputCtx) => void
   ) => void
 
   onSitemapInput('sitemap:input', (ctx) => {
