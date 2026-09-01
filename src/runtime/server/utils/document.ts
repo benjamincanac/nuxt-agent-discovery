@@ -103,6 +103,21 @@ export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
 }
 
 /**
+ * The `/` body with the discovery resources appended, shared by
+ * `getAgentDocument` and the `llms-full.txt` builder so the homepage reads
+ * identically wherever it is served. An empty body stays empty, so a
+ * placeholder `/` entry keeps contributing nothing to `llms-full.txt`, and a
+ * registry with no titled links leaves the body alone.
+ */
+export function appendAgentResources(event: H3Event, markdown: string): string {
+  if (!markdown.trim()) {
+    return markdown
+  }
+  const resources = renderAgentResources(event)
+  return resources ? `${markdown.replace(/\n*$/, '\n\n')}${resources}` : markdown
+}
+
+/**
  * Resolves a page route to the exact document `/raw/<path>.md` serves.
  *
  * The HTTP route is a thin shell over this so that anything else reaching for
@@ -177,7 +192,9 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
     ? `\n\n## Sitemap\n\nSee the full [sitemap](${siteUrl}/sitemap.md) for all pages.\n`
     : '\n'
 
-  const markdown = frontmatter + page!.markdown + sitemap
+  // `/` mirrors the generated index: body, the discovery resources, footer.
+  const body = path === '/' ? appendAgentResources(event, page!.markdown) : page!.markdown
+  const markdown = frontmatter + body + sitemap
 
   return {
     markdown: options.sections?.length ? extractSections(markdown, options.sections) : markdown,

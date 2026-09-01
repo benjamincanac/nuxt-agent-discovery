@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup } from '@nuxt/test-utils/e2e'
-import { MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY, SITE_URL } from './expected'
+import { MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY, SITE_URL, SOURCE_INDEX_MARKDOWN } from './expected'
 import { describeSharedDocuments } from './shared'
 
 /**
@@ -21,7 +21,7 @@ await setup({
   setupTimeout: 300000
 })
 
-describeSharedDocuments()
+describeSharedDocuments(SOURCE_INDEX_MARKDOWN)
 
 describe('content negotiation', () => {
   // `notAcceptable` is off here, which is the default. The strict answer would

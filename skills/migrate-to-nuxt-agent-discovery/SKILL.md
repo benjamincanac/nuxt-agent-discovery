@@ -124,7 +124,7 @@ export default defineNitroPlugin((nitroApp) => {
 
 Three helpers replace hand-written equivalents:
 
-- `renderAgentResources(event)` renders the discovery registry as a markdown block, for a hand-written agent homepage.
+- `renderAgentResources(event)` renders the discovery registry as a markdown block, for a page the site renders by hand. The module appends it to the `/` document itself, so a `/` document must not render it again.
 - `agentDiscoveryOpenApi(event)` returns the discovery layer as OpenAPI fragments. Spread the site's own paths last so they win.
 - `rawUrl(event, href)` resolves a page URL to its markdown twin from the same route config, for links the site builds itself inside `llms:generate` hooks.
 
@@ -152,7 +152,7 @@ Two wrinkles. A tool that deliberately serves excluded content, say a nightly do
 | `server/middleware/markdown.ts` | the module's middleware |
 | `server/error.ts` plus the `nitro:config` errorHandler chaining in `nuxt.config` | `errors: true` |
 | `server/routes/raw/[...slug].md.get.ts` | the module's raw route |
-| `server/routes/raw/index.md.get.ts` | `agent-discovery:index` |
+| `server/routes/raw/index.md.get.ts` | a `/` document in the content source, or `agent-discovery:index` |
 | `server/routes/.well-known/api-catalog.get.ts`, `.well-known/mcp/server-card.json.get.ts` | `discovery.apiCatalog`, `discovery.mcpServerCard` |
 | `server/routes/sitemap.md.get.ts` | `sitemap.markdown` |
 | `public/robots.txt` with its `Disallow` lines, hand-maintained agent lists | `robots.aiPolicy` and `robots.disallow` |
@@ -164,7 +164,7 @@ Two wrinkles. A tool that deliberately serves excluded content, say a nightly do
 
 Two that are easy to miss: the `Vary`/`Link` `routeRules` block, which now conflicts with what the module emits, and the `nitro:config` hook chaining the error handler, which the module does itself.
 
-Keep a hand-written `/raw/index.md` handler only when the site wants full control of that document. Otherwise delete it and use the `agent-discovery:index` hook.
+Keep a hand-written `/raw/index.md` handler only when the site wants full control of that document. Otherwise prefer a `/` document in the content source, which the module wraps with the resources block and the sitemap footer, and keep the `agent-discovery:index` hook for metadata when no `/` document exists.
 
 ## Adopting `@nuxtjs/sitemap` in the same PR
 

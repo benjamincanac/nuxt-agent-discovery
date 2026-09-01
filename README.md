@@ -129,9 +129,9 @@ canonical_url: "https://example.com/docs/getting-started"
 ---
 ```
 
-Then the page markdown, with every same-origin link absolutized. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
+Then the page markdown, with every same-origin link absolutized. On `/` the discovery registry follows the body as a `## Resources for Agents` block, the same block the generated landing page carries. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
 
-A path naming a section rather than a page redirects 302 to the section's first document when the adapter implements `firstLeaf()`. Anything else missing answers a real 404 with the markdown error body, so an agent can tell an unknown URL from an empty one. `/` is the exception: with no `/` entry in the adapter, `/raw/index.md` falls through to a generated landing page, see [`agent-discovery:index`](#extending).
+A path naming a section rather than a page redirects 302 to the section's first document when the adapter implements `firstLeaf()`. Anything else missing answers a real 404 with the markdown error body, so an agent can tell an unknown URL from an empty one. `/` is the exception: with no `/` entry in the adapter, `/raw/index.md` falls through to a generated landing page, see [`agent-discovery:index`](#extending). The recommended way to author the agent homepage is a `/` document in the content source: the module wraps it with the resources block and the sitemap footer, and the generated page is the fallback for sites that have none.
 
 ## Content sources
 
@@ -213,7 +213,7 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
-**`renderAgentResources()`** renders the discovery registry as a markdown block, the same list the `Link` header and the api-catalog are built from.
+**`renderAgentResources()`** renders the discovery registry as a markdown block, the same list the `Link` header and the api-catalog are built from. The module appends it to the `/` document itself, so call it only for a page you render by hand.
 
 **`agentDiscoveryOpenApi()`** returns the discovery layer as OpenAPI fragments for sites publishing an `openapi.json`: the negotiated page patterns, their raw twins, and every discovery document the site serves, each with a stable `operationId`. Pass the `paths` you are merging into so your own operation ids are claimed first:
 
@@ -229,7 +229,7 @@ return {
 }
 ```
 
-**`agent-discovery:index`** fills in the generated `/raw/index.md` for sites whose landing page is a Vue page rather than a document:
+**`agent-discovery:index`** fills in the generated `/raw/index.md` for sites whose landing page is a Vue page rather than a document. Keep it to metadata and data-driven blocks: homepage prose belongs in a `/` document in the content source, which the raw route wraps with the same resources block:
 
 ```ts
 // server/plugins/agent-discovery.ts
