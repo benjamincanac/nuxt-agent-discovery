@@ -25,6 +25,12 @@ export interface AgentPageListOptions {
   search?: string
   /** Keeps pages under this path prefix. */
   prefix?: string
+  /**
+   * List pages under excluded prefixes too. The same opt-in
+   * `getAgentDocument()` has, for the MCP tool listing what the site
+   * deliberately keeps out of `sitemap.md` and `llms.txt`.
+   */
+  includeExcluded?: boolean
 }
 
 /**
@@ -57,7 +63,7 @@ export async function listAgentPages(event: H3Event, options: AgentPageListOptio
     // of the module is concerned, so listing it in `sitemap.md` or handing it
     // to an MCP tool would advertise a markdown twin that does not exist. This
     // is also how a site keeps a legacy docs version out of both.
-    .filter(entry => !config.excludePrefixes.some(prefix => entry.route.startsWith(prefix)))
+    .filter(entry => options.includeExcluded || !config.excludePrefixes.some(prefix => entry.route.startsWith(prefix)))
     .filter(entry => !options.prefix || entry.route.startsWith(options.prefix))
     .filter((entry) => {
       if (!terms.length) {

@@ -677,6 +677,54 @@ export function absolutizeTreeLinks(nodes: unknown[], siteUrl: string): void {
   }
 }
 
+/**
+ * Whether the Vercel route table carries the canonical/alternate `Link` pair
+ * for a raw markdown URL, mirroring the `config.siteUrl` block of
+ * `vercelMarkdownRoutes` request-side: the raw handler skips its own copy
+ * exactly there, or every origin-rendered raw response carries the pair
+ * twice, doubling with each hop.
+ *
+ * Covered: the static twin of every exact pattern whose destination sits
+ * under the raw prefix, the root twin, and the wildcard twins except the
+ * `/index.md` spellings the preset's `noIndex` lookahead keeps out (their
+ * capture would advertise a page URL the origin folds away). Everything else
+ * (a twin outside every pattern, an exact destination outside the prefix)
+ * reaches no pair route and keeps the handler's header.
+ */
+export function hasCdnLinkPair(config: NegotiationConfig, rawPathname: string): boolean {
+  if (!rawPathname.endsWith('.md')) {
+    return false
+  }
+  // The table matches the encoded request path, the config spells routes
+  // decoded; one spelling here, like `normalizeAgentRoute` without the folds.
+  let pathname = rawPathname
+  try {
+    pathname = decodeURIComponent(pathname)
+  } catch {
+    // Not a valid escape sequence, so there is nothing to decode.
+  }
+
+  const rootTwin = `${config.rawPrefix}/index.md`
+  for (const route of config.routes) {
+    if (route.path.includes('*')) {
+      continue
+    }
+    const raw = rawDestination(config, route, route.path)
+    if (raw === pathname && isRawPath(config, raw)) {
+      return true
+    }
+  }
+  if (pathname === rootTwin) {
+    return true
+  }
+
+  if (!isRawPath(config, pathname) || pathname.endsWith('/index.md')) {
+    return false
+  }
+  const page = pathname.slice(config.rawPrefix.length, -3)
+  return config.routes.some(route => route.path.includes('*') && patternRegExp(route.path).test(page))
+}
+
 /* ------------------------------- Link header ------------------------------ */
 
 /** RFC 8288 serialization of the discovery links, relative hrefs kept as-is. */

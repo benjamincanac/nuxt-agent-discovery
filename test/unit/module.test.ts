@@ -323,6 +323,57 @@ describe('module setup: cached routes', () => {
   })
 })
 
+describe('module setup: CDN link pairs', () => {
+  const vercelNitro = (config: NegotiationConfig, preset: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'agent-discovery-vercel-'))
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ routes: [] }))
+    const cloned = JSON.parse(JSON.stringify(config)) as NegotiationConfig
+    return {
+      cloned,
+      nitro: {
+        options: {
+          dev: false,
+          static: false,
+          preset,
+          output: { dir },
+          routeRules: {},
+          runtimeConfig: { agentDiscovery: cloned }
+        },
+        hooks: { hook: () => {} }
+      }
+    }
+  }
+
+  it('tells the runtime when the Vercel table carries the pairs', async () => {
+    // The raw handler otherwise emits the canonical/alternate `Link` a second
+    // time on every origin-rendered response, doubling with each hop.
+    const nuxt = await runModule({ siteUrl: 'https://example.com' })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+    const { cloned, nitro } = vercelNitro(config, 'vercel')
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+
+    expect(cloned.cdnLinkPairs).toBe(true)
+  })
+
+  it('says nothing without a site URL, where the preset emits no pairs', async () => {
+    const nuxt = await runModule()
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+    const { cloned, nitro } = vercelNitro(config, 'vercel')
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+
+    expect(cloned.cdnLinkPairs).toBeUndefined()
+  })
+
+  it('says nothing off Vercel', async () => {
+    const nuxt = await runModule({ siteUrl: 'https://example.com' })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+    const { cloned, nitro } = vercelNitro(config, 'node-server')
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+
+    expect(cloned.cdnLinkPairs).toBeUndefined()
+  })
+})
+
 describe('module setup: companion modules', () => {
   /** What Nuxt does with `@nuxtjs/seo`'s declarative `moduleDependencies`. */
   const installLate = (name: string) => (nuxt: FakeNuxt) => {
@@ -334,7 +385,7 @@ describe('module setup: companion modules', () => {
   it('serves `/robots.txt` itself when nothing else does', async () => {
     const nuxt = await runModule(robots)
 
-    expect(nuxt.options.runtimeConfig.agentDiscoveryRobots).toEqual({ contentSignal: 'search=yes' })
+    expect(nuxt.options.runtimeConfig.agentDiscoveryRobots).toEqual({ contentSignal: 'search=yes', disallow: [] })
     expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(true)
   })
 
@@ -394,6 +445,29 @@ describe('module setup: companion modules', () => {
 
     expect(config.groups[0]).toMatchObject({ userAgent: ['*'], contentSignal: ['search=yes'] })
     expect(config.groups.map(group => group.userAgent[0])).toContain('ClaudeBot')
+  })
+
+  it('carries the configured `Disallow` lines into the generated route', async () => {
+    const nuxt = await runModule({ robots: { aiPolicy: true, contentSignal: 'search=yes', disallow: ['/docs/5.x/'] } })
+
+    expect(nuxt.options.runtimeConfig.agentDiscoveryRobots).toEqual({ contentSignal: 'search=yes', disallow: ['/docs/5.x/'] })
+  })
+
+  it('contributes the `Disallow` lines to the robots module\'s wildcard group', async () => {
+    // Same reason the `Content-Signal` goes through the hook: config written
+    // against the generated route must not silently vanish the moment a site
+    // adds `@nuxtjs/robots`.
+    const nuxt = await runModule({ robots: { aiPolicy: true, contentSignal: 'search=yes', disallow: ['/docs/5.x/', '/admin/'] } }, {}, installLate('@nuxtjs/robots'))
+    const config = { groups: [{ userAgent: ['*'], allow: ['/'], disallow: ['/admin/'], comment: [] }] }
+    await nuxt.hooks.callHook('robots:config' as never, config as never)
+
+    expect(config.groups[0]!.disallow).toEqual(['/admin/', '/docs/5.x/'])
+    // The agent groups stay allow-only: a UA-specific group exempts its agent
+    // from the wildcard rules, which is the intended reading here (search
+    // stays out of the nightly docs, the named agents are still served them).
+    const agents = config.groups.filter(group => !group.userAgent.includes('*'))
+    expect(agents.length).toBeGreaterThan(0)
+    expect(agents.every(group => group.disallow.length === 0)).toBe(true)
   })
 
   it('excludes the raw twins through the sitemap module\'s own hook', async () => {
@@ -475,6 +549,64 @@ describe('module setup: companion modules', () => {
     })
 
     expect(nuxt.options.nitro.alias?.['#agent-discovery/mcp']).toContain('mcp/none')
+  })
+})
+
+describe('module setup: error handler ordering', () => {
+  /** What `nitro:config` collected, resolved the way `resolveErrorOptions` does. */
+  const resolveNitro = (nitroConfig: { errorHandler?: string | string[] }) => ({
+    options: {
+      // Read by the Vercel preset's own `nitro:init` hook, which fires too.
+      dev: false,
+      static: false,
+      preset: 'node-server',
+      errorHandler: [
+        ...(nitroConfig.errorHandler ? [nitroConfig.errorHandler].flat() : []),
+        '/nitropack/runtime/internal/error/prod'
+      ]
+    }
+  })
+
+  it('prepends the markdown handler ahead of an existing one', async () => {
+    const nuxt = await runModule()
+    const nitroConfig: { errorHandler?: string | string[] } = { errorHandler: '/site/error-handler' }
+    await nuxt.hooks.callHook('nitro:config' as never, nitroConfig as never)
+
+    expect([nitroConfig.errorHandler].flat()[0]).toContain('runtime/server/error')
+  })
+
+  it('stays first past a later module that also prepends', async () => {
+    // evlog does exactly this: registered after this module, its
+    // `nitro:config` hook runs later and prepends a handler that serializes
+    // agent errors as JSON and ends the response, so the markdown 404 bodies
+    // never fired unless the site reordered `modules`. The final order is
+    // enforced on the resolved options, after every hook has run.
+    const nuxt = await runModule({}, {}, (nuxt) => {
+      nuxt.hook('nitro:config', ((nitroConfig: { errorHandler?: string | string[] }) => {
+        nitroConfig.errorHandler = ['/site/evlog-error-handler', ...(nitroConfig.errorHandler ? [nitroConfig.errorHandler].flat() : [])]
+      }) as never)
+    })
+    const nitroConfig: { errorHandler?: string | string[] } = {}
+    await nuxt.hooks.callHook('nitro:config' as never, nitroConfig as never)
+
+    const nitro = resolveNitro(nitroConfig)
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+
+    expect(nitro.options.errorHandler[0]).toContain('runtime/server/error')
+    expect(nitro.options.errorHandler).toContain('/site/evlog-error-handler')
+    // Nitro's own resolver appends the builtin last, and it has to stay there.
+    expect(nitro.options.errorHandler.at(-1)).toBe('/nitropack/runtime/internal/error/prod')
+  })
+
+  it('leaves the chain alone with `errors` off', async () => {
+    const nuxt = await runModule({ errors: false })
+    const nitroConfig: { errorHandler?: string | string[] } = { errorHandler: '/site/error-handler' }
+    await nuxt.hooks.callHook('nitro:config' as never, nitroConfig as never)
+
+    const nitro = resolveNitro(nitroConfig)
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+
+    expect(nitro.options.errorHandler).toEqual(['/site/error-handler', '/nitropack/runtime/internal/error/prod'])
   })
 })
 
@@ -587,6 +719,36 @@ describe('module setup: prerender', () => {
 
     expect(routes.has('/raw/index.md')).toBe(true)
     expect(routes.has('/sitemap.md')).toBe(true)
+  })
+
+  it('leaves a twin alone when a handler registered for it serves live data', async () => {
+    // `{ path: '/modules', raw: '/raw/modules.md' }` backed by an swr handler
+    // reading a live API: prerendering the twin freezes it at build, and the
+    // site's only recourse was a blanket `nitro.prerender.ignore` that also
+    // opted out the twins that benefit.
+    const nuxt = await runModule({ routes: [{ path: '/modules', raw: '/raw/modules.md' }, '/', '/**'] }, {}, (nuxt) => {
+      nuxt.options.serverHandlers.push({ route: '/raw/modules.md', handler: '/site/server/api/raw-modules.ts' })
+    })
+    const ctx = { routes: new Set<string>() }
+    await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+
+    expect(ctx.routes.has('/raw/modules.md')).toBe(false)
+    expect(ctx.routes.has('/raw/index.md')).toBe(true)
+
+    // The llms bridge skips its crawler hint for the same twin, through the
+    // shared config, or the crawler would fetch and freeze it all the same.
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+    expect(config.ownRawRoutes).toEqual(['/raw/modules.md'])
+  })
+
+  it('detects a scanned `server/routes` file owning the twin', async () => {
+    // Nitro's file-based routes never appear in `serverHandlers`, so the
+    // check has to look at the filesystem: the fixture carries
+    // `server/routes/raw/dynamic.md.get.ts`.
+    const routes = await prerendered({ routes: [{ path: '/dynamic', raw: '/raw/dynamic.md' }, '/', '/**'] })
+
+    expect(routes.has('/raw/dynamic.md')).toBe(false)
+    expect(routes.has('/raw/index.md')).toBe(true)
   })
 })
 

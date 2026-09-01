@@ -442,6 +442,18 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, colle
   if (nitro.options.dev || nitro.options.static || !nitro.options.preset.includes('vercel')) {
     return
   }
+  // The emitted table injects the canonical/alternate `Link` pair on the raw
+  // twins (only with a site URL, see `vercelMarkdownRoutes`). Told to the
+  // runtime so the raw handler skips its own copy exactly there, or every
+  // origin-rendered raw response carries the pair twice, doubling per hop.
+  // On Nitro's copy of the config: the module-scope one was cloned away at
+  // `createNitro`, and rollup stringifies this one later.
+  if (config.siteUrl) {
+    const runtime = nitro.options.runtimeConfig.agentDiscovery as NegotiationConfig | undefined
+    if (runtime) {
+      runtime.cdnLinkPairs = true
+    }
+  }
   nitro.hooks.hook('compiled', async () => {
     // The last read of the rule table before it decides rewrite or 307: an
     // inline `defineRouteRules({ isr })` only lands on it during the Nuxt

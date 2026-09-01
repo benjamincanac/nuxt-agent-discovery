@@ -2,7 +2,7 @@ import { createError, defineEventHandler, sendRedirect, setResponseHeader } from
 import source from '#agent-discovery/source'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
-import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
+import { encodeAgentRoute, formatLinkHeader, hasCdnLinkPair, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves the raw markdown representation of a page from the content adapter.
@@ -56,10 +56,18 @@ export default defineEventHandler(async (event) => {
   }
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
-  setResponseHeader(event, 'Link', formatLinkHeader([
-    { href: document.canonicalUrl, rel: 'canonical' },
-    { href: document.canonicalUrl, rel: 'alternate', type: 'text/html' }
-  ]))
+
+  // On Vercel the CDN table already injects this pair on the twins it knows
+  // (see `hasCdnLinkPair`), and a header route applies to origin-rendered
+  // responses too, so setting it here as well shipped it twice, doubling per
+  // hop. Everywhere else, and for the twins the table does not cover, this
+  // handler is the only place the pair can come from.
+  if (!(config.cdnLinkPairs && hasCdnLinkPair(config, pathname))) {
+    setResponseHeader(event, 'Link', formatLinkHeader([
+      { href: document.canonicalUrl, rel: 'canonical' },
+      { href: document.canonicalUrl, rel: 'alternate', type: 'text/html' }
+    ]))
+  }
 
   return document.markdown
 })

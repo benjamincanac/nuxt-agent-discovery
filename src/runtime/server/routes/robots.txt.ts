@@ -9,12 +9,18 @@ import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discove
  */
 export default defineEventHandler((event) => {
   const config = useAgentDiscoveryConfig(event)
-  const { contentSignal } = useRuntimeConfig(event).agentDiscoveryRobots as { contentSignal: string }
+  const { contentSignal, disallow } = useRuntimeConfig(event).agentDiscoveryRobots as { contentSignal: string, disallow?: string[] }
   const siteUrl = getAgentSiteUrl(event)
 
   const lines: string[] = ['User-agent: *']
   if (contentSignal) {
     lines.push(`Content-Signal: ${contentSignal}`)
+  }
+  // Wildcard group only: the agent groups below exempt their agents from
+  // these rules, deliberately, so what search engines are kept out of stays
+  // reachable for the agents the site names.
+  for (const path of disallow || []) {
+    lines.push(`Disallow: ${path}`)
   }
   lines.push('Allow: /', '')
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import type { VercelRoute } from '../../src/presets/vercel'
-import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
+import { acceptsMarkdown, formatLinkHeader, hasCdnLinkPair, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -692,5 +692,41 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
     const bare = vercelMarkdownRoutes(createConfig({ siteUrl: '' }))
 
     expect(bare.some(route => route.headers?.Link?.includes('rel="canonical"'))).toBe(false)
+  })
+})
+
+describe('vercelMarkdownRoutes: Link pair agreement with the runtime', () => {
+  // `hasCdnLinkPair` is what lets the raw handler skip its own `Link` header
+  // where the table already injects the pair. The two are separate
+  // implementations on purpose (one emits regexes, one answers per request),
+  // so this pins them to the same answer across every twin shape.
+  it('answers exactly where the emitted table carries a pair', () => {
+    const config = createConfig({
+      routes: [
+        { path: '/', raw: '/raw/index.md' },
+        { path: '/about' },
+        { path: '/docs/index' },
+        { path: '/modules', raw: '/elsewhere/modules.md' },
+        { path: '/docs/**' }
+      ]
+    })
+    const pairs = vercelMarkdownRoutes(config)
+      .filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+
+    const samples = [
+      '/raw/index.md',
+      '/raw/about.md',
+      '/raw/docs/index.md',
+      '/raw/docs/getting-started.md',
+      '/raw/docs/3.x/guide.md',
+      '/raw/docs/deep/index.md',
+      '/raw/blog/post.md',
+      '/raw/docs/image.png',
+      '/raw/modules.md'
+    ]
+    for (const path of samples) {
+      const cdn = pairs.some(route => new RegExp(route.src).test(path))
+      expect(hasCdnLinkPair(config, path), path).toBe(cdn)
+    }
   })
 })

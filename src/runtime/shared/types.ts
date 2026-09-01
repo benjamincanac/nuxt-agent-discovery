@@ -23,8 +23,13 @@ declare module 'nitropack/types' {
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
     /**
-     * Adds to `sitemap.md` before it is rendered. The map is keyed by section,
-     * in the order the sections appear.
+     * Adds to `sitemap.md` before it is rendered, in the order the sections
+     * appear. Keys are the raw first path segment of the grouped routes
+     * (`docs`, `blog`; the second segment under an expanded prefix, `pages`
+     * for top-level ones), with `sitemapSections.labels` applied at render
+     * only. Extend an existing section through that key
+     * (`sections.get('docs')`); a new section may use any key, which renders
+     * capitalized unless `labels` overrides it.
      */
     'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
@@ -205,4 +210,18 @@ export interface NegotiationConfig {
    * correct answer breaks any client sending a narrow `Accept` it did not mean.
    */
   notAcceptable: boolean
+  /**
+   * Exact-route raw destinations the site serves with a handler of its own.
+   * The prerender pass and the llms bridge's crawler hints skip them, so a
+   * twin backed by live data is never frozen at build.
+   */
+  ownRawRoutes?: string[]
+  /**
+   * Whether the deployed CDN route table injects the canonical/alternate
+   * `Link` pair on the raw markdown twins (the Vercel preset does, when a
+   * site URL is configured). The raw handler then skips its own copy where
+   * `hasCdnLinkPair` says the table covers the URL, or every origin-rendered
+   * response carries the pair twice.
+   */
+  cdnLinkPairs?: boolean
 }

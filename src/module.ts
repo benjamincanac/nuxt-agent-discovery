@@ -126,6 +126,15 @@ export interface ModuleOptions {
     aiPolicy?: boolean
     /** `Content-Signal` line for the wildcard group. `false` to omit. */
     contentSignal?: string | false
+    /**
+     * `Disallow` lines for the wildcard group, in the generated `robots.txt`
+     * and contributed to `@nuxtjs/robots` when that module serves the route.
+     * Wildcard only, deliberately: the per-agent `Allow` groups exempt their
+     * agents from these rules, so what search engines skip stays reachable
+     * for the agents the site names. Not derived from `excludePrefixes`
+     * either, because an excluded path is not necessarily crawl-forbidden.
+     */
+    disallow?: string[]
   }
   /**
    * Agent Skills served under `/.well-known/skills/`, with a generated
@@ -142,7 +151,7 @@ export interface ModuleOptions {
 interface AgentDiscoveryRuntimeConfig {
   agentDiscovery: NegotiationConfig
   agentDiscoveryMcp?: McpServerCardOptions
-  agentDiscoveryRobots?: { contentSignal: string }
+  agentDiscoveryRobots?: { contentSignal: string, disallow: string[] }
   agentDiscoverySkills?: { skills: SkillEntry[] }
 }
 
@@ -446,14 +455,33 @@ export default defineNuxtModule<ModuleOptions>({
       addServerHandler({ middleware: true, handler: resolve('./runtime/server/middleware/negotiate') })
     }
 
-    nuxt.hook('nitro:config', (nitroConfig) => {
-      if (options.errors) {
+    if (options.errors) {
+      const errorHandler = resolve('./runtime/server/error')
+      nuxt.hook('nitro:config', (nitroConfig) => {
         const handlers = nitroConfig.errorHandler
           ? (Array.isArray(nitroConfig.errorHandler) ? nitroConfig.errorHandler : [nitroConfig.errorHandler])
           : []
-        nitroConfig.errorHandler = [resolve('./runtime/server/error'), ...handlers]
-      }
-    })
+        nitroConfig.errorHandler = [errorHandler, ...handlers]
+      })
+      // Prepending above is not enough: any module registered later whose
+      // `nitro:config` hook also prepends lands ahead (evlog does, and its
+      // handler serializes agent errors as JSON and ends the response, so the
+      // markdown bodies never fired unless the site reordered `modules`). The
+      // resolved options are re-sorted here instead, after every hook has run;
+      // rollup reads them later, when it emits the handler chain. The
+      // markdown handler passes anything that is not a markdown request
+      // through untouched, so going first takes nothing from the others.
+      nuxt.hook('nitro:init', (nitro) => {
+        const handlers = nitro.options.errorHandler as unknown
+        if (Array.isArray(handlers)) {
+          const index = handlers.indexOf(errorHandler)
+          if (index > 0) {
+            handlers.splice(index, 1)
+            handlers.unshift(errorHandler)
+          }
+        }
+      })
+    }
 
     addImports({ name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') })
 
@@ -485,7 +513,13 @@ declare module 'nitropack/types' {
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
     /**
      * Adds to \`sitemap.md\` before it is rendered, for the pages a content
-     * adapter cannot know about. Keyed by section, in the order they appear.
+     * adapter cannot know about, in the order the sections appear. Keys are
+     * the raw first path segment of the grouped routes (\`docs\`, \`blog\`; the
+     * second segment under an expanded prefix, \`pages\` for top-level ones),
+     * with \`sitemap.markdown.labels\` applied at render only. Extend an
+     * existing section through that key (\`sections.get('docs')\`); a new
+     * section may use any key, which renders capitalized unless \`labels\`
+     * overrides it.
      */
     'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
@@ -513,6 +547,7 @@ export {}
       // options during its own setup, so a site listing it first (which
       // `@nuxtjs/sitemap` asks for) would silently get none of this.
       const contentSignal = options.robots.contentSignal
+      const disallow = options.robots.disallow || []
       // Typed with the hook signature `@nuxtjs/robots` exports, so a group
       // shape change in a robots major fails this build instead of silently
       // pushing groups it no longer reads. The cast is only for the hook name,
@@ -525,17 +560,28 @@ export {}
         // The groups below snapshot the user-agent list, so anything a site
         // adds through `agent-discovery:extend` has to be in it already.
         await extendRegistry()
-        // `Content-Signal` belongs on the wildcard group, which this module's
-        // own `robots.txt` route emits too. Without it the directive would be
-        // lost the moment a site adds `@nuxtjs/robots`. The groups are
-        // normalized before the hook fires, but the declared type still
-        // carries the `Arrayable` input shape.
-        if (contentSignal) {
-          for (const group of robotsConfig.groups) {
-            const groupAgents = Array.isArray(group.userAgent) ? group.userAgent : [group.userAgent]
-            if (groupAgents.includes('*')) {
-              group.contentSignal = [contentSignal]
-            }
+        // `Content-Signal` and the `disallow` lines belong on the wildcard
+        // group, which this module's own `robots.txt` route emits too.
+        // Without this either would be lost the moment a site adds
+        // `@nuxtjs/robots`. The agent groups pushed below stay allow-only on
+        // purpose: a UA-specific group exempts its agent from the wildcard
+        // rules, so what search engines are kept out of stays reachable for
+        // the agents the site names. The groups are normalized before the
+        // hook fires, but the declared type still carries the `Arrayable`
+        // input shape.
+        for (const group of robotsConfig.groups) {
+          const groupAgents = Array.isArray(group.userAgent) ? group.userAgent : [group.userAgent]
+          if (!groupAgents.includes('*')) {
+            continue
+          }
+          if (contentSignal) {
+            group.contentSignal = [contentSignal]
+          }
+          if (disallow.length) {
+            // Deduplicated against what the site already wrote in that
+            // module's own config, so one path is never disallowed twice.
+            const existing = Array.isArray(group.disallow) ? group.disallow : (group.disallow ? [group.disallow] : [])
+            group.disallow = [...existing, ...disallow.filter(path => !existing.includes(path))]
           }
         }
         robotsConfig.groups.push(...userAgents.map(userAgent => ({
@@ -570,7 +616,7 @@ export {}
           logger.warn('A static `public/robots.txt` exists, so the AI robots policy is not applied to it. Align its agent list with `agentDiscovery.userAgents` or remove the file.')
           return
         }
-        runtimeConfig.agentDiscoveryRobots = { contentSignal: contentSignal || '' }
+        runtimeConfig.agentDiscoveryRobots = { contentSignal: contentSignal || '', disallow }
         addServerHandler({ route: '/robots.txt', handler: resolve('./runtime/server/routes/robots.txt') })
       })
     }
@@ -868,21 +914,52 @@ export {}
 
     /* ------------------------------ prerender ------------------------------ */
 
+    // Whether the site answers a route with a handler of its own: one a
+    // module registered, or a scanned `server/routes` file, which never
+    // reaches `serverHandlers` and is looked up on disk the way Nitro maps it
+    // (`/raw/modules.md` → `server/routes/raw/modules.md.get.ts`).
+    const serverDir = (nuxt.options as { serverDir?: string }).serverDir || join(nuxt.options.srcDir, 'server')
+    const siteServesRoute = (route: string): boolean => {
+      if (nuxt.options.serverHandlers.some(handler => handler.route === route)) {
+        return true
+      }
+      const base = join(serverDir, 'routes', ...route.slice(1).split('/'))
+      return ['', '.get', '.head'].some(method =>
+        ['.ts', '.js', '.mjs', '.cjs'].some(extension => existsSync(`${base}${method}${extension}`)))
+    }
+
     // With a server behind the site, only the built-in source prerenders: a
     // custom adapter (comark) reads content at request time on purpose. A
     // fully static build has no server to fall back to, so everything the
     // discovery documents advertise must be prerendered whatever the source.
+    //
+    // At `modules:done`, not here: a twin the site backs with its own handler
+    // (an swr route reading a live API) must be left alone, or prerendering
+    // freezes it at build, and handlers registered by modules listed later
+    // are not visible yet. The same twins go into `ownRawRoutes` so the llms
+    // bridge skips its crawler hints for them too.
     const staticBuild = Boolean(nuxt.options.nitro?.static) || (nuxt.options as { _generate?: boolean })._generate === true
-    if (sourcePath && (builtinContentSource || staticBuild)) {
-      for (const route of routes) {
-        if (!route.path.includes('*')) {
-          addPrerenderRoutes(rawDestination(config, route, route.path))
+    nuxt.hook('modules:done', () => {
+      const ownRawRoutes = routes
+        .filter(route => !route.path.includes('*'))
+        .map(route => rawDestination(config, route, route.path))
+        .filter(raw => siteServesRoute(raw))
+      config.ownRawRoutes = ownRawRoutes
+
+      if (sourcePath && (builtinContentSource || staticBuild)) {
+        for (const route of routes) {
+          if (!route.path.includes('*')) {
+            const raw = rawDestination(config, route, route.path)
+            if (!ownRawRoutes.includes(raw)) {
+              addPrerenderRoutes(raw)
+            }
+          }
+        }
+        if (options.sitemap?.markdown) {
+          addPrerenderRoutes('/sitemap.md')
         }
       }
-      if (options.sitemap?.markdown) {
-        addPrerenderRoutes('/sitemap.md')
-      }
-    }
+    })
 
     /* ------------------------------- presets ------------------------------- */
 

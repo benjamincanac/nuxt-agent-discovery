@@ -86,3 +86,33 @@ describe('listAgentPages: an adapter without `list()`', () => {
     }])
   })
 })
+
+describe('listAgentPages: excluded prefixes', () => {
+  beforeEach(() => {
+    setAgentContentSource({
+      async list() {
+        return [
+          { route: '/docs/guide', title: 'Guide' },
+          { route: '/api/internal', title: 'Internal' }
+        ]
+      },
+      async get() {
+        return { markdown: '# x\n' }
+      }
+    })
+  })
+
+  it('drops them, so no listing advertises a twin that 404s', async () => {
+    const listed = await listAgentPages(event)
+
+    expect(listed.map(entry => entry.route)).toEqual(['/docs/guide'])
+  })
+
+  it('lists them for a caller that opts in', async () => {
+    // The same opt-in `getAgentDocument` has, for the MCP tool listing what
+    // the site deliberately keeps out of its public indexes.
+    const listed = await listAgentPages(event, { includeExcluded: true })
+
+    expect(listed.map(entry => entry.route)).toEqual(['/docs/guide', '/api/internal'])
+  })
+})
