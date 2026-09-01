@@ -753,6 +753,15 @@ describe('vercelMarkdownRoutes: non-ASCII exact patterns', () => {
     expect(page?.dest).toBe('/raw/%E6%96%87%E6%A1%A3.md')
   })
 
+  it('encodes a non-ASCII raw prefix in the wildcard destinations too', () => {
+    // The exact destinations encode the whole `rawDestination`, so a decoded
+    // prefix here would ship half-encoded rewrites for the same site.
+    const prefixed = vercelMarkdownRoutes(createConfig({ rawPrefix: '/原始', routes: [{ path: '/docs/**' }] }))
+    const twin = rewrites(prefixed).find(route => matches(route, '/docs/guide.md'))
+
+    expect(twin?.dest).toBe('/%E5%8E%9F%E5%A7%8B/docs/$1.md')
+  })
+
   it('keeps the canonical Link header ASCII-clean', () => {
     // The raw handler encodes `canonicalUrl` before it reaches a header;
     // the edge pair has to spell it the same way, and a raw UTF-8 header

@@ -399,7 +399,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       : `^${escapeEncoded(rule)}$`
     const dest = matched
       ? encodeAgentRoute(rawDestination(config, matched, rule))
-      : `${config.rawPrefix}${patternDest(encodeAgentRoute(rule))}.md`
+      : `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(rule))}.md`
 
     pushNegotiated(src, dest, true)
   }
@@ -413,7 +413,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
 
     if (route.path.includes('*')) {
       const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
-      const dest = `${config.rawPrefix}${patternDest(encodeAgentRoute(route.path))}.md`
+      const dest = `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(route.path))}.md`
       // Explicit `.md` twin URLs, whatever the headers say. The last wildcard
       // capture stops before the suffix thanks to the `\.md$` anchor.
       routes.push({
