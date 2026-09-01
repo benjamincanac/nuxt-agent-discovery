@@ -707,12 +707,18 @@ describe('vercelMarkdownRoutes: Link pair agreement with the runtime', () => {
         { path: '/about' },
         { path: '/docs/index' },
         { path: '/modules', raw: '/elsewhere/modules.md' },
+        { path: '/文档' },
         { path: '/docs/**' }
       ]
     })
     const pairs = vercelMarkdownRoutes(config)
       .filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
 
+    // The spellings the edge sees: Vercel matches `src` against the
+    // percent-encoded request path, so a non-ASCII twin only ever arrives
+    // encoded. The exact-pattern regexes used to be built from the decoded
+    // config path and could never match, while the predicate answered true,
+    // losing the pair entirely.
     const samples = [
       '/raw/index.md',
       '/raw/about.md',
@@ -722,11 +728,37 @@ describe('vercelMarkdownRoutes: Link pair agreement with the runtime', () => {
       '/raw/docs/deep/index.md',
       '/raw/blog/post.md',
       '/raw/docs/image.png',
-      '/raw/modules.md'
+      '/raw/modules.md',
+      '/raw/%E6%96%87%E6%A1%A3.md',
+      '/raw/docs/%E6%96%87%E6%A1%A3.md'
     ]
     for (const path of samples) {
       const cdn = pairs.some(route => new RegExp(route.src).test(path))
       expect(hasCdnLinkPair(config, path), path).toBe(cdn)
     }
+    // Pinned positively too, or an emitter matching nowhere would still agree.
+    expect(hasCdnLinkPair(config, '/raw/%E6%96%87%E6%A1%A3.md')).toBe(true)
+  })
+})
+
+describe('vercelMarkdownRoutes: non-ASCII exact patterns', () => {
+  const config = createConfig({ routes: [{ path: '/文档' }, { path: '/docs/**' }] })
+  const routes = vercelMarkdownRoutes(config)
+
+  it('rewrites the encoded twin URL and the encoded negotiated page', () => {
+    const twin = rewrites(routes).find(route => matches(route, '/%E6%96%87%E6%A1%A3.md'))
+    expect(twin?.dest).toBe('/raw/%E6%96%87%E6%A1%A3.md')
+
+    const page = rewrites(routes).find(route => matches(route, '/%E6%96%87%E6%A1%A3'))
+    expect(page?.dest).toBe('/raw/%E6%96%87%E6%A1%A3.md')
+  })
+
+  it('keeps the canonical Link header ASCII-clean', () => {
+    // The raw handler encodes `canonicalUrl` before it reaches a header;
+    // the edge pair has to spell it the same way, and a raw UTF-8 header
+    // value is invalid at the CDN anyway.
+    const pairs = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const twinPair = pairs.find(route => new RegExp(route.src).test('/raw/%E6%96%87%E6%A1%A3.md'))
+    expect(twinPair?.headers?.Link).toContain('<https://example.com/%E6%96%87%E6%A1%A3>; rel="canonical"')
   })
 })
