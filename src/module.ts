@@ -421,8 +421,11 @@ export default defineNuxtModule<ModuleOptions>({
 
     /* ------------------------------- handlers ----------------------------- */
 
+    // Held in a variable so `siteServesRoute` below can tell this handler
+    // apart from one the site registered on the same route.
+    const rawHandler = resolve('./runtime/server/routes/raw')
     if (sourcePath) {
-      addServerHandler({ route: `${rawPrefix}/**`, handler: resolve('./runtime/server/routes/raw') })
+      addServerHandler({ route: `${rawPrefix}/**`, handler: rawHandler })
       if (options.sitemap?.markdown) {
         addServerHandler({ route: '/sitemap.md', handler: resolve('./runtime/server/routes/sitemap.md') })
       }
@@ -914,18 +917,52 @@ export {}
 
     /* ------------------------------ prerender ------------------------------ */
 
+    // Whether a registered handler's route pattern covers a path, the way
+    // Nitro's router reads it: `:name` and `*` match one segment, `**` the
+    // rest. An exact string compare read `/raw/:name` as not owning the twin
+    // it serves, and the prerender froze it anyway.
+    const handlerRouteMatches = (pattern: string, path: string): boolean => {
+      if (!/[:*]/.test(pattern)) {
+        return pattern === path
+      }
+      const patternSegments = pattern.split('/').filter(Boolean)
+      const pathSegments = path.split('/').filter(Boolean)
+      for (const [index, segment] of patternSegments.entries()) {
+        if (segment.startsWith('**')) {
+          return true
+        }
+        if (index >= pathSegments.length) {
+          return false
+        }
+        if (segment !== '*' && !segment.startsWith(':') && segment !== pathSegments[index]) {
+          return false
+        }
+      }
+      return patternSegments.length === pathSegments.length
+    }
+
     // Whether the site answers a route with a handler of its own: one a
-    // module registered, or a scanned `server/routes` file, which never
-    // reaches `serverHandlers` and is looked up on disk the way Nitro maps it
-    // (`/raw/modules.md` → `server/routes/raw/modules.md.get.ts`).
-    const serverDir = (nuxt.options as { serverDir?: string }).serverDir || join(nuxt.options.srcDir, 'server')
+    // module registered (this module's own `${rawPrefix}/**` handler excepted,
+    // or every twin would read as site-owned and nothing would prerender), or
+    // a scanned `server/routes` file, which never reaches `serverHandlers`
+    // and is looked up on disk the way Nitro maps it (`/raw/modules.md` →
+    // `server/routes/raw/modules.md.get.ts`) in every layer's server dir,
+    // since a layer's routes are scanned like the root's.
     const siteServesRoute = (route: string): boolean => {
-      if (nuxt.options.serverHandlers.some(handler => handler.route === route)) {
+      if (nuxt.options.serverHandlers.some(handler =>
+        handler.handler !== rawHandler && handler.route && handlerRouteMatches(handler.route, route))) {
         return true
       }
-      const base = join(serverDir, 'routes', ...route.slice(1).split('/'))
-      return ['', '.get', '.head'].some(method =>
-        ['.ts', '.js', '.mjs', '.cjs'].some(extension => existsSync(`${base}${method}${extension}`)))
+      const layers = nuxt.options._layers || []
+      const serverDirs = new Set([
+        (nuxt.options as { serverDir?: string }).serverDir || join(nuxt.options.srcDir, 'server'),
+        ...layers.map(layer => layer.config?.serverDir || join(layer.cwd, 'server'))
+      ])
+      return [...serverDirs].some((dir) => {
+        const base = join(dir, 'routes', ...route.slice(1).split('/'))
+        return ['', '.get', '.head'].some(method =>
+          ['.ts', '.js', '.mjs', '.cjs'].some(extension => existsSync(`${base}${method}${extension}`)))
+      })
     }
 
     // With a server behind the site, only the built-in source prerenders: a

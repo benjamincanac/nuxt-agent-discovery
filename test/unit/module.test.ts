@@ -750,6 +750,45 @@ describe('module setup: prerender', () => {
     expect(routes.has('/raw/dynamic.md')).toBe(false)
     expect(routes.has('/raw/index.md')).toBe(true)
   })
+
+  it('reads a dynamic handler pattern as owning the twins it matches', async () => {
+    // `/raw/:name` serves every single-segment twin at runtime (it is more
+    // specific than the module's own catch-all), but the exact string compare
+    // read it as unowned and the prerender froze the twins anyway.
+    const routes = await prerendered({ routes: [{ path: '/modules', raw: '/raw/modules.md' }, '/', '/**'] }, (nuxt) => {
+      nuxt.options.serverHandlers.push({ route: '/raw/:name', handler: '/site/server/raw-name.ts' })
+    })
+
+    expect(routes.has('/raw/modules.md')).toBe(false)
+    expect(routes.has('/raw/index.md')).toBe(false)
+    // Not under the handler's pattern, so it keeps its prerender.
+    expect(routes.has('/sitemap.md')).toBe(true)
+  })
+
+  it('reads a site-registered catch-all as owning every twin, but never its own', async () => {
+    // The module's own `${rawPrefix}/**` handler matches every twin too, and
+    // counting it would turn the skip into "prerender nothing". The positive
+    // assertions in the tests above are what pin that exclusion; here a
+    // site's own catch-all on the same route owns the lot.
+    const routes = await prerendered({ routes: [{ path: '/modules', raw: '/raw/modules.md' }, '/', '/**'] }, (nuxt) => {
+      nuxt.options.serverHandlers.push({ route: '/raw/**', handler: '/site/server/raw-catchall.ts' })
+    })
+
+    expect(routes.has('/raw/modules.md')).toBe(false)
+    expect(routes.has('/raw/index.md')).toBe(false)
+  })
+
+  it('detects a layer\'s scanned twin file', async () => {
+    // A layer's `server/routes` is scanned by Nitro like the root's, and
+    // reaches neither `serverHandlers` nor the root server dir: the fixture
+    // layer carries `layers/docs/server/routes/raw/layered.md.get.ts`.
+    const routes = await prerendered({ routes: [{ path: '/layered', raw: '/raw/layered.md' }, '/', '/**'] }, (nuxt) => {
+      Object.assign(nuxt.options, { _layers: [{ cwd: rootDir, config: {} }, { cwd: join(rootDir, 'layers/docs'), config: {} }] })
+    })
+
+    expect(routes.has('/raw/layered.md')).toBe(false)
+    expect(routes.has('/raw/index.md')).toBe(true)
+  })
 })
 
 describe('module setup: sitemap.md exclusion', () => {
