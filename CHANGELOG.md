@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.1.2...v0.2.0) (2026-09-01)
+
+### Bug Fixes
+
+* follow-up pass from the nuxt.com migration ([#21](https://github.com/benjamincanac/nuxt-agent-discovery/issues/21)) ([ae5d886](https://github.com/benjamincanac/nuxt-agent-discovery/commit/ae5d886a659ef6def9d3c83d74c4f954e08bacb0))
+* treat disabled companion modules as absent and type their hooks ([#20](https://github.com/benjamincanac/nuxt-agent-discovery/issues/20)) ([4eecec0](https://github.com/benjamincanac/nuxt-agent-discovery/commit/4eecec0c263aaa0cfeed9f5f8fb1c4eecb91fc15))
+
 ## [0.1.2](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.1.1...v0.1.2) (2026-08-31)
 
 ### Bug Fixes
