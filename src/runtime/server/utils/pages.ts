@@ -1,7 +1,7 @@
 import type { H3Event } from 'h3'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from './agent-discovery'
-import { encodeAgentRoute } from '../../shared/negotiation'
+import { encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
 
 /** One page in a listing, with both URLs an agent might want. */
 export interface AgentPageListing {
@@ -25,6 +25,12 @@ export interface AgentPageListOptions {
   search?: string
   /** Keeps pages under this path prefix. */
   prefix?: string
+  /**
+   * List pages under excluded prefixes too. The same opt-in
+   * `getAgentDocument()` has, for the MCP tool listing what the site
+   * deliberately keeps out of `sitemap.md` and `llms.txt`.
+   */
+  includeExcluded?: boolean
 }
 
 /**
@@ -53,11 +59,16 @@ export async function listAgentPages(event: H3Event, options: AgentPageListOptio
   const terms = options.search?.toLowerCase().split(/\s+/).filter(Boolean) || []
 
   return entries
+    // Normalized once, to the spelling `getAgentDocument` resolves and the
+    // exclusion list is written in. An adapter handing back an encoded or
+    // trailing-slashed route otherwise slips past the filters below and gets
+    // listed while its document resolves `null`.
+    .map(entry => ({ ...entry, route: normalizeAgentRoute(entry.route) }))
     // A path the module refuses to negotiate is not a page as far as the rest
     // of the module is concerned, so listing it in `sitemap.md` or handing it
     // to an MCP tool would advertise a markdown twin that does not exist. This
     // is also how a site keeps a legacy docs version out of both.
-    .filter(entry => !config.excludePrefixes.some(prefix => entry.route.startsWith(prefix)))
+    .filter(entry => options.includeExcluded || !isExcluded(entry.route, config))
     .filter(entry => !options.prefix || entry.route.startsWith(options.prefix))
     .filter((entry) => {
       if (!terms.length) {

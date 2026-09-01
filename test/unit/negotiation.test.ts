@@ -8,6 +8,7 @@ import {
   compilePattern,
   errorMarkdown,
   formatLinkHeader,
+  hasCdnLinkPair,
   hasFileExtension,
   isNegotiablePath,
   matchRoute,
@@ -868,5 +869,65 @@ describe('encodeAgentRoute', () => {
     // them would split the canonical signal from the HTML page's.
     expect(encodeAgentRoute('/packages/@nuxt/ui')).toBe('/packages/@nuxt/ui')
     expect(encodeAgentRoute('/docs/a,b:c')).toBe('/docs/a,b:c')
+  })
+})
+
+describe('hasCdnLinkPair', () => {
+  // Mirrors the canonical/alternate pair the Vercel preset emits (see the
+  // `config.siteUrl` block in `vercelMarkdownRoutes`): the raw handler skips
+  // its own `Link` header exactly where the CDN already injected the pair, or
+  // every origin-rendered raw response carried it twice, doubling per hop.
+  const paired = createConfig({
+    routes: [
+      { path: '/', raw: '/raw/index.md' },
+      { path: '/about' },
+      { path: '/docs/index' },
+      { path: '/modules', raw: '/elsewhere/modules.md' },
+      { path: '/docs/**' }
+    ]
+  })
+
+  it('covers the static twin of every exact pattern under the raw prefix', () => {
+    expect(hasCdnLinkPair(paired, '/raw/index.md')).toBe(true)
+    expect(hasCdnLinkPair(paired, '/raw/about.md')).toBe(true)
+  })
+
+  it('covers the wildcard twins', () => {
+    expect(hasCdnLinkPair(paired, '/raw/docs/getting-started.md')).toBe(true)
+    expect(hasCdnLinkPair(paired, '/raw/docs/3.x/guide.md')).toBe(true)
+  })
+
+  it('spells a non-ASCII twin both ways the CDN sees it', () => {
+    expect(hasCdnLinkPair(paired, '/raw/docs/%E6%96%87%E6%A1%A3.md')).toBe(true)
+    expect(hasCdnLinkPair(paired, '/raw/docs/文档.md')).toBe(true)
+  })
+
+  it('leaves the index-shaped wildcard spellings alone, which get no edge pair', () => {
+    // The preset's `noIndex` lookahead: a `/index.md` capture would advertise
+    // a page URL the origin folds away, so those twins carry no CDN pair and
+    // the handler must keep setting its own.
+    expect(hasCdnLinkPair(paired, '/raw/docs/deep/index.md')).toBe(false)
+    // An index-shaped *exact* route gets a static entry with the folded page
+    // URL instead, so its twin is covered.
+    expect(hasCdnLinkPair(paired, '/raw/docs/index.md')).toBe(true)
+  })
+
+  it('leaves a twin outside every pattern alone', () => {
+    const narrow = createConfig({ routes: [{ path: '/docs/**' }] })
+
+    // Served request-time all the same (a curated llms section can point
+    // there), with only the handler to set the header.
+    expect(hasCdnLinkPair(narrow, '/raw/blog/post.md')).toBe(false)
+  })
+
+  it('leaves an exact twin outside the raw prefix alone', () => {
+    // `raw: /elsewhere/modules.md` gets no static entry in the preset, so the
+    // handler keeps the header wherever that document comes from.
+    expect(hasCdnLinkPair(paired, '/elsewhere/modules.md')).toBe(false)
+  })
+
+  it('answers false for anything that is not a raw markdown URL', () => {
+    expect(hasCdnLinkPair(paired, '/docs/getting-started')).toBe(false)
+    expect(hasCdnLinkPair(paired, '/raw/docs/image.png')).toBe(false)
   })
 })

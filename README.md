@@ -78,7 +78,7 @@ export default defineNuxtConfig({
     errors: true,
     notAcceptable: false,
     sitemap: { markdown: true },
-    robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes' },
+    robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes', disallow: [] },
     skills: { dir: 'skills' }
   }
 })
@@ -89,7 +89,7 @@ export default defineNuxtConfig({
 - **`rawPrefix`** Where raw markdown representations live.
 - **`source`** `'auto'` detects `@nuxt/content`, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
 - **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one segment, `**` one or more. `raw` overrides the raw destination on exact patterns; point it under `rawPrefix` or an excluded prefix so the destination never re-enters negotiation, and the build refuses one that negotiates back to itself. Pages the content source doesn't hold answer agents a 404 by design, so on a site mixing hand-written pages with a partial content directory, narrow the patterns or use `excludePrefixes`.
-- **`excludePrefixes.extend`** Extra path prefixes on top of the defaults (`/_`, `/api/`, `/mcp`, `/.well-known/`). Excluded paths never negotiate. Add any standalone `.md` document the site serves itself. **`.replace`** replaces the list.
+- **`excludePrefixes.extend`** Extra path prefixes on top of the defaults (`/_`, `/api/`, `/mcp`, `/.well-known/`). An excluded path is not a page anywhere: it never negotiates, no listing includes it, and the raw route answers 404 for it. Server code can still reach one through the `includeExcluded` option on `getAgentDocument()` and `listAgentPages()`. Add any standalone `.md` document the site serves itself. **`.replace`** replaces the list.
 - **`userAgents.extend`** Extra user agents on top of the defaults (18 agents from `ai.robots.txt`, see `src/defaults.ts`). **`.replace`** replaces the list.
 - **`discovery.link`** Emit the discovery `Link` header on `/`.
 - **`discovery.apiCatalog`** Serve `/.well-known/api-catalog` (RFC 9727).
@@ -100,7 +100,7 @@ export default defineNuxtConfig({
 - **`notAcceptable`** See [Strict content negotiation](#strict-content-negotiation).
 - **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings.
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable.
-- **`robots.aiPolicy`** Feeds the user-agent list into `@nuxtjs/robots` when installed, otherwise generates `/robots.txt` (skipped when a static one exists). **`robots.contentSignal`** adds the `Content-Signal` line, `false` to omit.
+- **`robots.aiPolicy`** Feeds the user-agent list into `@nuxtjs/robots` when installed, otherwise generates `/robots.txt` (skipped when a static one exists). **`robots.contentSignal`** adds the `Content-Signal` line, `false` to omit. **`robots.disallow`** adds `Disallow` lines to the wildcard group, in the generated file and through `@nuxtjs/robots` alike. Wildcard only: the per-agent `Allow` groups exempt their agents from these rules, so what search engines skip stays reachable for the agents the site names.
 
 ## Routes
 
@@ -115,7 +115,7 @@ export default defineNuxtConfig({
 
 `/llms.txt` and `/llms-full.txt` belong to `nuxt-llms`; this module feeds them but never registers them.
 
-With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request.
+With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is skipped by both, so it keeps answering per request instead of being frozen at build.
 
 ### The raw route
 
@@ -254,13 +254,16 @@ The same entry point exports `getAgentSiteUrl(event)` and `useAgentDiscoveryConf
 
 **`useCanonical()`** is the app-side half: a `rel="canonical"` link for the current route, and a `rel="alternate"; type="text/markdown"` one when you pass it a markdown path.
 
-**`agent-discovery:sitemap`** adds to `/sitemap.md` before it renders, for the pages the adapter cannot know about:
+**`agent-discovery:sitemap`** adds to `/sitemap.md` before it renders, for the pages the adapter cannot know about. The map is keyed by the raw first path segment of the grouped routes (`docs`, `blog`; the second segment under an expanded prefix, `pages` for top-level ones), and `sitemap.markdown.labels` only applies at render. So extending an existing section means using its key, while a new section can use any key and renders it capitalized unless `labels` overrides it:
 
 ```ts
 // server/plugins/agent-discovery.ts
 export default defineNitroPlugin((nitroApp) => {
   nitroApp.hooks.hook('agent-discovery:sitemap', (event, sections) => {
-    sections.set('Design', [{ title: 'Design system', href: 'https://example.com/design.md' }])
+    // Append to the existing "Docs" section, keyed by its path segment.
+    sections.get('docs')?.push({ title: 'Changelog', href: 'https://example.com/raw/changelog.md' })
+    // A new section: any key works, `labels` can rename it.
+    sections.set('design', [{ title: 'Design system', href: 'https://example.com/design.md' }])
   })
 })
 ```
@@ -287,8 +290,10 @@ export default defineMcpTool({
 })
 ```
 
-- **`listAgentPages(event, { search, prefix })`** returns every page with its title, description, section, page URL and raw markdown URL.
-- **`getAgentDocument(event, route, { sections })`** returns the exact bytes `/raw/<route>.md` serves, resolved in-process; passing `sections` narrows the document, so the byte-for-byte guarantee holds without it.
+- **`listAgentPages(event, { search, prefix, includeExcluded })`** returns every page with its title, description, section, page URL and raw markdown URL.
+- **`getAgentDocument(event, route, { sections, includeExcluded })`** returns the exact bytes `/raw/<route>.md` serves, resolved in-process; passing `sections` narrows the document, so the byte-for-byte guarantee holds without it.
+
+Both skip routes under excluded prefixes, matching the raw route's 404. `includeExcluded: true` opts back in, for the tool serving what the site deliberately does not advertise, like a nightly docs version kept out of `sitemap.md` and `llms.txt`.
 - **`extractSections(markdown, titles)`** narrows a document to the `##` sections named, keeping frontmatter, title and description.
 
 ## Companion modules

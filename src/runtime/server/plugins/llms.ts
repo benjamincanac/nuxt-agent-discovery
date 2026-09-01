@@ -209,7 +209,12 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         }
 
         const raw = rawDestination(config, route, pathname)
-        prerenderPaths.add(raw)
+        // A twin the site serves with its own handler must not reach the
+        // crawler: prerendering it freezes live data at build. The link still
+        // points there, the handler answers it per request.
+        if (!config.ownRawRoutes?.includes(raw)) {
+          prerenderPaths.add(raw)
+        }
         return { ...link, href: withBase(raw + suffix, domain) }
       })
     }
@@ -299,7 +304,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
   // Lets Nitro's prerender crawler discover the raw markdown twins the
   // generated llms.txt links to. `/llms.txt` is always in the prerender
   // queue, `/` only when the site prerenders it.
-  if (['nitro-prerender', 'nitro-dev'].includes(import.meta.preset as string)) {
+  if (emitsPrerenderHints(import.meta.preset)) {
     nitroApp.hooks.hook('beforeResponse', (event) => {
       if (event.path === '/' || event.path === '/llms.txt') {
         appendHeader(event, 'x-nitro-prerender', Array.from(prerenderPaths))
@@ -307,3 +312,15 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     })
   }
 })
+
+/**
+ * Whether the hint header goes out at all. Only the prerender crawler ever
+ * reads it, and it is not free anywhere else: a documentation site collects
+ * hundreds of twin paths, and `nitro-dev` used to be in this list, which put
+ * them all in one header on every `/` and `/llms.txt` response. The Nuxt dev
+ * proxy never relayed those responses: the server logged a 200 and the
+ * client hung.
+ */
+export function emitsPrerenderHints(preset: unknown): boolean {
+  return preset === 'nitro-prerender'
+}

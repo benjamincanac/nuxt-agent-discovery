@@ -1,7 +1,7 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Nitro } from 'nitropack'
-import { compilePattern, formatLinkHeader, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { compilePattern, encodeAgentRoute, formatLinkHeader, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
 export interface VercelRoute {
@@ -34,6 +34,17 @@ interface RouteMatcher {
 }
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * A literal path the way the edge sees it: Vercel matches `src` against the
+ * percent-encoded request path, and header values must stay ASCII, while the
+ * config spells routes decoded. `encodeAgentRoute` is the encoder the raw
+ * handler and `hasCdnLinkPair` already use, so the table and the runtime
+ * agree on every spelling. Applied before `compilePattern` too, where the
+ * static text of a wildcard pattern has the same problem; the wildcards
+ * survive it untouched.
+ */
+const escapeEncoded = (path: string) => escapeRegExp(encodeAgentRoute(path))
 
 /**
  * `Accept` values that explicitly refuse markdown, as an anchored pattern: a
@@ -117,7 +128,7 @@ function patternDest(pattern: string): string {
  * mirroring the runtime's exclusion check.
  */
 function excludeLookahead(config: NegotiationConfig): string {
-  const prefixes = [`${config.rawPrefix}/`, ...config.excludePrefixes].map(escapeRegExp)
+  const prefixes = [`${config.rawPrefix}/`, ...config.excludePrefixes].map(escapeEncoded)
   return `(?!${prefixes.join('|')})`
 }
 
@@ -204,7 +215,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // `/llms.txt`, `/robots.txt`, `/sitemap.xml` and every file in `public/`,
   // which fragments a shared cache per user-agent for nothing. It takes the
   // `.md` twins out too, which the route below puts back deliberately.
-  const varySources = config.routes.map(route => compilePattern(route.path).source.slice(1, -1))
+  const varySources = config.routes.map(route => compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1))
   routes.push({
     src: `^${NO_DOTTED_LAST_SEGMENT}${excluded}(?:${varySources.join('|')})$`,
     headers: { Vary: MARKDOWN_VARY },
@@ -227,16 +238,16 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // negotiated pair has to be consistent end to end.
   const twinSources = config.routes.flatMap((route) => {
     if (route.path.includes('*')) {
-      return [`${excluded}${compilePattern(route.path).source.slice(1, -1)}\\.md`]
+      return [`${excluded}${compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)}\\.md`]
     }
     // `/` has no `.md` twin URL, matching the rewrite loop below.
-    return route.path === '/' ? [] : [`${escapeRegExp(route.path)}\\.md`]
+    return route.path === '/' ? [] : [`${escapeEncoded(route.path)}\\.md`]
   })
   // Keyed on the registered link rather than on this module serving the route,
   // the same way the exclusion is: a site with `sitemap.markdown` off that
   // serves its own through `discovery.links` needs the label just as much.
   const markdownSources = [
-    `${escapeRegExp(config.rawPrefix)}/.*`,
+    `${escapeEncoded(config.rawPrefix)}/.*`,
     ...twinSources,
     ...(config.links.some(link => link.href === '/sitemap.md') ? [String.raw`/sitemap\.md`] : [])
   ]
@@ -282,8 +293,10 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       }
       // The origin folds a trailing `/index` into the directory it indexes,
       // so `/docs/index`'s twin advertises `/docs`, the URL that answers.
+      // Encoded like the raw handler's `canonicalUrl`, and because a raw
+      // UTF-8 header value is invalid at the edge anyway.
       const page = route.path.endsWith('/index') ? route.path.slice(0, -6) || '/' : route.path
-      statics.push({ raw, href: page === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${page}` })
+      statics.push({ raw, href: page === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${encodeAgentRoute(page)}` })
     }
     if (!statics.some(entry => entry.raw === rootTwin)) {
       // `/raw/index.md` folds to `/` at the origin whatever the patterns say
@@ -293,25 +306,25 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       statics.push({ raw: rootTwin, href: config.siteUrl })
     }
     // The wildcard capture must not also match a statically-mapped twin.
-    const rawExclusion = statics.length ? `(?!(?:${statics.map(entry => escapeRegExp(entry.raw.slice(config.rawPrefix.length))).join('|')})$)` : ''
+    const rawExclusion = statics.length ? `(?!(?:${statics.map(entry => escapeEncoded(entry.raw.slice(config.rawPrefix.length))).join('|')})$)` : ''
     // A trailing `/index` folds away at the origin, so a capture reading
     // `/docs/index.md` would advertise `/docs/index`, a page URL the handler
     // never serves. Those twins carry no edge pair rather than a wrong one.
     const noIndex = String.raw`(?!.*/index\.md$)`
     for (const route of config.routes) {
       if (route.path.includes('*')) {
-        const body = compilePattern(route.path).source.slice(1, -1)
-        const link = canonicalLink(`${config.siteUrl}${patternDest(route.path)}`)
+        const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
+        const link = canonicalLink(`${config.siteUrl}${patternDest(encodeAgentRoute(route.path))}`)
         routes.push({ src: `^${excluded}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
-        routes.push({ src: `^${escapeRegExp(config.rawPrefix)}${rawExclusion}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+        routes.push({ src: `^${escapeEncoded(config.rawPrefix)}${rawExclusion}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
       } else if (route.path !== '/' && !route.path.endsWith('/index') && isRaw(rawDestination(config, route, route.path))) {
         // An index-shaped exact path folds like the wildcard capture above,
         // so its page twin gets no entry either.
-        routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, headers: { Link: canonicalLink(`${config.siteUrl}${route.path}`) }, methods: METHODS, continue: true })
+        routes.push({ src: `^${escapeEncoded(route.path)}\\.md$`, headers: { Link: canonicalLink(`${config.siteUrl}${encodeAgentRoute(route.path)}`) }, methods: METHODS, continue: true })
       }
     }
     for (const entry of statics) {
-      routes.push({ src: `^${escapeRegExp(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
+      routes.push({ src: `^${escapeEncoded(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
     }
   }
 
@@ -382,11 +395,11 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     }
 
     const src = wildcard
-      ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${compilePattern(rule).source.slice(1, -1)}$`
-      : `^${escapeRegExp(rule)}$`
+      ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${compilePattern(encodeAgentRoute(rule)).source.slice(1, -1)}$`
+      : `^${escapeEncoded(rule)}$`
     const dest = matched
-      ? rawDestination(config, matched, rule)
-      : `${config.rawPrefix}${patternDest(rule)}.md`
+      ? encodeAgentRoute(rawDestination(config, matched, rule))
+      : `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(rule))}.md`
 
     pushNegotiated(src, dest, true)
   }
@@ -399,8 +412,8 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     const cached = patternCached(route.path)
 
     if (route.path.includes('*')) {
-      const body = compilePattern(route.path).source.slice(1, -1)
-      const dest = `${config.rawPrefix}${patternDest(route.path)}.md`
+      const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
+      const dest = `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(route.path))}.md`
       // Explicit `.md` twin URLs, whatever the headers say. The last wildcard
       // capture stops before the suffix thanks to the `\.md$` anchor.
       routes.push({
@@ -412,15 +425,15 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       // and assets (`_payload.json`, images) out.
       pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${body}$`, dest, cached)
     } else {
-      const dest = rawDestination(config, route, route.path)
+      const dest = encodeAgentRoute(rawDestination(config, route, route.path))
       if (route.path !== '/') {
-        routes.push({ src: `^${escapeRegExp(route.path)}\\.md$`, dest, methods: METHODS })
+        routes.push({ src: `^${escapeEncoded(route.path)}\\.md$`, dest, methods: METHODS })
       }
       // The same two guards the wildcard branch carries. Without them an exact
       // pattern negotiated at the edge where the runtime refuses it: a dotted
       // one like `/faq.html` reads as an asset, and `/mcp` sits behind an
       // excluded prefix.
-      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${escapeRegExp(route.path)}/?$`, dest, cached)
+      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${escapeEncoded(route.path)}/?$`, dest, cached)
     }
   }
 
@@ -441,6 +454,18 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, colle
   // was prerendered, with nothing behind them to fall through to.
   if (nitro.options.dev || nitro.options.static || !nitro.options.preset.includes('vercel')) {
     return
+  }
+  // The emitted table injects the canonical/alternate `Link` pair on the raw
+  // twins (only with a site URL, see `vercelMarkdownRoutes`). Told to the
+  // runtime so the raw handler skips its own copy exactly there, or every
+  // origin-rendered raw response carries the pair twice, doubling per hop.
+  // On Nitro's copy of the config: the module-scope one was cloned away at
+  // `createNitro`, and rollup stringifies this one later.
+  if (config.siteUrl) {
+    const runtime = nitro.options.runtimeConfig.agentDiscovery as NegotiationConfig | undefined
+    if (runtime) {
+      runtime.cdnLinkPairs = true
+    }
   }
   nitro.hooks.hook('compiled', async () => {
     // The last read of the rule table before it decides rewrite or 307: an

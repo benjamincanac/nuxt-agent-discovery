@@ -3,7 +3,7 @@ import { useNitroApp } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
 import { extractSections } from '../../shared/sections'
-import { absolutizeMarkdownLinks, encodeAgentRoute, normalizeAgentRoute } from '../../shared/negotiation'
+import { absolutizeMarkdownLinks, encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
 import type { AgentIndex, AgentPage } from '../../shared/types'
 
 /** A resolved markdown document, or where to go instead. */
@@ -23,6 +23,14 @@ export interface AgentDocumentOptions {
    * everything is not a useful answer.
    */
   sections?: string[]
+  /**
+   * Resolve a route under an excluded prefix anyway. By default it comes back
+   * `null`, the same answer every listing gives: an excluded path has no
+   * markdown twin as far as the site advertises. The opt-in exists for MCP
+   * tools, which are exactly where a site serves what it does not advertise
+   * (a nightly docs version kept out of `sitemap.md` and `llms.txt`).
+   */
+  includeExcluded?: boolean
 }
 
 /**
@@ -112,6 +120,15 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
   const config = useAgentDiscoveryConfig(event)
 
   const path = normalizeAgentRoute(route)
+
+  // The same filter every listing applies, so the raw route (a thin shell
+  // over this) answers 404 where `sitemap.md`, `llms.txt` and
+  // `listAgentPages()` say the page does not exist. Serving it anyway made
+  // the exclusion look like an indexing choice when it is the module-wide
+  // definition of "not a page".
+  if (!options.includeExcluded && isExcluded(path, config)) {
+    return null
+  }
 
   const siteUrl = getAgentSiteUrl(event)
   // Re-encoded because `normalizeAgentRoute` decoded the path above, and this
