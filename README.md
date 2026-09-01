@@ -71,7 +71,7 @@ export default defineNuxtConfig({
     discovery: {
       link: true,
       apiCatalog: true,
-      sitemapXml: true,               // only when `@nuxtjs/sitemap` is installed
+      sitemapXml: true,               // only when `@nuxtjs/sitemap` is installed and enabled
       mcpServerCard: false,
       links: []
     },
@@ -93,7 +93,7 @@ export default defineNuxtConfig({
 - **`userAgents.extend`** Extra user agents on top of the defaults (18 agents from `ai.robots.txt`, see `src/defaults.ts`). **`.replace`** replaces the list.
 - **`discovery.link`** Emit the discovery `Link` header on `/`.
 - **`discovery.apiCatalog`** Serve `/.well-known/api-catalog` (RFC 9727).
-- **`discovery.sitemapXml`** Advertise `/sitemap.xml`, only when `@nuxtjs/sitemap` is installed.
+- **`discovery.sitemapXml`** Advertise `/sitemap.xml`, only when `@nuxtjs/sitemap` is installed and enabled. A disabled companion counts as absent everywhere: the module then serves `/robots.txt` itself and registers no sitemap filter.
 - **`discovery.mcpServerCard`** Given an `McpServerCardOptions` object, serves `/.well-known/mcp/server-card.json`.
 - **`discovery.links`** Site-specific discovery links. Rels are validated against the IANA registry, an invented one fails the build.
 - **`errors`** Answer errors with a markdown body carrying recovery links when the request prefers it.

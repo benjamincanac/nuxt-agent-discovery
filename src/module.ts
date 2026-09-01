@@ -22,6 +22,7 @@ import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import type { Nuxt } from '@nuxt/schema'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -166,6 +167,23 @@ declare module '@nuxt/schema' {
   }
   interface RuntimeConfig extends AgentDiscoveryRuntimeConfig {}
   interface PublicRuntimeConfig extends AgentDiscoveryPublicRuntimeConfig {}
+}
+
+/**
+ * Whether a companion module is installed and will actually run. `hasNuxtModule`
+ * alone is not enough: `@nuxtjs/robots`, `@nuxtjs/sitemap` and
+ * `@nuxtjs/mcp-toolkit` all return early from their own `setup()` on
+ * `{ enabled: false }`, staying installed while registering nothing. And
+ * `<configKey>: false` is how Nuxt disables a module by its config key, which
+ * is not the same as `{ enabled: false }`: optional chaining alone reads it as
+ * `undefined !== false` and counts the module as active.
+ */
+function hasActiveNuxtModule(nuxt: Nuxt, name: string, configKey: string): boolean {
+  if (!hasNuxtModule(name, nuxt)) {
+    return false
+  }
+  const moduleOptions = (nuxt.options as unknown as Record<string, false | { enabled?: boolean } | undefined>)[configKey]
+  return moduleOptions !== false && moduleOptions?.enabled !== false
 }
 
 export default defineNuxtModule<ModuleOptions>({
@@ -373,20 +391,12 @@ export default defineNuxtModule<ModuleOptions>({
     // tools at all, silently. Nitro resolves the alias table well after this
     // hook, so swapping the entry now still lands.
     nuxt.hook('modules:done', () => {
-      // `hasNuxtModule` alone is not enough: the toolkit's own setup returns
-      // early when it is disabled or running under `nuxt generate`, registering
-      // none of the `#nuxt-mcp-toolkit/*` virtual modules its listing API
-      // imports. Aliasing the real re-export in that state fails the Nitro
-      // build on an unresolvable id, so the same three conditions are mirrored
-      // here.
-      // `mcp: false` is how Nuxt disables a module by its config key, and it is
-      // not the same as `mcp: { enabled: false }`: optional chaining reads the
-      // first as `undefined !== false`, which passed this guard and left the
-      // card aliased to a toolkit that registered nothing.
-      const mcpOptions = (nuxt.options as { mcp?: false | { enabled?: boolean } }).mcp
-      const mcpToolkit = hasNuxtModule('@nuxtjs/mcp-toolkit')
-        && mcpOptions !== false
-        && mcpOptions?.enabled !== false
+      // Active, not merely installed: the toolkit's setup also returns early
+      // under `nuxt generate`, registering none of the `#nuxt-mcp-toolkit/*`
+      // virtual modules its listing API imports. Aliasing the real re-export
+      // in that state fails the Nitro build on an unresolvable id, so the two
+      // build conditions are mirrored here on top of the shared check.
+      const mcpToolkit = hasActiveNuxtModule(nuxt, '@nuxtjs/mcp-toolkit', 'mcp')
         && !nuxt.options.nitro?.static
         && (nuxt.options as { _generate?: boolean })._generate !== true
       if (!mcpToolkit) {
@@ -534,7 +544,10 @@ export {}
       // `setup()` runs. `hasNuxtModule` says no at this point, and the handler
       // we would register is dead code behind theirs.
       nuxt.hook('modules:done', () => {
-        if (hasNuxtModule('@nuxtjs/robots')) {
+        // Active, not merely installed: a robots module disabled through its
+        // own options registers no `/robots.txt` route, so deferring to it
+        // served nobody the agent policy.
+        if (hasActiveNuxtModule(nuxt, '@nuxtjs/robots', 'robots')) {
           return
         }
         // The name check above covers the modules we know. Anything else
@@ -568,7 +581,7 @@ export {}
     // does nothing unless the site happens to list this module first. Detection
     // waits for `modules:done` for the `moduleDependencies` reason above.
     nuxt.hook('modules:done', () => {
-      if (hasNuxtModule('@nuxtjs/sitemap')) {
+      if (hasActiveNuxtModule(nuxt, '@nuxtjs/sitemap', 'sitemap')) {
         addServerPlugin(resolve('./runtime/server/plugins/sitemap'))
       }
     })
@@ -730,9 +743,10 @@ export {}
 
       // Advertised only when something serves it. This module does not generate
       // `sitemap.xml`, so keying on the option alone meant a zero-config site
-      // pointed agents, the api-catalog and `robots.txt` at a 404. A site that
-      // serves its own can register it through `discovery.links`.
-      if (options.discovery?.sitemapXml !== false && hasNuxtModule('@nuxtjs/sitemap')) {
+      // pointed agents, the api-catalog and `robots.txt` at a 404, and so does
+      // a sitemap module a site installed but disabled. A site that serves its
+      // own can register it through `discovery.links`.
+      if (options.discovery?.sitemapXml !== false && hasActiveNuxtModule(nuxt, '@nuxtjs/sitemap', 'sitemap')) {
         links.push({ href: '/sitemap.xml', rel: 'sitemap', type: 'application/xml', title: 'Sitemap (XML)' })
       }
       if (sourcePath && options.sitemap?.markdown) {
