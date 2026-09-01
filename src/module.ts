@@ -23,6 +23,7 @@ import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource
 import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
+import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -512,9 +513,13 @@ export {}
       // options during its own setup, so a site listing it first (which
       // `@nuxtjs/sitemap` asks for) would silently get none of this.
       const contentSignal = options.robots.contentSignal
+      // Typed with the hook signature `@nuxtjs/robots` exports, so a group
+      // shape change in a robots major fails this build instead of silently
+      // pushing groups it no longer reads. The cast is only for the hook name,
+      // which that module declares through no global augmentation.
       const onRobotsConfig = nuxt.hook as unknown as (
         name: 'robots:config',
-        cb: (config: { groups: { userAgent: string[], allow: string[], disallow: string[], comment: string[], contentSignal?: string[] }[] }) => void | Promise<void>
+        cb: RobotsModuleHooks['robots:config']
       ) => void
       onRobotsConfig('robots:config', async (robotsConfig) => {
         // The groups below snapshot the user-agent list, so anything a site
@@ -522,10 +527,13 @@ export {}
         await extendRegistry()
         // `Content-Signal` belongs on the wildcard group, which this module's
         // own `robots.txt` route emits too. Without it the directive would be
-        // lost the moment a site adds `@nuxtjs/robots`.
+        // lost the moment a site adds `@nuxtjs/robots`. The groups are
+        // normalized before the hook fires, but the declared type still
+        // carries the `Arrayable` input shape.
         if (contentSignal) {
           for (const group of robotsConfig.groups) {
-            if (group.userAgent.includes('*')) {
+            const groupAgents = Array.isArray(group.userAgent) ? group.userAgent : [group.userAgent]
+            if (groupAgents.includes('*')) {
               group.contentSignal = [contentSignal]
             }
           }
