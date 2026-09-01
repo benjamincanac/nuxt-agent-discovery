@@ -115,4 +115,49 @@ describe('listAgentPages: excluded prefixes', () => {
 
     expect(listed.map(entry => entry.route)).toEqual(['/docs/guide', '/api/internal'])
   })
+
+  it('checks the normalized route, the spelling the document resolver checks', async () => {
+    // An adapter handing back an encoded route slipped past the prefix
+    // compare, so the listing advertised a twin whose document resolves
+    // `null` and whose URL 404s.
+    setAgentContentSource({
+      async list() {
+        return [
+          { route: '/%61pi/internal', title: 'Internal' },
+          { route: '/docs/guide/', title: 'Guide' }
+        ]
+      },
+      async get() {
+        return { markdown: '# x\n' }
+      }
+    })
+
+    const listed = await listAgentPages(event)
+    expect(listed.map(entry => entry.route)).toEqual(['/docs/guide'])
+
+    // Opted back in, the listing spells the route, the URL and the twin the
+    // way `getAgentDocument` and `rawUrl()` do, not the way the adapter did.
+    const included = await listAgentPages(event, { includeExcluded: true })
+    expect(included.map(entry => entry.route)).toEqual(['/api/internal', '/docs/guide'])
+    expect(included[0]).toMatchObject({
+      route: '/api/internal',
+      url: 'https://example.com/api/internal',
+      rawUrl: 'https://example.com/raw/api/internal.md'
+    })
+  })
+
+  it('filters `prefix` against the normalized spelling too', async () => {
+    setAgentContentSource({
+      async list() {
+        return [{ route: '/%61pi/internal', title: 'Internal' }, { route: '/docs/guide', title: 'Guide' }]
+      },
+      async get() {
+        return { markdown: '# x\n' }
+      }
+    })
+
+    const listed = await listAgentPages(event, { includeExcluded: true, prefix: '/api/' })
+
+    expect(listed.map(entry => entry.route)).toEqual(['/api/internal'])
+  })
 })
