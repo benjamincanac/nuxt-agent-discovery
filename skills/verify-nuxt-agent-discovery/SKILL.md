@@ -39,6 +39,7 @@ show()  { curl -sS -D - "$@" | head -60; }        # headers plus the top of the 
 - Absolute URLs inside markdown bodies point at the site's configured `siteUrl`, which is production, not the preview host. That is by design and it is also how Step 1 finds the production URL.
 - If the deployment answers 401 with a Vercel SSO page, ask for a protection bypass token and send it as `-H "x-vercel-protection-bypass: <token>"`, or stop and say so.
 - The CDN caches. When a result looks stale, re-run with a `?cb=1` query and note whether behaviour changed.
+- When the subject is a locally booted server rather than a deployment, confirm which process owns the port before the first curl (`lsof -iTCP:<port> -sTCP:LISTEN`), and confirm again after every rebuild. A zombie server from a previous build answers every probe and never sees an on-disk edit. The tells: byte-identical responses across config changes, sentinel edits that never appear, routes that exist in the build answering 404.
 - Every failure gets a copy-pasteable curl repro and a call on whether it belongs to the site or to the module.
 
 ## Step 1: profile the deployment
@@ -267,6 +268,7 @@ The 404 must be a real 404. A 200 carrying the app shell tells every agent that 
 ## Step 8: no collateral damage
 
 - `/sitemap.xml` is XML, resolves, and does not list a single raw URL: `curl -sS "$PREVIEW/sitemap.xml" | grep -c '/raw/'` must print 0.
+- On a site running `@nuxtjs/sitemap`, prove the sitemap was built from the deployment's own data: fetch `$PREVIEW/sitemap.xml` and `$PROD/sitemap.xml` and compare entries. A preview sitemap that is a copy or strict subset of production's, same `lastmod` shape, entries the preview's own content cannot produce, means the prerender ingested the live production sitemap (a `prerender: true` route rule on `/sitemap.xml` does this) and the deploy ships stale SEO data. Also assert no prerendered legacy-version pages or redirect stubs leaked in through app sources.
 - Assets are untouched: a favicon, an og-image, a `_payload.json`, anything dotted under a negotiated pattern.
 - The site's own endpoints answer. Enumerate them from the HTML the app ships (`grep -o '/api/[a-z0-9./-]*'` over a rendered page) and from the api-catalog, then fetch each one.
 - Any OpenAPI document parses and its `paths` are populated:
@@ -321,10 +323,12 @@ npx -y is-agentic "$PROD"
 
 The preview score must be at least production's, and no check may move from pass to fail. Report the delta and the named checks that changed.
 
-Two caveats to state rather than work around:
+Caveats to state rather than work around:
 
 - It is a hosted scanner. The URL is submitted to `is-agentic.com`, which keeps the report and can serve it to anyone asking for that domain. Ask before scanning a preview of unreleased work.
 - It probes with browser-ish headers, so a check can come back partial on a site that handles agents correctly. Its "Agent-friendly 404s" check reads a browser 404, not the markdown body an agent gets. Reproduce a partial by hand before reporting it.
+- A "crawler unknown" or "blocked" verdict for a user agent that demonstrably gets 200 markdown via curl means the scanner's own egress was challenged by the platform, a Vercel or WAF setting rather than site code. Reproduce with the exact UA before reporting it.
+- The brand-discoverability check is meaningless against a `*.vercel.app` preview URL. Score it only against production.
 
 ## Optional: the build output table
 

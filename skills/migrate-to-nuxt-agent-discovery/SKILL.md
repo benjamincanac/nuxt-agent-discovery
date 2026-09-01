@@ -1,6 +1,6 @@
 ---
 name: migrate-to-nuxt-agent-discovery
-description: Migrate a Nuxt site to the nuxt-agent-discovery module, replacing a hand-rolled markdown negotiation and agent discovery layer (md-rewrite modules, raw markdown routes, api-catalog, sitemap.md, agent robots.txt, llms.txt bridges) with configuration and hooks. Use when adopting the module in a site, or when asked to remove a site's own agent-discovery code.
+description: Migrate a Nuxt site to the nuxt-agent-discovery module, replacing a hand-rolled markdown negotiation and agent discovery layer (md-rewrite modules, raw markdown routes, api-catalog, sitemap.md, agent robots.txt, llms.txt bridges, the markdown pipeline under MCP tools) with configuration and hooks. Use when adopting the module in a site, or when asked to remove a site's own agent-discovery code.
 ---
 
 # Migrating a site to nuxt-agent-discovery
@@ -17,7 +17,7 @@ The shape of the work: **configuration replaces routing code, hooks replace site
 |---|---|
 | MDC transformers and any content rewriting | `Accept` and User-Agent negotiation |
 | The `llms.txt` content: sections, prose, ordering | The CDN route table and the Nitro middleware |
-| Site-specific MCP tools | `Vary` and `Link` headers |
+| MCP tools: names, descriptions, schemas (Step 6 ports the pipeline under them) | `Vary` and `Link` headers |
 | Hand-authored OpenAPI paths | The raw markdown route |
 | The content backend itself | Markdown error bodies |
 | Page structure and route rules | `.well-known/api-catalog`, the MCP server card, `sitemap.md`, the agent `robots.txt` |
@@ -51,6 +51,8 @@ Record:
 pnpm add -D nuxt-agent-discovery
 ```
 
+Install the latest release and check the version that resolved: refuse to migrate a site onto 0.1.2 or older. Those versions hang `/llms.txt` and `/` in dev after the first llms request (an oversized `x-nitro-prerender` header the dev proxy drops silently, so the server logs a 200 while the client times out), lose the markdown error handler to any later-registered module that also prepends a Nitro `errorHandler` (evlog does), and serve excluded prefixes from the raw route that every listing denies. Current releases send the hint header only during prerender, re-sort the handler at `nitro:init`, and answer 404 on the raw route.
+
 Add `'nuxt-agent-discovery'` to `modules`. Order does not matter for anything listed in `modules`, which the module reads directly. `@nuxtjs/robots`, `@nuxtjs/sitemap` and `@nuxtjs/mcp-toolkit` are detected later still, at `modules:done`, so a site getting them through `@nuxtjs/seo` is covered too. `@nuxt/content` and `nuxt-llms` are read during setup, so a content module pulled in as another module's dependency rather than listed is not seen: set `agentDiscovery.source` explicitly if the build warns that no content source resolved.
 
 ## Step 3: configure
@@ -70,10 +72,11 @@ agentDiscovery: {
 
 - **`routes`** is the decision that matters. One pattern per negotiated tree, `*` for a single segment (a locale), `**` for a subtree. The generated route table is O(patterns), so a site that enumerates pages here has misunderstood the option. Pages outside the patterns keep serving HTML to agents, which is the right answer for marketing pages, pricing, and anything without a markdown representation.
 - **`raw`** is only honoured on exact patterns. Use it for `/` when the landing page is a Vue page rather than a document.
-- **`excludePrefixes.extend`** gets every standalone `.md` route and any API surface the defaults do not already cover. `replace` is only for dropping a default.
+- **`excludePrefixes.extend`** gets every standalone `.md` route and any API surface the defaults do not already cover. `replace` is only for dropping a default. An excluded path is not a page anywhere: it never negotiates, no listing includes it, and the raw route answers 404 for it. Server code opts back in per call with `includeExcluded` on `getAgentDocument()` and `listAgentPages()`, nothing else does. State it that way in the PR too, since "only negotiation is affected" is a wrong claim.
 - **`discovery.links`** carries what only the site knows: its OpenAPI document, its docs entry point, recovery links for error bodies (`header: false` keeps them out of the `Link` header). Rels are validated against the IANA registry and an invented one fails the build. Sites migrating off `rel="llms"`, `rel="llms-full"`, `rel="mcp"` or `rel="design"` do not need replacements: `llms.txt` and `llms-full.txt` are pushed into the registry by the module, the MCP endpoint belongs in `discovery.mcpServerCard`, and a design document is `describedby` or `related`.
 - **`sitemap.markdown`** takes `expand` and `labels` to control grouping. `expand: ['/docs']` turns one Docs section into one section per area.
 - **`skills.dir`** replaces serving a skills directory through `publicAssets`, and generates the index from the files on disk.
+- **`robots.disallow`** carries the `Disallow` lines a static `public/robots.txt` usually exists for, so the static file can always go. Wildcard group only: the per-agent `Allow` groups deliberately exempt the named agents, so what search engines skip stays reachable for them. A site adopting `@nuxtjs/robots` instead puts its disallows in that module's config, and this one contributes the agent groups and the `Content-Signal` line through `robots:config`, deduplicating the disallows. When `@nuxtjs/robots` arrives, grep the site's utils first: an auto-imported util named `isBot` silently shadows its composable.
 - Leave `siteUrl` empty only if the site resolves its canonical URL per request. Prerendered documents bake it in.
 
 ## Step 4: pick the content source
@@ -127,7 +130,20 @@ Three helpers replace hand-written equivalents:
 
 A site that rewrote its own `llms.txt` links to raw twins can delete that code: the module rewrites every same-origin link. What stays is ordering, prose, and sections.
 
-## Step 6: delete the old layer
+## Step 6: port the MCP tools
+
+A site with an MCP server always has a hand-rolled duplicate of the adapter pipeline underneath it: a `fetchPageMarkdown`, a section slicer, a hardcoded site URL, usually in a `server/utils/mcp.ts`. Replace them with the exports from `#agent-discovery` (the README's Agent tooling section) and delete the site util:
+
+- `getAgentDocument(event, path, { sections })` replaces the fetch-and-parse, and returns the exact bytes the raw route serves.
+- `listAgentPages(event, { search, prefix })` replaces the hand-written page listing.
+- `extractSections(markdown, titles)` replaces the section slicer.
+- `getAgentSiteUrl(event)` replaces every hardcoded site URL.
+
+The tools themselves stay in the site. Names, descriptions and schemas are prompt engineering, and the module ships none.
+
+Two wrinkles. A tool that deliberately serves excluded content, say a nightly docs version the site's `excludePrefixes` hides, needs `includeExcluded: true` on both `getAgentDocument()` and `listAgentPages()`, since both skip excluded prefixes by default. And a listing over a dimension the adapter does not model, versions for instance, that must include excluded pages can keep its `queryCollection` for the listing while still reading every document through `getAgentDocument()`.
+
+## Step 7: delete the old layer
 
 | Delete | Replaced by |
 |---|---|
@@ -139,17 +155,25 @@ A site that rewrote its own `llms.txt` links to raw twins can delete that code: 
 | `server/routes/raw/index.md.get.ts` | `agent-discovery:index` |
 | `server/routes/.well-known/api-catalog.get.ts`, `.well-known/mcp/server-card.json.get.ts` | `discovery.apiCatalog`, `discovery.mcpServerCard` |
 | `server/routes/sitemap.md.get.ts` | `sitemap.markdown` |
-| `public/robots.txt`, hand-maintained agent lists | `robots.aiPolicy` |
+| `public/robots.txt` with its `Disallow` lines, hand-maintained agent lists | `robots.aiPolicy` and `robots.disallow` |
 | `skills/index.json`, `publicAssets` entries for skills | `skills.dir` |
 | `app/composables/useCanonical.ts` | the module's composable |
 | `routeRules` entries setting `Vary` or the discovery `Link` | emitted by the module |
 | llms link-rewriting helpers | the llms bridge |
+| the markdown pipeline under MCP tools (`server/utils/mcp.ts` and friends) | `getAgentDocument()`, `listAgentPages()`, `extractSections()`, `getAgentSiteUrl()` |
 
 Two that are easy to miss: the `Vary`/`Link` `routeRules` block, which now conflicts with what the module emits, and the `nitro:config` hook chaining the error handler, which the module does itself.
 
 Keep a hand-written `/raw/index.md` handler only when the site wants full control of that document. Otherwise delete it and use the `agent-discovery:index` hook.
 
-## Step 7: verify
+## Adopting `@nuxtjs/sitemap` in the same PR
+
+A migration often replaces a hand-rolled `sitemap.xml` route at the same time. The raw twins are dropped from the sitemap by this module's exclude either way, but two `@nuxtjs/sitemap` traps bite hard on exactly the sites this skill targets:
+
+- **Never set `routeRules['/sitemap.xml'] = { prerender: true }`.** During prerender `@nuxtjs/sitemap` resolves its own route against the canonical site URL and ingests the live production sitemap, so every deploy ships a copy of the previous one. The proof on a bitten site: the build artifact is a strict subset of production's entries, old changefreq values included.
+- **The `nuxt:prerender` app source lists every prerendered page.** On a versioned docs site that means legacy and nightly versions and unversioned redirect stubs all land in the sitemap. Set `excludeAppSources: true`, point `sitemap.sources` at a small server route querying the content collections, and list the handful of Vue-only pages in `urls`. Content stays the single source of truth.
+
+## Step 8: verify
 
 Locally first:
 
@@ -163,6 +187,8 @@ curl -sS -A ClaudeBot http://localhost:3000/nope | head
 ```
 
 Then build, and read the log rather than skimming it. The module logs at info when a cached route rule covers a negotiated pattern, so grep for `response cache` rather than for warnings. It warns when no content source resolves, when a static `robots.txt` shadows the generated one, and when `extend` and `replace` are both set, and it throws on an invented link rel or a `siteUrl` carrying a path. Compare the prerendered route count against the old build.
+
+Stale state fakes results at every stage here, three ways. Nuxt's build cache can keep serving a server route whose file was deleted: clear `node_modules/.cache/nuxt` after deleting route files, and remember a CDN's build cache restores it on preview deploys. A built server persists cached functions under `.data` between boots: wipe it, knowing a `@nuxthub` site needs `.data/db` back before it boots. And before trusting any curl against a locally booted `.output/server`, check the PID actually listening on the port (`lsof -iTCP:<port>`): a zombie server from a previous build answers every probe and never sees an on-disk edit.
 
 Then deploy a preview and run the `verify-nuxt-agent-discovery` skill against it. Local checks cannot exercise `Vary`, the `Link` header or the CDN rewrites, which is where the interesting failures live.
 
