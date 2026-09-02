@@ -2,6 +2,7 @@ import type { H3Event } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
+import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
 import { extractSections } from '../../shared/sections'
 import { absolutizeMarkdownLinks, encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
 import type { AgentIndex, AgentPage } from '../../shared/types'
@@ -106,15 +107,53 @@ export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
  * The `/` body with the discovery resources appended, shared by
  * `getAgentDocument` and the `llms-full.txt` builder so the homepage reads
  * identically wherever it is served. An empty body stays empty, so a
- * placeholder `/` entry keeps contributing nothing to `llms-full.txt`, and a
- * registry with no titled links leaves the body alone.
+ * placeholder `/` entry keeps contributing nothing to `llms-full.txt`, a
+ * registry with no titled links leaves the body alone, and so does a body
+ * already carrying the heading: a homepage that rendered the registry by hand
+ * before the module did is not listed twice.
  */
 export function appendAgentResources(event: H3Event, markdown: string): string {
-  if (!markdown.trim()) {
+  if (!markdown.trim() || hasAgentResourcesHeading(markdown)) {
     return markdown
   }
   const resources = renderAgentResources(event)
   return resources ? `${markdown.replace(/\n*$/, '\n\n')}${resources}` : markdown
+}
+
+// CommonMark: up to three spaces of indentation on a heading or a fence, four
+// make an indented code block; a closing `#` run needs a space before it.
+const AGENT_RESOURCES_HEADING_LINE = new RegExp(`^ {0,3}#{1,6}[ \\t]+${AGENT_RESOURCES_HEADING}(?:[ \\t]+#+)?[ \\t]*$`)
+const CODE_FENCE = /^ {0,3}(`{3,}|~{3,})/
+// A closing fence carries no info string, so a line opening a fence of the
+// same kind inside a block is content, not its end.
+const CLOSING_CODE_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+
+/**
+ * Whether the body carries the heading outside a fenced code block: a page
+ * quoting the block it expects has not rendered it.
+ */
+function hasAgentResourcesHeading(markdown: string): boolean {
+  let fence: string | undefined
+  for (const line of markdown.split(/\r?\n/)) {
+    if (fence) {
+      const closing = CLOSING_CODE_FENCE.exec(line)?.[1]
+      if (closing && closing[0] === fence[0] && closing.length >= fence.length) {
+        fence = undefined
+      }
+      continue
+    }
+    const opening = CODE_FENCE.exec(line)
+    // A backtick fence's info string may not contain a backtick: such a line
+    // is text, and a tilde fence's may.
+    if (opening && !(opening[1]!.startsWith('`') && line.slice(opening[0].length).includes('`'))) {
+      fence = opening[1]
+      continue
+    }
+    if (AGENT_RESOURCES_HEADING_LINE.test(line)) {
+      return true
+    }
+  }
+  return false
 }
 
 /**

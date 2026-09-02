@@ -109,6 +109,95 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     })
   })
 
+  it('leaves a body that already carries the heading alone', async () => {
+    // A homepage that rendered the registry by hand before the module did,
+    // through `renderAgentResources()` in a hook or a list typed into
+    // `content/index.md`, is not listed twice.
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\n\n## Resources for Agents\n\n- [Sitemap](https://example.com/sitemap.md)\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(1)
+    expect(document.markdown).not.toContain('llms.txt')
+  })
+
+  it('still appends when the heading only appears inside a code block', async () => {
+    // A homepage quoting the block it expects, say a page documenting this
+    // module, has not rendered it.
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\n\n```md\n## Resources for Agents\n\n- [x](https://example.com/x)\n```\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(2)
+    expect(document.markdown).toContain('llms.txt')
+  })
+
+  it('reads a fence line with an info string inside a block as content, not its end', async () => {
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\n\n````md\n```not-a-closing-fence\n## Resources for Agents\n```\n````\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(2)
+    expect(document.markdown).toContain('llms.txt')
+  })
+
+  it('reads CRLF line endings the same way', async () => {
+    // A fence closed on a `\r\n` line has to close, and a heading ending in
+    // `\r` has to count, or a CRLF homepage gets the block twice.
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\r\n\r\n```md\r\nquoted\r\n```\r\n\r\n## Resources for Agents\r\n\r\n- [Sitemap](https://example.com/sitemap.md)\r\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(1)
+    expect(document.markdown).not.toContain('llms.txt')
+  })
+
+  it('reads indentation and closing hashes the way CommonMark does', async () => {
+    const homepage = (markdown: string) => setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown } : null
+      }
+    })
+    const render = async () => (await getAgentDocument(event, '/') as { markdown: string }).markdown
+
+    // Three spaces still make a heading, and so does a closing run of hashes
+    // after a space.
+    homepage('# Home\n\n   ## Resources for Agents ##\n\n- [x](https://example.com/x)\n')
+    expect(await render()).not.toContain('llms.txt')
+    // A hash glued to the text is part of it: not the heading.
+    homepage('# Home\n\n## Resources for Agents#\n')
+    expect(await render()).toContain('llms.txt')
+    // Four spaces make an indented code block, not a fence, so the heading
+    // after it is a real one.
+    homepage('# Home\n\n    ```\n## Resources for Agents\n\n- [x](https://example.com/x)\n    ```\n')
+    expect(await render()).not.toContain('llms.txt')
+    // And a four-space line inside a fence closes nothing.
+    homepage('# Home\n\n```\n    ```\n## Resources for Agents\n```\n')
+    expect(await render()).toContain('llms.txt')
+    // A backtick in a backtick fence's info string makes it text, so the
+    // heading after it is a real one; a tilde fence allows it.
+    homepage('# Home\n\n```js`x\n## Resources for Agents\n\n- [x](https://example.com/x)\n')
+    expect(await render()).not.toContain('llms.txt')
+    homepage('# Home\n\n~~~js`x\n## Resources for Agents\n~~~\n')
+    expect(await render()).toContain('llms.txt')
+  })
+
   it('leaves every other page without the block', async () => {
     setAgentContentSource({
       async get(route) {

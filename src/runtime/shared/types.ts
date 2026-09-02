@@ -211,9 +211,11 @@ export interface NegotiationConfig {
    */
   notAcceptable: boolean
   /**
-   * Exact-route raw destinations the site serves with a handler of its own.
-   * The prerender pass and the llms bridge's crawler hints skip them, so a
-   * twin backed by live data is never frozen at build.
+   * Route patterns of the handlers the site serves under the raw prefix
+   * itself, as Nitro registers them (`/raw/modules.md`, `/raw/:name.md`,
+   * `/raw/**:slug.md`). The exact-route prerender pass, the llms bridge's
+   * crawler hints and a page's own hint all skip a twin one of them matches,
+   * so a twin backed by live data is never frozen at build.
    */
   ownRawRoutes?: string[]
   /**

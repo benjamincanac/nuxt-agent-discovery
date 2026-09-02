@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -7,6 +7,7 @@ import { nuxtCtx } from '@nuxt/kit'
 import module from '../../src/module'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from '../../src/defaults'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
+import { prerenderTwin } from '../../src/runtime/shared/negotiation'
 import type { ModuleOptions } from '../../src/module'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
@@ -57,7 +58,7 @@ function createNuxt(routeRules: Record<string, unknown> = {}) {
       build: { templates: [] },
       nitro: {} as { plugins?: string[], alias?: Record<string, string>, static?: boolean },
       alias: {} as Record<string, string>,
-      serverHandlers: [] as { route?: string, handler: string }[],
+      serverHandlers: [] as { route?: string, handler: string, method?: string }[],
       routeRules,
       runtimeConfig: { public: {} } as Record<string, unknown> & { public: Record<string, unknown> }
     }
@@ -564,7 +565,8 @@ describe('module setup: error handler ordering', () => {
         ...(nitroConfig.errorHandler ? [nitroConfig.errorHandler].flat() : []),
         '/nitropack/runtime/internal/error/prod'
       ]
-    }
+    },
+    hooks: { hook: () => {} }
   })
 
   it('prepends the markdown handler ahead of an existing one', async () => {
@@ -738,7 +740,7 @@ describe('module setup: prerender', () => {
     // The llms bridge skips its crawler hint for the same twin, through the
     // shared config, or the crawler would fetch and freeze it all the same.
     const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
-    expect(config.ownRawRoutes).toEqual(['/raw/modules.md'])
+    expect(config.ownRawRoutes).toContain('/raw/modules.md')
   })
 
   it('detects a scanned `server/routes` file owning the twin', async () => {
@@ -788,6 +790,72 @@ describe('module setup: prerender', () => {
 
     expect(routes.has('/raw/layered.md')).toBe(false)
     expect(routes.has('/raw/index.md')).toBe(true)
+  })
+
+  it('reads a scanned dynamic twin file as the pattern Nitro registers', async () => {
+    // `raw/live/[...slug].md.get.ts` serves every twin under `/raw/live/`, and
+    // the pages behind them are matched by a wildcard route, so no build-time
+    // list of twins exists to skip: the pattern goes to the runtime instead.
+    const layer = mkdtempSync(join(tmpdir(), 'agent-discovery-layer-'))
+    mkdirSync(join(layer, 'server/routes/raw/live'), { recursive: true })
+    writeFileSync(join(layer, 'server/routes/raw/live/[...slug].md.get.ts'), 'export default defineEventHandler(() => "")')
+    writeFileSync(join(layer, 'server/routes/raw/live/index.post.ts'), 'export default defineEventHandler(() => "")')
+    writeFileSync(join(layer, 'server/routes/raw/live/debug.md.get.dev.ts'), 'export default defineEventHandler(() => "")')
+    const nuxt = await runModule({ routes: ['/', '/**'] }, {}, (nuxt) => {
+      Object.assign(nuxt.options, { _layers: [{ cwd: rootDir, config: {} }, { cwd: layer, config: {} }] })
+      nuxt.options.serverHandlers.push({ route: '/raw/submit.md', handler: '/site/server/submit.ts', method: 'post' })
+    })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+
+    expect(config.ownRawRoutes).toContain('/raw/live/**:slug.md')
+    // A handler answering no GET serves no twin, and a `.dev` file is not in
+    // the build at all.
+    expect(config.ownRawRoutes).not.toContain('/raw/live')
+    expect(config.ownRawRoutes).not.toContain('/raw/submit.md')
+    expect(config.ownRawRoutes).not.toContain('/raw/live/debug.md')
+    expect(prerenderTwin(config, '/live/status')).toBeUndefined()
+    expect(prerenderTwin(config, '/docs/guide')).toBe('/raw/docs/guide.md')
+  })
+
+  it('decides per queued twin before Nitro writes it', async () => {
+    type Route = { route: string, contentType?: string, error?: Error & { statusCode: number, statusMessage: string }, skip?: boolean }
+    const failed = (statusCode: number) => Object.assign(new Error(`[${statusCode}]`), { statusCode, statusMessage: '' })
+    const nuxt = await runModule({ routes: [{ path: '/modules', raw: '/raw/modules.md' }, '/', '/**'] }, {}, (nuxt) => {
+      nuxt.options.serverHandlers.push({ route: '/raw/live/**', handler: '/site/server/raw-live.ts' })
+    })
+    const hooks: Record<string, (route: Route) => void> = {}
+    const nitro = {
+      options: { dev: false, static: false, preset: 'node-server', routeRules: {}, runtimeConfig: { agentDiscovery: {} } },
+      hooks: { hook: (name: string, callback: (route: Route) => void) => { hooks[name] = callback } }
+    }
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+    const run = (route: Route) => {
+      hooks['prerender:generate']!(route)
+      return route
+    }
+
+    // A page's twin, answered as markdown: written as it came.
+    expect(run({ route: '/raw/docs/guide.md', contentType: 'text/markdown; charset=utf-8' })).toEqual({ route: '/raw/docs/guide.md', contentType: 'text/markdown; charset=utf-8' })
+    // A section's twin answers a redirect, whose body is HTML: not stored in
+    // place of the 302.
+    expect(run({ route: '/raw/docs.md', contentType: 'text/html' }).skip).toBe(true)
+    // A page with no document behind it: skipped, not a failed route.
+    const missing = run({ route: '/raw/showcase.md', contentType: 'text/markdown; charset=utf-8', error: failed(404) })
+    expect(missing.skip).toBe(true)
+    expect(missing.error).toBeUndefined()
+    // The twin of an exact pattern the site named: a 404 there stays one.
+    const exact = run({ route: '/raw/index.md', contentType: 'text/markdown; charset=utf-8', error: failed(404) })
+    expect(exact.skip).toBeUndefined()
+    expect(exact.error?.statusCode).toBe(404)
+    // A server error stays one whichever pattern queued the twin.
+    expect(run({ route: '/raw/docs/broken.md', error: failed(500) }).error?.statusCode).toBe(500)
+    // A site-owned twin under a wildcard route: never written, whatever it
+    // answered, and never a failed route either.
+    const owned = run({ route: '/raw/live/status.md', error: failed(500) })
+    expect(owned.skip).toBe(true)
+    expect(owned.error).toBeUndefined()
+    // Not a twin at all: left to Nitro.
+    expect(run({ route: '/docs/guide', contentType: 'text/html' }).skip).toBeUndefined()
   })
 })
 
