@@ -190,6 +190,12 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     // And a four-space line inside a fence closes nothing.
     homepage('# Home\n\n```\n    ```\n## Resources for Agents\n```\n')
     expect(await render()).toContain('llms.txt')
+    // A backtick in a backtick fence's info string makes it text, so the
+    // heading after it is a real one; a tilde fence allows it.
+    homepage('# Home\n\n```js`x\n## Resources for Agents\n\n- [x](https://example.com/x)\n')
+    expect(await render()).not.toContain('llms.txt')
+    homepage('# Home\n\n~~~js`x\n## Resources for Agents\n~~~\n')
+    expect(await render()).toContain('llms.txt')
   })
 
   it('leaves every other page without the block', async () => {

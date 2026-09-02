@@ -142,9 +142,11 @@ function hasAgentResourcesHeading(markdown: string): boolean {
       }
       continue
     }
-    const marker = CODE_FENCE.exec(line)?.[1]
-    if (marker) {
-      fence = marker
+    const opening = CODE_FENCE.exec(line)
+    // A backtick fence's info string may not contain a backtick: such a line
+    // is text, and a tilde fence's may.
+    if (opening && !(opening[1]!.startsWith('`') && line.slice(opening[0].length).includes('`'))) {
+      fence = opening[1]
       continue
     }
     if (AGENT_RESOURCES_HEADING_LINE.test(line)) {
