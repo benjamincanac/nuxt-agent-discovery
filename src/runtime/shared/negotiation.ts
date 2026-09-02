@@ -371,6 +371,28 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
 }
 
 /**
+ * The twin a page hands Nitro's prerender crawler while it is being rendered:
+ * the raw destination of a negotiable path, or `undefined` for a URL with a
+ * single representation and for a twin the site serves with a handler of its
+ * own, which prerendering would freeze at build.
+ *
+ * Emitted from the page's own HTML response, because that is the only kind
+ * Nitro reads `x-nitro-prerender` from: the hint the llms bridge attaches to
+ * `/llms.txt` is dropped with the rest of a `text/plain` response, and `/` is
+ * not prerendered on every site (a locale-prefixed one starts at `/en`). A
+ * twin is prerendered exactly when its page is, whatever the crawl order.
+ */
+export function prerenderTwin(config: NegotiationConfig, path: string): string | undefined {
+  const pathname = normalizePathname(path)
+  const route = negotiableRoute(config, pathname)
+  if (!route) {
+    return undefined
+  }
+  const raw = rawDestination(config, route, pathname)
+  return config.ownRawRoutes?.includes(raw) ? undefined : raw
+}
+
+/**
  * The route a path negotiates through, whatever the client asked for.
  * `undefined` when the URL has a single representation: the raw prefix itself,
  * an excluded prefix, a dotted asset (`_payload.json`, images), or a path no

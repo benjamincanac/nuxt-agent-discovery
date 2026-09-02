@@ -1,7 +1,7 @@
 import { appendResponseHeader, createError, defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader, setResponseStatus } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
+import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves markdown through content negotiation on the Nitro server.
@@ -19,6 +19,13 @@ import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, 
  */
 export default defineEventHandler(async (event) => {
   if (import.meta.prerender) {
+    // Nothing negotiates at build, but every page rendered here has a twin
+    // the crawler cannot find on its own: `.md` links are not followed, and
+    // the header is only read off HTML responses, so this one is the place.
+    const twin = prerenderTwin(useAgentDiscoveryConfig(event), event.path)
+    if (twin) {
+      appendResponseHeader(event, 'x-nitro-prerender', twin)
+    }
     return
   }
 

@@ -1,6 +1,8 @@
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fetch, setup } from '@nuxt/test-utils/e2e'
+import { fetch, setup, useTestContext } from '@nuxt/test-utils/e2e'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 import { CLAUDE_BOT, MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY } from './expected'
@@ -187,5 +189,24 @@ describe('openapi operation ids', () => {
 
     expect(doc.paths).not.toHaveProperty(['/mcp'])
     expect(doc.paths).not.toHaveProperty(['/.well-known/mcp/server-card.json'])
+  })
+})
+
+describe('prerender', () => {
+  // `@nuxt/test-utils` builds under a random `.nuxt/test/<id>/output`.
+  const built = (path: string) => existsSync(join(useTestContext().nuxt!.options.nitro.output!.dir!, 'public', path))
+
+  it('prerenders the twin of every prerendered page', () => {
+    // A locale-prefixed site never renders `/`, and Nitro drops the hint the
+    // llms bridge puts on `/llms.txt` with the rest of a `text/plain`
+    // response, so the page's own HTML response is what carries its twin.
+    expect(built('/en/docs/getting-started/index.html') || built('/en/docs/getting-started.html')).toBe(true)
+    expect(built('/raw/en/docs/getting-started.md')).toBe(true)
+    expect(built('/raw/en/docs/components/button.md')).toBe(true)
+  })
+
+  it('leaves the twin of a request-time page to request time', () => {
+    expect(built('/fr/docs/getting-started/index.html') || built('/fr/docs/getting-started.html')).toBe(false)
+    expect(built('/raw/fr/docs/getting-started.md')).toBe(false)
   })
 })
