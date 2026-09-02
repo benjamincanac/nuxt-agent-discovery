@@ -68,6 +68,33 @@ describe('generated /raw/index.md', () => {
     expect(link).toContain(`<${SITE_URL}>; rel="alternate"; type="text/html"`)
   })
 
+  it('serves the whole generated document, byte for byte', async () => {
+    // Pinned exactly: the adapter-served `/` carries a resources block of its
+    // own, and this branch must not move with it.
+    const body = await (await fetch('/raw/index.md')).text()
+
+    expect(body).toBe(`---
+title: "Landing: A Vue Landing Page"
+description: "Metadata that lives in the app, not in a document."
+canonical_url: "${SITE_URL}"
+---
+# Landing: A Vue Landing Page
+
+> Metadata that lives in the app, not in a document.
+
+A Vue landing page, with no content document behind it.
+
+## Resources for Agents
+
+- [API catalog: every service document this site publishes](${SITE_URL}/.well-known/api-catalog)
+- [Sitemap (Markdown): every page on the site](${SITE_URL}/sitemap.md)
+- [llms.txt: index of the documentation for LLMs](${SITE_URL}/llms.txt)
+
+Every page on this site is available as raw markdown: append \`.md\` to its
+URL or send \`Accept: text/markdown\`.
+`)
+  })
+
   it('is what `llms.txt` links to for the homepage', async () => {
     const body = await (await fetch('/llms.txt')).text()
 

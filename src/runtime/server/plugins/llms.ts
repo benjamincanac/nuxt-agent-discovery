@@ -6,7 +6,7 @@ import { defineNitroPlugin } from 'nitropack/runtime'
 import source from '#agent-discovery/source'
 import type { AgentListEntry, NegotiationConfig } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { generatedIndexPage, getSourcePage } from '../utils/document'
+import { appendAgentResources, generatedIndexPage, getSourcePage } from '../utils/document'
 import { hasFileExtension, isExcluded, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
 
 interface LlmsSection {
@@ -254,8 +254,11 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       ? null
       : (adapter.list?.(section as unknown as Record<string, unknown>, event) ?? null))
     for (const [index, section] of sections.entries()) {
+      // Normalized the way `listAgentPages` does, so an adapter listing its
+      // homepage as `/index` lands on the same `/` the landing-page check
+      // below looks for and the resources append keys on.
       for (const entry of resolved[index] || []) {
-        add(entry.route)
+        add(normalizeAgentRoute(entry.route))
       }
       // A section curating its documentation by hand names it in its links, so
       // the pages behind them are what the full document is. Everything else a
@@ -274,9 +277,10 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // no sections at all.
     if (!routes.length) {
       for (const entry of (await adapter.list?.(undefined, event)) || []) {
+        const route = normalizeAgentRoute(entry.route)
         // The same filter `listAgentPages` applies, matching the index hook.
-        if (!isExcluded(entry.route, config)) {
-          add(entry.route)
+        if (!isExcluded(route, config)) {
+          add(route)
         }
       }
     }
@@ -291,9 +295,17 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // The same `get()` the raw route calls, so a page reads identically
     // whether an agent fetches `/raw/**.md` or the single full document. `/`
     // is the one route with a fallback: an adapter with no `/` entry still
-    // has the generated index behind `/raw/index.md`.
-    const pages = await mapLimit(routes, async route =>
-      await getSourcePage(route, event) ?? (route === '/' ? await generatedIndexPage(event) : null))
+    // has the generated index behind `/raw/index.md`, and one that does carries
+    // the same resources block the raw route appends.
+    const pages = await mapLimit(routes, async (route) => {
+      const page = await getSourcePage(route, event)
+      if (route !== '/') {
+        return page
+      }
+      return page
+        ? { ...page, markdown: appendAgentResources(event, page.markdown) }
+        : await generatedIndexPage(event)
+    })
     for (const page of pages) {
       if (page?.markdown) {
         contents.push(page.markdown)

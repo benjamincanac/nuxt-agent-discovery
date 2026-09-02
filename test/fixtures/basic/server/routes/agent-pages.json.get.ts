@@ -9,6 +9,8 @@ import { getAgentDocument, listAgentPages } from '#agent-discovery'
 export default defineEventHandler(async (event) => {
   const sectioned = await getAgentDocument(event, '/docs/components/badge', { sections: ['Usage'] })
   const missing = await getAgentDocument(event, '/docs/components/badge', { sections: ['Nowhere'] })
+  // `/` through the helper, compared byte for byte against the raw route.
+  const index = await getAgentDocument(event, '/')
 
   return {
     all: (await listAgentPages(event)).map(page => page.route),
@@ -20,6 +22,7 @@ export default defineEventHandler(async (event) => {
     combined: (await listAgentPages(event, { prefix: '/docs/', search: 'badge' })).map(page => page.route),
     entry: (await listAgentPages(event, { search: 'badge' }))[0],
     sectioned: sectioned && 'markdown' in sectioned ? sectioned.markdown : null,
-    unmatchedSections: missing && 'markdown' in missing ? missing.markdown : null
+    unmatchedSections: missing && 'markdown' in missing ? missing.markdown : null,
+    index: index && 'markdown' in index ? index.markdown : null
   }
 })

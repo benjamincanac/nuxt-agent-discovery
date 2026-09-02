@@ -303,6 +303,7 @@ describe('agent tooling helpers', () => {
     entry: { route: string, title: string, description: string, section?: string, url: string, rawUrl: string }
     sectioned: string
     unmatchedSections: string
+    index: string
   }
 
   it('lists every page with both URLs an agent might want', async () => {
@@ -333,6 +334,13 @@ describe('agent tooling helpers', () => {
     // Matching any term would have returned the button page here.
     expect(body.oneTermMisses).toEqual([])
     expect(body.combined).toEqual(['/docs/components/badge'])
+  })
+
+  it('returns the same bytes for `/` as the raw route serves', async () => {
+    const body = await load()
+    const raw = await (await fetch('/raw/index.md')).text()
+
+    expect(body.index).toBe(raw)
   })
 
   it('narrows a document to the sections asked for, and hands back the whole one otherwise', async () => {
@@ -566,6 +574,15 @@ describe('nuxt-llms bridge', () => {
     // The raw route wraps the body in frontmatter and a sitemap footer.
     const body = raw.split('---\n')[2]!.split('\n\n## Sitemap')[0]!
     expect(full).toContain(body.trim())
+  })
+
+  it('carries the homepage with its resources block, matching the raw route', async () => {
+    const raw = await (await fetch('/raw/index.md')).text()
+    const full = await (await fetch('/llms-full.txt')).text()
+
+    const body = raw.split('---\n')[2]!.split('\n\n## Sitemap')[0]!
+    expect(body).toContain('## Resources for Agents')
+    expect(full).toContain(body)
   })
 })
 

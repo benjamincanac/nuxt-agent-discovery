@@ -56,10 +56,11 @@ export function rawUrl(event: H3Event, path: string): string {
 }
 
 /**
- * The discovery registry as a markdown block, for sites that hand-write an
- * agent-facing homepage. Same list the `Link` header and the api-catalog are
- * built from, so a resource can never be advertised in one place and missed
- * in another.
+ * The discovery registry as a markdown block. The module appends it to the
+ * `/` document itself, on the raw route and in `llms-full.txt`, so a site
+ * only calls this for a page it renders by hand. Same list the `Link` header
+ * and the api-catalog are built from, so a resource can never be advertised
+ * in one place and missed in another.
  */
 export function renderAgentResources(event: H3Event, options: { heading?: string } = {}): string {
   const config = useAgentDiscoveryConfig(event)

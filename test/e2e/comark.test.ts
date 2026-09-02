@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup } from '@nuxt/test-utils/e2e'
-import { MARKDOWN_CONTENT_TYPE, SITE_URL } from './expected'
+import { MARKDOWN_CONTENT_TYPE, SITE_URL, SOURCE_INDEX_MARKDOWN } from './expected'
 import { describeSharedDocuments } from './shared'
 
 /**
@@ -20,7 +20,7 @@ await setup({
   setupTimeout: 300000
 })
 
-describeSharedDocuments()
+describeSharedDocuments(SOURCE_INDEX_MARKDOWN)
 
 describe('comark source', () => {
   it('renders a raw document on the request, not off a prerendered file', async () => {
@@ -62,6 +62,15 @@ describe('comark source', () => {
 
     // The body only, since the raw route adds frontmatter of its own.
     const body = page.slice(page.indexOf('# Getting Started'), page.indexOf('## Sitemap')).trim()
+    expect(full).toContain(body)
+  })
+
+  it('carries the homepage with its resources block, matching the raw route', async () => {
+    const full = await (await fetch('/llms-full.txt')).text()
+    const page = await (await fetch('/raw/index.md')).text()
+
+    const body = page.slice(page.indexOf('# Basic'), page.indexOf('## Sitemap')).trim()
+    expect(body).toContain('## Resources for Agents')
     expect(full).toContain(body)
   })
 

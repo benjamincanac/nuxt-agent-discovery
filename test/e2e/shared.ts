@@ -30,8 +30,12 @@ import {
  * `robots.txt` handoff (which differs by design depending on whether
  * `@nuxtjs/robots` is installed), and the highlighter `<style>` stripping
  * (only `@nuxt/content` produces that node).
+ *
+ * `indexMarkdown` is the one parameterized document: the homepage twin renders
+ * the fixture's own discovery registry as a resources block, and the suites
+ * run different module sets.
  */
-export function describeSharedDocuments(): void {
+export function describeSharedDocuments(indexMarkdown: string = INDEX_MARKDOWN): void {
   describe('content negotiation', () => {
     it('serves markdown for an explicit `Accept: text/markdown`', async () => {
       const response = await fetch('/docs/getting-started', { headers: { Accept: 'text/markdown' } })
@@ -85,7 +89,7 @@ export function describeSharedDocuments(): void {
 
       expect(response.status).toBe(200)
       expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
-      expect(await response.text()).toBe(INDEX_MARKDOWN)
+      expect(await response.text()).toBe(indexMarkdown)
     })
 
     it('appends the related links a page declares in frontmatter', async () => {

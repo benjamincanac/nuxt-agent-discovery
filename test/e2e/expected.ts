@@ -16,7 +16,9 @@
  * `test/unit/comark.test.ts` asserts directly with no Nuxt build in the way.
  * The `*_MARKDOWN` half is the document the raw route serves, body plus the
  * frontmatter and `## Sitemap` footer `runtime/server/routes/raw.ts` wraps it
- * in.
+ * in. The homepage twin additionally carries the fixture's discovery registry
+ * as a resources block, so it is the one document pinned per suite rather
+ * than shared.
  */
 
 export const SITE_URL = 'https://basic.example.com'
@@ -86,7 +88,7 @@ const label = 'Badge'
  * so a change to the envelope fails every suite at once, loudly, instead of
  * being copied into four literals.
  */
-function rawDocument(page: { title: string, description: string, path: string }, body: string): string {
+function rawDocument(page: { title: string, description: string, path: string }, body: string, resources: string[] = []): string {
   const frontmatter = [
     '---',
     `title: ${JSON.stringify(page.title)}`,
@@ -96,14 +98,46 @@ function rawDocument(page: { title: string, description: string, path: string },
     ''
   ].join('\n')
 
-  return `${frontmatter}${body}\n\n## Sitemap\n\nSee the full [sitemap](${SITE_URL}/sitemap.md) for all pages.\n`
+  const block = resources.length ? `\n## Resources for Agents\n\n${resources.join('\n')}\n` : ''
+
+  return `${frontmatter}${body}${block}\n\n## Sitemap\n\nSee the full [sitemap](${SITE_URL}/sitemap.md) for all pages.\n`
 }
+
+/**
+ * The discovery registry each fixture advertises on `/`. `basic` runs the
+ * sitemap module, an MCP card and skills; the source fixtures run none of
+ * them, so the two lists differ by module config, not content backend.
+ */
+export const INDEX_RESOURCES = [
+  `- [API catalog: every service document this site publishes](${SITE_URL}/.well-known/api-catalog)`,
+  `- [Sitemap (XML)](${SITE_URL}/sitemap.xml)`,
+  `- [Sitemap (Markdown): every page on the site](${SITE_URL}/sitemap.md)`,
+  `- [MCP server card: MCP endpoint at ${SITE_URL}/mcp](${SITE_URL}/.well-known/mcp/server-card.json)`,
+  `- [MCP endpoint (streamable HTTP)](${SITE_URL}/mcp)`,
+  `- [llms.txt: index of the documentation for LLMs](${SITE_URL}/llms.txt)`,
+  `- [llms-full.txt: the full documentation as a single file](${SITE_URL}/llms-full.txt)`,
+  `- [Agent skills index: every skill published by this site](${SITE_URL}/.well-known/skills/index.json)`,
+  `- [Agent skill: basic-site](${SITE_URL}/.well-known/skills/basic-site/SKILL.md)`
+]
+
+export const SOURCE_INDEX_RESOURCES = [
+  `- [API catalog: every service document this site publishes](${SITE_URL}/.well-known/api-catalog)`,
+  `- [Sitemap (Markdown): every page on the site](${SITE_URL}/sitemap.md)`,
+  `- [llms.txt: index of the documentation for LLMs](${SITE_URL}/llms.txt)`,
+  `- [llms-full.txt: the full documentation as a single file](${SITE_URL}/llms-full.txt)`
+]
 
 export const INDEX_MARKDOWN = rawDocument({
   title: 'Basic',
   description: 'Fixture site for the nuxt-agent-discovery e2e tests.',
   path: ''
-}, INDEX_BODY)
+}, INDEX_BODY, INDEX_RESOURCES)
+
+export const SOURCE_INDEX_MARKDOWN = rawDocument({
+  title: 'Basic',
+  description: 'Fixture site for the nuxt-agent-discovery e2e tests.',
+  path: ''
+}, INDEX_BODY, SOURCE_INDEX_RESOURCES)
 
 export const GETTING_STARTED_MARKDOWN = rawDocument({
   title: 'Getting Started',
