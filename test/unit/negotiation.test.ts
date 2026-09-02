@@ -11,6 +11,7 @@ import {
   hasCdnLinkPair,
   hasFileExtension,
   isNegotiablePath,
+  prerenderTwin,
   matchRoute,
   negotiatedRawPath,
   normalizeAgentRoute,
@@ -473,6 +474,35 @@ describe('isNegotiablePath', () => {
     expect(isNegotiablePath(config, '/api/x')).toBe(false)
     expect(isNegotiablePath(config, '/_nuxt/entry.js')).toBe(false)
     expect(isNegotiablePath(config, '/blog/post')).toBe(false)
+  })
+})
+
+describe('prerenderTwin', () => {
+  it('hands the crawler the twin of the page being rendered', () => {
+    expect(prerenderTwin(config, '/docs/guide')).toBe('/raw/docs/guide.md')
+    expect(prerenderTwin(config, '/docs/guide/')).toBe('/raw/docs/guide.md')
+    expect(prerenderTwin(config, '/')).toBe('/raw/index.md')
+  })
+
+  it('hints nothing for a single-representation URL', () => {
+    expect(prerenderTwin(config, '/llms.txt')).toBeUndefined()
+    expect(prerenderTwin(config, '/docs/guide.md')).toBeUndefined()
+    expect(prerenderTwin(config, '/raw/docs/guide.md')).toBeUndefined()
+    expect(prerenderTwin(config, '/docs/guide/_payload.json')).toBeUndefined()
+    expect(prerenderTwin(config, '/api/x')).toBeUndefined()
+    expect(prerenderTwin(config, '/blog/post')).toBeUndefined()
+  })
+
+  it('leaves a twin the site serves itself to its handler', () => {
+    // Prerendering it would freeze live data at build: the same skip the
+    // module applies to exact routes and the llms bridge to its own hints.
+    const owned = createConfig({
+      routes: [{ path: '/modules', raw: '/raw/modules.md' }, { path: '/docs/**' }],
+      ownRawRoutes: ['/raw/modules.md']
+    })
+
+    expect(prerenderTwin(owned, '/modules')).toBeUndefined()
+    expect(prerenderTwin(owned, '/docs/guide')).toBe('/raw/docs/guide.md')
   })
 })
 

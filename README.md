@@ -115,7 +115,7 @@ export default defineNuxtConfig({
 
 `/llms.txt` and `/llms-full.txt` belong to `nuxt-llms`; this module feeds them but never registers them.
 
-With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is skipped by both, so it keeps answering per request instead of being frozen at build.
+With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, every prerendered page hands Nitro's crawler its own twin, and the `nuxt-llms` bridge hands it every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is skipped by both, so it keeps answering per request instead of being frozen at build.
 
 ### The raw route
 
