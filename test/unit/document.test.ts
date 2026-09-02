@@ -153,6 +153,21 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     expect(document.markdown).toContain('llms.txt')
   })
 
+  it('reads CRLF line endings the same way', async () => {
+    // A fence closed on a `\r\n` line has to close, and a heading ending in
+    // `\r` has to count, or a CRLF homepage gets the block twice.
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\r\n\r\n```md\r\nquoted\r\n```\r\n\r\n## Resources for Agents\r\n\r\n- [Sitemap](https://example.com/sitemap.md)\r\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(1)
+    expect(document.markdown).not.toContain('llms.txt')
+  })
+
   it('leaves every other page without the block', async () => {
     setAgentContentSource({
       async get(route) {
