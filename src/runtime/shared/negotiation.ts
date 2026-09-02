@@ -377,10 +377,10 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
  * own, which prerendering would freeze at build.
  *
  * Emitted from the page's own HTML response, because that is the only kind
- * Nitro reads `x-nitro-prerender` from: the hint the llms bridge attaches to
- * `/llms.txt` is dropped with the rest of a `text/plain` response, and `/` is
- * not prerendered on every site (a locale-prefixed one starts at `/en`). A
- * twin is prerendered exactly when its page is, whatever the crawl order.
+ * Nitro reads `x-nitro-prerender` from: a hint on a `text/plain` response is
+ * dropped with the rest of it, and `/` is not prerendered on every site (a
+ * locale-prefixed one starts at `/en`). A twin is prerendered exactly when
+ * its page is, whatever the crawl order.
  */
 export function prerenderTwin(config: NegotiationConfig, path: string): string | undefined {
   const pathname = normalizePathname(path)
@@ -389,7 +389,44 @@ export function prerenderTwin(config: NegotiationConfig, path: string): string |
     return undefined
   }
   const raw = rawDestination(config, route, pathname)
-  return config.ownRawRoutes?.includes(raw) ? undefined : raw
+  return siteServesRaw(config, raw) ? undefined : raw
+}
+
+/**
+ * Whether the site answers a raw twin with a handler of its own, so nothing
+ * may prerender it: not the exact-route pass, not the llms bridge's hints and
+ * not a page's own. The one predicate behind all three, on the handler
+ * patterns `ownRawRoutes` carries, because a page matched by a wildcard route
+ * has no build-time list of twins to compare against.
+ */
+export function siteServesRaw(config: Pick<NegotiationConfig, 'ownRawRoutes'>, raw: string): boolean {
+  return config.ownRawRoutes?.some(pattern => handlerRouteMatches(pattern, raw)) ?? false
+}
+
+/**
+ * Whether a handler's route pattern covers a path, the way Nitro's router
+ * reads it: `:name` and `*` match one segment, `**` the rest. An exact string
+ * compare read `/raw/:name` as not owning the twin it serves, and the
+ * prerender froze it anyway.
+ */
+export function handlerRouteMatches(pattern: string, path: string): boolean {
+  if (!/[:*]/.test(pattern)) {
+    return pattern === path
+  }
+  const patternSegments = pattern.split('/').filter(Boolean)
+  const pathSegments = path.split('/').filter(Boolean)
+  for (const [index, segment] of patternSegments.entries()) {
+    if (segment.startsWith('**')) {
+      return true
+    }
+    if (index >= pathSegments.length) {
+      return false
+    }
+    if (segment !== '*' && !segment.startsWith(':') && segment !== pathSegments[index]) {
+      return false
+    }
+  }
+  return patternSegments.length === pathSegments.length
 }
 
 /**

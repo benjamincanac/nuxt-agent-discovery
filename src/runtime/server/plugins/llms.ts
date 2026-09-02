@@ -7,7 +7,7 @@ import source from '#agent-discovery/source'
 import type { AgentListEntry, NegotiationConfig } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { appendAgentResources, generatedIndexPage, getSourcePage } from '../utils/document'
-import { hasFileExtension, isExcluded, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination } from '../../shared/negotiation'
+import { hasFileExtension, isExcluded, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
 
 interface LlmsSection {
   title: string
@@ -77,6 +77,17 @@ async function mapLimit<T, R>(items: T[], task: (item: T) => R | Promise<R>): Pr
   return results
 }
 
+/**
+ * The adapter's listing with every route normalized the way `listAgentPages`
+ * does, so an adapter listing its homepage as `/index` lands on the same `/`
+ * the landing-page checks and the resources append key on, and an encoded
+ * slug meets the exclusion filter decoded. `llms.txt` and `llms-full.txt` go
+ * through this one call, so the two cannot disagree on what a page is.
+ */
+async function listPages(adapter: NonNullable<typeof source>, selector: Record<string, unknown> | undefined, event: H3Event): Promise<AgentListEntry[]> {
+  return ((await adapter.list?.(selector, event)) || []).map(entry => ({ ...entry, route: normalizeAgentRoute(entry.route) }))
+}
+
 function toLink(entry: AgentListEntry, domain: string) {
   return {
     title: entry.title || entry.route,
@@ -130,7 +141,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       // adapter is asked about all of them at once.
       const resolved = await mapLimit(options.sections, section => section.links?.length
         ? null
-        : (adapter.list?.(section as unknown as Record<string, unknown>, event) ?? null))
+        : listPages(adapter, section as unknown as Record<string, unknown>, event))
 
       const unresolved: LlmsSection[] = []
       for (const [index, section] of options.sections.entries()) {
@@ -159,7 +170,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       if (!hasPageLinks) {
         // The same filter `listAgentPages` applies, so the fallback cannot
         // advertise pages `sitemap.md` deliberately hides.
-        const entries = ((await adapter.list?.(undefined, event)) || []).filter(entry => !isExcluded(entry.route, config))
+        const entries = (await listPages(adapter, undefined, event)).filter(entry => !isExcluded(entry.route, config))
         for (const [title, group] of groupBySection(entries)) {
           options.sections.push({
             title,
@@ -212,7 +223,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         // A twin the site serves with its own handler must not reach the
         // crawler: prerendering it freezes live data at build. The link still
         // points there, the handler answers it per request.
-        if (!config.ownRawRoutes?.includes(raw)) {
+        if (!siteServesRaw(config, raw)) {
           prerenderPaths.add(raw)
         }
         return { ...link, href: withBase(raw + suffix, domain) }
@@ -252,13 +263,10 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // its curation, so its selector must not smuggle in pages the index hides.
     const resolved = await mapLimit(sections, section => section.links?.length
       ? null
-      : (adapter.list?.(section as unknown as Record<string, unknown>, event) ?? null))
+      : listPages(adapter, section as unknown as Record<string, unknown>, event))
     for (const [index, section] of sections.entries()) {
-      // Normalized the way `listAgentPages` does, so an adapter listing its
-      // homepage as `/index` lands on the same `/` the landing-page check
-      // below looks for and the resources append keys on.
       for (const entry of resolved[index] || []) {
-        add(normalizeAgentRoute(entry.route))
+        add(entry.route)
       }
       // A section curating its documentation by hand names it in its links, so
       // the pages behind them are what the full document is. Everything else a
@@ -276,11 +284,10 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     // documentation, so that site still gets its whole site, as does one with
     // no sections at all.
     if (!routes.length) {
-      for (const entry of (await adapter.list?.(undefined, event)) || []) {
-        const route = normalizeAgentRoute(entry.route)
+      for (const entry of await listPages(adapter, undefined, event)) {
         // The same filter `listAgentPages` applies, matching the index hook.
-        if (!isExcluded(route, config)) {
-          add(route)
+        if (!isExcluded(entry.route, config)) {
+          add(entry.route)
         }
       }
     }
@@ -313,13 +320,17 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     }
   }) as never)
 
-  // Lets Nitro's prerender crawler discover the raw markdown twins the
-  // generated llms.txt links to. `/llms.txt` is always in the prerender
-  // queue, `/` only when the site prerenders it.
+  // Lets Nitro's prerender crawler discover the twins `llms.txt` links to
+  // whose pages are never rendered as HTML; a page that is rendered hands the
+  // crawler its own twin from its response. Flushed on `/` because that is a
+  // response Nitro reads the hint from: it only looks at HTML, so a hint on
+  // `/llms.txt` itself would go out with a `text/plain` response and be
+  // dropped. Encoded per entry the way Nuxt's `prerenderRoutes()` does, since
+  // Nitro splits the header on commas and decodes each part.
   if (emitsPrerenderHints(import.meta.preset)) {
     nitroApp.hooks.hook('beforeResponse', (event) => {
-      if (event.path === '/' || event.path === '/llms.txt') {
-        appendHeader(event, 'x-nitro-prerender', Array.from(prerenderPaths))
+      if (event.path === '/' && prerenderPaths.size) {
+        appendHeader(event, 'x-nitro-prerender', Array.from(prerenderPaths, path => encodeURIComponent(path)))
       }
     })
   }

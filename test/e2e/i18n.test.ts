@@ -113,6 +113,8 @@ describe('O(1) route table', () => {
     const config = await resolved()
 
     expect(config.routes.map(route => route.path)).toEqual(['/', '/*/docs/**'])
+    // The twin file the site serves itself, as the pattern Nitro registers.
+    expect(config.ownRawRoutes).toContain('/raw/en/docs/live.md')
     // The fixture ships `en` and `fr`; neither may appear as a pattern.
     expect(config.routes.some(route => /\/(?:en|fr)\//.test(route.path))).toBe(false)
   })
@@ -208,5 +210,40 @@ describe('prerender', () => {
   it('leaves the twin of a request-time page to request time', () => {
     expect(built('/fr/docs/getting-started/index.html') || built('/fr/docs/getting-started.html')).toBe(false)
     expect(built('/raw/fr/docs/getting-started.md')).toBe(false)
+  })
+
+  it('drops the twin of a section instead of storing its redirect as HTML', async () => {
+    // `/en/docs/components` is a Vue page over a directory with no index
+    // document, so its twin answers a 302 to the first document. Nitro reads
+    // a redirect as a success and would write the HTML refresh stub h3 sends
+    // with it, which the static handler then serves in place of the 302.
+    expect(built('/en/docs/components/index.html') || built('/en/docs/components.html')).toBe(true)
+    expect(built('/raw/en/docs/components.md')).toBe(false)
+    expect(built('/raw/en/docs/components.md/index.html')).toBe(false)
+    expect(built('/raw/en/docs/components.md.html')).toBe(false)
+
+    const response = await fetch('/raw/en/docs/components.md', { redirect: 'manual' })
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('/raw/en/docs/components/button.md')
+  })
+
+  it('skips the twin of a page with no document rather than failing the build', async () => {
+    // The fixture builds with `failOnError`, so the 404 this twin answers
+    // would have failed the whole suite had it been reported.
+    expect(built('/en/docs/playground/index.html') || built('/en/docs/playground.html')).toBe(true)
+    expect(built('/raw/en/docs/playground.md')).toBe(false)
+    expect((await fetch('/raw/en/docs/playground.md')).status).toBe(404)
+  })
+
+  it('leaves a twin the site serves itself to its handler, under a wildcard route too', async () => {
+    expect(built('/en/docs/live/index.html') || built('/en/docs/live.html')).toBe(true)
+    expect(built('/raw/en/docs/live.md')).toBe(false)
+
+    const response = await fetch('/raw/en/docs/live.md')
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('# Live')
+    // Answered by the handler, not off a file: Nitro's asset layer would add
+    // an `ETag`.
+    expect(response.headers.get('etag')).toBe(null)
   })
 })

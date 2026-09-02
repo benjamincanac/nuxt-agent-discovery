@@ -109,6 +109,22 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     })
   })
 
+  it('leaves a body that already carries the heading alone', async () => {
+    // A homepage that rendered the registry by hand before the module did,
+    // through `renderAgentResources()` in a hook or a list typed into
+    // `content/index.md`, is not listed twice.
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\n\n## Resources for Agents\n\n- [Sitemap](https://example.com/sitemap.md)\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(1)
+    expect(document.markdown).not.toContain('llms.txt')
+  })
+
   it('leaves every other page without the block', async () => {
     setAgentContentSource({
       async get(route) {

@@ -12,6 +12,8 @@ import {
   hasFileExtension,
   isNegotiablePath,
   prerenderTwin,
+  handlerRouteMatches,
+  siteServesRaw,
   matchRoute,
   negotiatedRawPath,
   normalizeAgentRoute,
@@ -503,6 +505,39 @@ describe('prerenderTwin', () => {
 
     expect(prerenderTwin(owned, '/modules')).toBeUndefined()
     expect(prerenderTwin(owned, '/docs/guide')).toBe('/raw/docs/guide.md')
+  })
+
+  it('reads the site-owned list as handler patterns, so a wildcard-matched page is covered too', () => {
+    // A page under `/docs/**` has no build-time list of twins to skip, so the
+    // module ships the patterns Nitro registers and the question is asked
+    // per path here.
+    const owned = createConfig({
+      routes: [{ path: '/docs/**' }],
+      ownRawRoutes: ['/raw/docs/live/**:slug.md', '/raw/docs/:name.md']
+    })
+
+    expect(prerenderTwin(owned, '/docs/live/status')).toBeUndefined()
+    expect(prerenderTwin(owned, '/docs/api')).toBeUndefined()
+    expect(prerenderTwin(owned, '/docs/guide/intro')).toBe('/raw/docs/guide/intro.md')
+  })
+})
+
+describe('siteServesRaw', () => {
+  it('matches a handler pattern the way Nitro routes it', () => {
+    expect(handlerRouteMatches('/raw/modules.md', '/raw/modules.md')).toBe(true)
+    expect(handlerRouteMatches('/raw/modules.md', '/raw/modules.md/x')).toBe(false)
+    expect(handlerRouteMatches('/raw/:name', '/raw/modules.md')).toBe(true)
+    expect(handlerRouteMatches('/raw/:name', '/raw/docs/guide.md')).toBe(false)
+    expect(handlerRouteMatches('/raw/*', '/raw/modules.md')).toBe(true)
+    expect(handlerRouteMatches('/raw/**', '/raw/docs/guide.md')).toBe(true)
+    expect(handlerRouteMatches('/raw/**:slug.md', '/raw/docs/guide.md')).toBe(true)
+    expect(handlerRouteMatches('/raw/docs/**', '/raw/index.md')).toBe(false)
+  })
+
+  it('owns nothing without patterns', () => {
+    expect(siteServesRaw({}, '/raw/index.md')).toBe(false)
+    expect(siteServesRaw({ ownRawRoutes: [] }, '/raw/index.md')).toBe(false)
+    expect(siteServesRaw({ ownRawRoutes: ['/raw/**'] }, '/raw/index.md')).toBe(true)
   })
 })
 

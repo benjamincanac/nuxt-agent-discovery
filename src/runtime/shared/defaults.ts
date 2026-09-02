@@ -30,3 +30,6 @@ export const MCP_EXCLUDED_GROUPS = ['admin']
 export function mcpExcludedGroups(extra?: string[]): Set<string> {
   return new Set([...MCP_EXCLUDED_GROUPS, ...(extra || [])])
 }
+
+/** Heading of the discovery registry block on the agent homepage. */
+export const AGENT_RESOURCES_HEADING = 'Resources for Agents'

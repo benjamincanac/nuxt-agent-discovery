@@ -1,6 +1,7 @@
 import type { H3Event } from 'h3'
 import { getRequestURL } from 'h3'
 import { useRuntimeConfig } from '#imports'
+import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
 import type { AgentContentSource, NegotiationConfig } from '../../shared/types'
 import { absolutizeHref, encodeAgentRoute, hasFileExtension, matchRoute, normalizeAgentRoute, rawDestination } from '../../shared/negotiation'
 
@@ -65,7 +66,7 @@ export function rawUrl(event: H3Event, path: string): string {
 export function renderAgentResources(event: H3Event, options: { heading?: string } = {}): string {
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
-  const heading = options.heading ?? 'Resources for Agents'
+  const heading = options.heading ?? AGENT_RESOURCES_HEADING
 
   const lines = config.links
     .filter(link => link.title)

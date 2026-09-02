@@ -22,9 +22,11 @@ export default defineEventHandler(async (event) => {
     // Nothing negotiates at build, but every page rendered here has a twin
     // the crawler cannot find on its own: `.md` links are not followed, and
     // the header is only read off HTML responses, so this one is the place.
+    // Encoded the way Nuxt's `prerenderRoutes()` does, since Nitro splits the
+    // header on commas and decodes each part.
     const twin = prerenderTwin(useAgentDiscoveryConfig(event), event.path)
     if (twin) {
-      appendResponseHeader(event, 'x-nitro-prerender', twin)
+      appendResponseHeader(event, 'x-nitro-prerender', encodeURIComponent(twin))
     }
     return
   }

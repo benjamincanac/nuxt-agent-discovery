@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import {
   addImports,
   addTypeTemplate,
@@ -21,7 +21,7 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
 import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -917,52 +917,75 @@ export {}
 
     /* ------------------------------ prerender ------------------------------ */
 
-    // Whether a registered handler's route pattern covers a path, the way
-    // Nitro's router reads it: `:name` and `*` match one segment, `**` the
-    // rest. An exact string compare read `/raw/:name` as not owning the twin
-    // it serves, and the prerender froze it anyway.
-    const handlerRouteMatches = (pattern: string, path: string): boolean => {
-      if (!/[:*]/.test(pattern)) {
-        return pattern === path
+    // The route patterns of every handler the site serves under the raw
+    // prefix, read the way Nitro registers them: one a module registered
+    // (this module's own `${rawPrefix}/**` handler excepted, or every twin
+    // would read as site-owned and nothing would prerender), or a scanned
+    // `server/routes` file, which never reaches `serverHandlers` and is mapped
+    // from its filename the way Nitro maps it (`raw/[...slug].md.get.ts` →
+    // `/raw/**:slug.md`) in every layer's server dir, since a layer's routes
+    // are scanned like the root's. Patterns rather than paths, because a page
+    // matched by a wildcard route has no build-time list of twins: the
+    // runtime asks `siteServesRaw()` per path instead.
+    const rawSegments = rawPrefix.split('/').filter(Boolean)
+    const coversRawPrefix = (pattern: string): boolean => {
+      const segments: string[] = []
+      for (const segment of pattern.split('/').filter(Boolean)) {
+        if (/[:*]/.test(segment)) {
+          break
+        }
+        segments.push(segment)
       }
-      const patternSegments = pattern.split('/').filter(Boolean)
-      const pathSegments = path.split('/').filter(Boolean)
-      for (const [index, segment] of patternSegments.entries()) {
-        if (segment.startsWith('**')) {
-          return true
-        }
-        if (index >= pathSegments.length) {
-          return false
-        }
-        if (segment !== '*' && !segment.startsWith(':') && segment !== pathSegments[index]) {
-          return false
-        }
-      }
-      return patternSegments.length === pathSegments.length
+      return segments.slice(0, rawSegments.length).every((segment, index) => segment === rawSegments[index])
     }
-
-    // Whether the site answers a route with a handler of its own: one a
-    // module registered (this module's own `${rawPrefix}/**` handler excepted,
-    // or every twin would read as site-owned and nothing would prerender), or
-    // a scanned `server/routes` file, which never reaches `serverHandlers`
-    // and is looked up on disk the way Nitro maps it (`/raw/modules.md` →
-    // `server/routes/raw/modules.md.get.ts`) in every layer's server dir,
-    // since a layer's routes are scanned like the root's.
-    const siteServesRoute = (route: string): boolean => {
-      if (nuxt.options.serverHandlers.some(handler =>
-        handler.handler !== rawHandler && handler.route && handlerRouteMatches(handler.route, route))) {
-        return true
+    const scannedRawRoutes = (serverDir: string): string[] => {
+      const dir = join(serverDir, 'routes', ...rawSegments)
+      if (!existsSync(dir)) {
+        return []
+      }
+      const patterns: string[] = []
+      for (const file of readdirSync(dir, { recursive: true }) as string[]) {
+        if (!/\.(?:js|mjs|cjs|ts|mts|cts|tsx|jsx)$/.test(file) || !statSync(join(dir, file)).isFile()) {
+          continue
+        }
+        let route = file
+          .replace(/\\/g, '/')
+          .replace(/\.[a-z]+$/i, '')
+          .replace(/\(([^(/]+)\)\//g, '')
+          .replace(/\[\.{3}\]/g, '**')
+          .replace(/\[\.{3}(\w+)\]/g, '**:$1')
+          .replace(/\[([^/\]]+)\]/g, ':$1')
+        const suffix = route.match(/(\.(?<method>connect|delete|get|head|options|patch|post|put|trace))?(\.(?<env>dev|prod|prerender))?$/)
+        if (suffix?.index !== undefined && suffix[0]) {
+          route = route.slice(0, suffix.index)
+        }
+        const method = suffix?.groups?.method
+        if (method && method !== 'get' && method !== 'head') {
+          continue
+        }
+        route = route.replace(/\/index$/, '')
+        patterns.push(withoutTrailingSlash(`${rawPrefix}/${route}`))
+      }
+      return patterns
+    }
+    const siteRawRoutes = (): string[] => {
+      const patterns = new Set<string>()
+      for (const handler of nuxt.options.serverHandlers) {
+        if (handler.handler !== rawHandler && handler.route && coversRawPrefix(handler.route)) {
+          patterns.add(handler.route)
+        }
       }
       const layers = nuxt.options._layers || []
       const serverDirs = new Set([
         (nuxt.options as { serverDir?: string }).serverDir || join(nuxt.options.srcDir, 'server'),
         ...layers.map(layer => layer.config?.serverDir || join(layer.cwd, 'server'))
       ])
-      return [...serverDirs].some((dir) => {
-        const base = join(dir, 'routes', ...route.slice(1).split('/'))
-        return ['', '.get', '.head'].some(method =>
-          ['.ts', '.js', '.mjs', '.cjs'].some(extension => existsSync(`${base}${method}${extension}`)))
-      })
+      for (const serverDir of serverDirs) {
+        for (const pattern of scannedRawRoutes(serverDir)) {
+          patterns.add(pattern)
+        }
+      }
+      return [...patterns]
     }
 
     // With a server behind the site, only the built-in source prerenders: a
@@ -973,22 +996,23 @@ export {}
     // At `modules:done`, not here: a twin the site backs with its own handler
     // (an swr route reading a live API) must be left alone, or prerendering
     // freezes it at build, and handlers registered by modules listed later
-    // are not visible yet. The same twins go into `ownRawRoutes` so the llms
-    // bridge skips its crawler hints for them too.
+    // are not visible yet. The same patterns go into `ownRawRoutes` so the
+    // llms bridge and the negotiation middleware skip their crawler hints for
+    // them too.
     const staticBuild = Boolean(nuxt.options.nitro?.static) || (nuxt.options as { _generate?: boolean })._generate === true
+    // The twins this pass queued, which stay build errors when they 404: the
+    // site named those patterns, so a missing document there is a mistake.
+    const queuedRawRoutes = new Set<string>()
     nuxt.hook('modules:done', () => {
-      const ownRawRoutes = routes
-        .filter(route => !route.path.includes('*'))
-        .map(route => rawDestination(config, route, route.path))
-        .filter(raw => siteServesRoute(raw))
-      config.ownRawRoutes = ownRawRoutes
+      config.ownRawRoutes = siteRawRoutes()
 
       if (sourcePath && (builtinContentSource || staticBuild)) {
         for (const route of routes) {
           if (!route.path.includes('*')) {
             const raw = rawDestination(config, route, route.path)
-            if (!ownRawRoutes.includes(raw)) {
+            if (!siteServesRaw(config, raw)) {
               addPrerenderRoutes(raw)
+              queuedRawRoutes.add(raw)
             }
           }
         }
@@ -1018,6 +1042,36 @@ export {}
         // build, after both passes above, and the CDN table is the one output
         // late enough to honour it.
         setupVercelPreset(nitro, config, collectCachedRoutes)
+
+        // Every queued twin passes here before Nitro writes it, whichever of
+        // the exact-route pass, the llms bridge or a page's own hint queued
+        // it. One the site serves itself is never frozen, whatever listed it.
+        // One the raw route could not answer as markdown is dropped rather
+        // than written or reported: a section answers a redirect, whose HTML
+        // body Nitro would otherwise store in place of the 302, and a page
+        // with no document behind it answers 404, which is that page's answer
+        // at runtime too and no reason to fail the build. The twins queued for
+        // exact patterns keep their errors: the site named those.
+        nitro.hooks.hook('prerender:generate', (route) => {
+          if (!isRawPath(config, route.route)) {
+            return
+          }
+          if (siteServesRaw(config, route.route)) {
+            route.skip = true
+            route.error = undefined
+            return
+          }
+          if (route.error) {
+            if (route.error.statusCode === 404 && !queuedRawRoutes.has(route.route)) {
+              route.skip = true
+              route.error = undefined
+            }
+            return
+          }
+          if (!route.contentType?.includes('markdown')) {
+            route.skip = true
+          }
+        })
       })
     }
   }

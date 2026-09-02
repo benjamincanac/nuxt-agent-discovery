@@ -115,7 +115,7 @@ export default defineNuxtConfig({
 
 `/llms.txt` and `/llms-full.txt` belong to `nuxt-llms`; this module feeds them but never registers them.
 
-With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, every prerendered page hands Nitro's crawler its own twin, and the `nuxt-llms` bridge hands it every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is skipped by both, so it keeps answering per request instead of being frozen at build.
+With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. Whatever the source, every prerendered page hands the crawler its own twin, so a twin is frozen exactly when its page is. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is never prerendered, so it keeps answering per request instead of being frozen at build. A hinted twin the raw route cannot answer as markdown, a section redirecting to its first document or a page with no document behind it, is skipped rather than written or reported as a failed route.
 
 ### The raw route
 
@@ -129,7 +129,7 @@ canonical_url: "https://example.com/docs/getting-started"
 ---
 ```
 
-Then the page markdown, with every same-origin link absolutized. On `/` the discovery registry follows the body as a `## Resources for Agents` block, the same block the generated landing page carries. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
+Then the page markdown, with every same-origin link absolutized. On `/` the discovery registry follows the body as a `## Resources for Agents` block, the same block the generated landing page carries, unless the body already has that heading. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
 
 A path naming a section rather than a page redirects 302 to the section's first document when the adapter implements `firstLeaf()`. Anything else missing answers a real 404 with the markdown error body, so an agent can tell an unknown URL from an empty one. `/` is the exception: with no `/` entry in the adapter, `/raw/index.md` falls through to a generated landing page, see [`agent-discovery:index`](#extending). The recommended way to author the agent homepage is a `/` document in the content source: the module wraps it with the resources block and the sitemap footer, and the generated page is the fallback for sites that have none.
 
