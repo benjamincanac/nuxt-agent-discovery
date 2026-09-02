@@ -132,7 +132,7 @@ const CLOSING_CODE_FENCE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/
  */
 function hasAgentResourcesHeading(markdown: string): boolean {
   let fence: string | undefined
-  for (const line of markdown.split('\n')) {
+  for (const line of markdown.split(/\r?\n/)) {
     if (fence) {
       const closing = CLOSING_CODE_FENCE.exec(line)?.[1]
       if (closing && closing[0] === fence[0] && closing.length >= fence.length) {
