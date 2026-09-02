@@ -959,8 +959,10 @@ export {}
         if (suffix?.index !== undefined && suffix[0]) {
           route = route.slice(0, suffix.index)
         }
+        // A handler that answers no GET serves no twin, and a `.dev` one does
+        // not exist in the build at all.
         const method = suffix?.groups?.method
-        if (method && method !== 'get' && method !== 'head') {
+        if ((method && method !== 'get' && method !== 'head') || suffix?.groups?.env === 'dev') {
           continue
         }
         route = route.replace(/\/index$/, '')
@@ -971,7 +973,8 @@ export {}
     const siteRawRoutes = (): string[] => {
       const patterns = new Set<string>()
       for (const handler of nuxt.options.serverHandlers) {
-        if (handler.handler !== rawHandler && handler.route && coversRawPrefix(handler.route)) {
+        const answersGet = !handler.method || handler.method === 'get' || handler.method === 'head'
+        if (handler.handler !== rawHandler && handler.route && answersGet && coversRawPrefix(handler.route)) {
           patterns.add(handler.route)
         }
       }

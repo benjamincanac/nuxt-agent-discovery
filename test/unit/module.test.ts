@@ -58,7 +58,7 @@ function createNuxt(routeRules: Record<string, unknown> = {}) {
       build: { templates: [] },
       nitro: {} as { plugins?: string[], alias?: Record<string, string>, static?: boolean },
       alias: {} as Record<string, string>,
-      serverHandlers: [] as { route?: string, handler: string }[],
+      serverHandlers: [] as { route?: string, handler: string, method?: string }[],
       routeRules,
       runtimeConfig: { public: {} } as Record<string, unknown> & { public: Record<string, unknown> }
     }
@@ -800,14 +800,19 @@ describe('module setup: prerender', () => {
     mkdirSync(join(layer, 'server/routes/raw/live'), { recursive: true })
     writeFileSync(join(layer, 'server/routes/raw/live/[...slug].md.get.ts'), 'export default defineEventHandler(() => "")')
     writeFileSync(join(layer, 'server/routes/raw/live/index.post.ts'), 'export default defineEventHandler(() => "")')
+    writeFileSync(join(layer, 'server/routes/raw/live/debug.md.get.dev.ts'), 'export default defineEventHandler(() => "")')
     const nuxt = await runModule({ routes: ['/', '/**'] }, {}, (nuxt) => {
       Object.assign(nuxt.options, { _layers: [{ cwd: rootDir, config: {} }, { cwd: layer, config: {} }] })
+      nuxt.options.serverHandlers.push({ route: '/raw/submit.md', handler: '/site/server/submit.ts', method: 'post' })
     })
     const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
 
     expect(config.ownRawRoutes).toContain('/raw/live/**:slug.md')
-    // A POST handler answers no twin.
+    // A handler answering no GET serves no twin, and a `.dev` file is not in
+    // the build at all.
     expect(config.ownRawRoutes).not.toContain('/raw/live')
+    expect(config.ownRawRoutes).not.toContain('/raw/submit.md')
+    expect(config.ownRawRoutes).not.toContain('/raw/live/debug.md')
     expect(prerenderTwin(config, '/live/status')).toBeUndefined()
     expect(prerenderTwin(config, '/docs/guide')).toBe('/raw/docs/guide.md')
   })

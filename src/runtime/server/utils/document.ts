@@ -113,14 +113,40 @@ export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
  * before the module did is not listed twice.
  */
 export function appendAgentResources(event: H3Event, markdown: string): string {
-  if (!markdown.trim() || AGENT_RESOURCES_HEADING_LINE.test(markdown)) {
+  if (!markdown.trim() || hasAgentResourcesHeading(markdown)) {
     return markdown
   }
   const resources = renderAgentResources(event)
   return resources ? `${markdown.replace(/\n*$/, '\n\n')}${resources}` : markdown
 }
 
-const AGENT_RESOURCES_HEADING_LINE = new RegExp(`^#{1,6}[ \\t]+${AGENT_RESOURCES_HEADING}[ \\t]*#*[ \\t]*$`, 'm')
+const AGENT_RESOURCES_HEADING_LINE = new RegExp(`^#{1,6}[ \\t]+${AGENT_RESOURCES_HEADING}[ \\t]*#*[ \\t]*$`)
+const CODE_FENCE = /^[ \t]*(`{3,}|~{3,})/
+
+/**
+ * Whether the body carries the heading outside a fenced code block: a page
+ * quoting the block it expects has not rendered it.
+ */
+function hasAgentResourcesHeading(markdown: string): boolean {
+  let fence: string | undefined
+  for (const line of markdown.split('\n')) {
+    const marker = CODE_FENCE.exec(line)?.[1]
+    if (fence) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length) {
+        fence = undefined
+      }
+      continue
+    }
+    if (marker) {
+      fence = marker
+      continue
+    }
+    if (AGENT_RESOURCES_HEADING_LINE.test(line)) {
+      return true
+    }
+  }
+  return false
+}
 
 /**
  * Resolves a page route to the exact document `/raw/<path>.md` serves.

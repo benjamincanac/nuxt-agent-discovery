@@ -125,6 +125,21 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     expect(document.markdown).not.toContain('llms.txt')
   })
 
+  it('still appends when the heading only appears inside a code block', async () => {
+    // A homepage quoting the block it expects, say a page documenting this
+    // module, has not rendered it.
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\n\n```md\n## Resources for Agents\n\n- [x](https://example.com/x)\n```\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(2)
+    expect(document.markdown).toContain('llms.txt')
+  })
+
   it('leaves every other page without the block', async () => {
     setAgentContentSource({
       async get(route) {
