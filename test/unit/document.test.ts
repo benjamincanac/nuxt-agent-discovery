@@ -168,6 +168,30 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     expect(document.markdown).not.toContain('llms.txt')
   })
 
+  it('reads indentation and closing hashes the way CommonMark does', async () => {
+    const homepage = (markdown: string) => setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown } : null
+      }
+    })
+    const render = async () => (await getAgentDocument(event, '/') as { markdown: string }).markdown
+
+    // Three spaces still make a heading, and so does a closing run of hashes
+    // after a space.
+    homepage('# Home\n\n   ## Resources for Agents ##\n\n- [x](https://example.com/x)\n')
+    expect(await render()).not.toContain('llms.txt')
+    // A hash glued to the text is part of it: not the heading.
+    homepage('# Home\n\n## Resources for Agents#\n')
+    expect(await render()).toContain('llms.txt')
+    // Four spaces make an indented code block, not a fence, so the heading
+    // after it is a real one.
+    homepage('# Home\n\n    ```\n## Resources for Agents\n\n- [x](https://example.com/x)\n    ```\n')
+    expect(await render()).not.toContain('llms.txt')
+    // And a four-space line inside a fence closes nothing.
+    homepage('# Home\n\n```\n    ```\n## Resources for Agents\n```\n')
+    expect(await render()).toContain('llms.txt')
+  })
+
   it('leaves every other page without the block', async () => {
     setAgentContentSource({
       async get(route) {

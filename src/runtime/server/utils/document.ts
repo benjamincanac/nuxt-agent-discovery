@@ -120,11 +120,13 @@ export function appendAgentResources(event: H3Event, markdown: string): string {
   return resources ? `${markdown.replace(/\n*$/, '\n\n')}${resources}` : markdown
 }
 
-const AGENT_RESOURCES_HEADING_LINE = new RegExp(`^#{1,6}[ \\t]+${AGENT_RESOURCES_HEADING}[ \\t]*#*[ \\t]*$`)
-const CODE_FENCE = /^[ \t]*(`{3,}|~{3,})/
+// CommonMark: up to three spaces of indentation on a heading or a fence, four
+// make an indented code block; a closing `#` run needs a space before it.
+const AGENT_RESOURCES_HEADING_LINE = new RegExp(`^ {0,3}#{1,6}[ \\t]+${AGENT_RESOURCES_HEADING}(?:[ \\t]+#+)?[ \\t]*$`)
+const CODE_FENCE = /^ {0,3}(`{3,}|~{3,})/
 // A closing fence carries no info string, so a line opening a fence of the
 // same kind inside a block is content, not its end.
-const CLOSING_CODE_FENCE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/
+const CLOSING_CODE_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
 
 /**
  * Whether the body carries the heading outside a fenced code block: a page
