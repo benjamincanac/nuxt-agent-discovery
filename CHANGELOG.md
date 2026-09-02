@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.2.0...v0.3.0) (2026-09-02)
+
+### Features
+
+* append the resources block to a source-backed `/` document ([#22](https://github.com/benjamincanac/nuxt-agent-discovery/issues/22)) ([2e82fa4](https://github.com/benjamincanac/nuxt-agent-discovery/commit/2e82fa43bc80b21ef218a8efb13cbcd58b10c551))
+
+### Bug Fixes
+
+* **prerender:** hint each page's raw twin from its own response ([#23](https://github.com/benjamincanac/nuxt-agent-discovery/issues/23)) ([97a311c](https://github.com/benjamincanac/nuxt-agent-discovery/commit/97a311c6ab4c8786fac506ff0414e0992b589f27))
+* **prerender:** skip site-owned, redirecting and missing twins ([#24](https://github.com/benjamincanac/nuxt-agent-discovery/issues/24)) ([230c7d6](https://github.com/benjamincanac/nuxt-agent-discovery/commit/230c7d6475413799f303f1577effb10bebfbbadc))
+
 ## [0.2.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.1.2...v0.2.0) (2026-09-01)
 
 ### Bug Fixes
