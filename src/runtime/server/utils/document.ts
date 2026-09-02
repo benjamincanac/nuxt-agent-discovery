@@ -122,6 +122,9 @@ export function appendAgentResources(event: H3Event, markdown: string): string {
 
 const AGENT_RESOURCES_HEADING_LINE = new RegExp(`^#{1,6}[ \\t]+${AGENT_RESOURCES_HEADING}[ \\t]*#*[ \\t]*$`)
 const CODE_FENCE = /^[ \t]*(`{3,}|~{3,})/
+// A closing fence carries no info string, so a line opening a fence of the
+// same kind inside a block is content, not its end.
+const CLOSING_CODE_FENCE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/
 
 /**
  * Whether the body carries the heading outside a fenced code block: a page
@@ -130,13 +133,14 @@ const CODE_FENCE = /^[ \t]*(`{3,}|~{3,})/
 function hasAgentResourcesHeading(markdown: string): boolean {
   let fence: string | undefined
   for (const line of markdown.split('\n')) {
-    const marker = CODE_FENCE.exec(line)?.[1]
     if (fence) {
-      if (marker && marker[0] === fence[0] && marker.length >= fence.length) {
+      const closing = CLOSING_CODE_FENCE.exec(line)?.[1]
+      if (closing && closing[0] === fence[0] && closing.length >= fence.length) {
         fence = undefined
       }
       continue
     }
+    const marker = CODE_FENCE.exec(line)?.[1]
     if (marker) {
       fence = marker
       continue

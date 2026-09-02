@@ -140,6 +140,19 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     expect(document.markdown).toContain('llms.txt')
   })
 
+  it('reads a fence line with an info string inside a block as content, not its end', async () => {
+    setAgentContentSource({
+      async get(route) {
+        return route === '/' ? { title: 'Home', markdown: '# Home\n\n````md\n```not-a-closing-fence\n## Resources for Agents\n```\n````\n' } : null
+      }
+    })
+
+    const document = await getAgentDocument(event, '/') as { markdown: string }
+
+    expect(document.markdown.match(/Resources for Agents/g)).toHaveLength(2)
+    expect(document.markdown).toContain('llms.txt')
+  })
+
   it('leaves every other page without the block', async () => {
     setAgentContentSource({
       async get(route) {
