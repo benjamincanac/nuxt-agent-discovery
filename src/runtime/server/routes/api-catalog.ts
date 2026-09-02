@@ -15,10 +15,10 @@ export default defineEventHandler((event) => {
     if (!link.anchor || (link.rel !== 'service-desc' && link.rel !== 'service-doc')) {
       continue
     }
-    const anchor = absolutizeHref(link.anchor === '/' ? '/' : link.anchor, siteUrl).replace(/\/$/, '') || `${siteUrl}/`
+    const anchor = absolutizeHref(link.anchor, siteUrl).replace(/\/$/, '') || `${siteUrl}/`
     let group = groups.get(anchor)
     if (!group) {
-      group = { anchor: link.anchor === '/' ? `${siteUrl}/` : absolutizeHref(link.anchor, siteUrl) }
+      group = { anchor: absolutizeHref(link.anchor, siteUrl) }
       groups.set(anchor, group)
     }
     const entries = (group[link.rel] ||= []) as { href: string, type?: string }[]
@@ -26,10 +26,8 @@ export default defineEventHandler((event) => {
   }
 
   setResponseHeader(event, 'Content-Type', 'application/linkset+json; charset=utf-8')
-  // Built from `discovery.links`, which is settled at build time, so the
-  // document is host-independent only when a site URL is configured. Without
-  // one the body carries the request origin, which must never be cached and
-  // handed to the next host that asks.
+  // Without a configured site URL the body carries the request origin, so it
+  // must never be cached and handed to the next host that asks.
   setResponseHeader(event, 'Cache-Control', config.siteUrl ? 'public, max-age=3600' : 'no-cache')
   return { linkset: [...groups.values()] }
 })

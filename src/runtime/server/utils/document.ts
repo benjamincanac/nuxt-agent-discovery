@@ -18,33 +18,20 @@ export interface AgentDocument {
 }
 
 export interface AgentDocumentOptions {
-  /**
-   * `##` headings to narrow the body to, for a caller that wants one part of
-   * a long page. Ignored when none of them match, since a document minus
-   * everything is not a useful answer.
-   */
+  /** `##` headings to narrow the body to. Ignored when none match, since a document minus everything is useless. */
   sections?: string[]
   /**
-   * Resolve a route under an excluded prefix anyway. By default it comes back
-   * `null`, the same answer every listing gives: an excluded path has no
-   * markdown twin as far as the site advertises. The opt-in exists for MCP
-   * tools, which are exactly where a site serves what it does not advertise
-   * (a nightly docs version kept out of `sitemap.md` and `llms.txt`).
+   * Resolve a route under an excluded prefix anyway. It comes back `null` by
+   * default, the answer every listing gives. The opt-in is for MCP tools, where a
+   * site serves what it does not advertise, a nightly docs version for instance.
    */
   includeExcluded?: boolean
 }
 
 /**
- * The landing page as markdown, for a site whose `/` is a Vue page rather than
- * a content document. The bridge already links `/raw/index.md` from `llms.txt`,
- * and both `nuxt/ui` docs and `nuxt.com` hand-wrote this route to stop it
- * 404ing. Everything structural comes from the registry; `agent-discovery:index`
- * is where the site fills in what only it knows.
- *
- * The hook gets the whole document, not just its body: the title and
- * description of a landing page like this live wherever the site keeps them,
- * and `siteName` is a fallback rather than the answer. There is no page to read
- * them off, which is the reason this branch exists at all.
+ * The landing page as markdown, for a site whose `/` is a Vue page rather than a
+ * content document. The hook gets the whole document, not just its body: there is
+ * no page to read a title and description off, and `siteName` is only a fallback.
  */
 async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentIndex & { markdown: string }> {
   const config = useAgentDiscoveryConfig(event)
@@ -61,8 +48,6 @@ async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentInd
     markdown: [
       `# ${index.title}`,
       '',
-      // Same shape a content document comes out in, so the two paths read
-      // alike whichever one served the file.
       ...(index.description ? [`> ${index.description}`, ''] : []),
       ...(index.body.length ? [...index.body, ''] : []),
       ...(resources ? [resources] : []),
@@ -74,16 +59,11 @@ async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentInd
 }
 
 /**
- * `source.get()` plus the link absolutization every adapter would otherwise
- * have to remember.
- *
- * A markdown document is read detached from the site it came from, so a
- * site-relative link in it points nowhere. The built-in adapters already
- * rewrite their document tree, where they can also see the links in MDC
- * component props; this pass is idempotent over that, because it only matches a
- * destination starting with a single slash and those are already absolute.
- * Doing it here rather than in each adapter is what keeps a custom source from
- * silently emitting relative links.
+ * `source.get()` plus link absolutization, since a markdown document is read
+ * detached from the site it came from. Idempotent over the built-in adapters,
+ * which rewrite their document tree already: this only matches a destination
+ * starting with a single slash. Here rather than per adapter, so a custom source
+ * cannot silently emit relative links.
  */
 export async function getSourcePage(route: string, event: H3Event): Promise<AgentPage | null> {
   const page = await source?.get(route, event)
@@ -93,24 +73,17 @@ export async function getSourcePage(route: string, event: H3Event): Promise<Agen
   return { ...page, markdown: absolutizeMarkdownLinks(page.markdown, getAgentSiteUrl(event)) }
 }
 
-/**
- * The generated landing page, in the same shape `getSourcePage` returns, for
- * a consumer rendering `/` on an adapter with no `/` entry. The raw route
- * reaches the same document through `getAgentDocument`'s own fallback.
- */
+/** The generated landing page in the shape `getSourcePage` returns, for an adapter with no `/` entry. */
 export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
   const index = await generatedIndex(event, getAgentSiteUrl(event))
   return { title: index.title, description: index.description, markdown: index.markdown }
 }
 
 /**
- * The `/` body with the discovery resources appended, shared by
- * `getAgentDocument` and the `llms-full.txt` builder so the homepage reads
- * identically wherever it is served. An empty body stays empty, so a
- * placeholder `/` entry keeps contributing nothing to `llms-full.txt`, a
- * registry with no titled links leaves the body alone, and so does a body
- * already carrying the heading: a homepage that rendered the registry by hand
- * before the module did is not listed twice.
+ * The `/` body with the discovery resources appended, shared by `getAgentDocument`
+ * and the `llms-full.txt` builder so the homepage reads identically wherever it is
+ * served. An empty body stays empty, and a body already carrying the heading is
+ * left alone: a homepage rendering the registry by hand is not listed twice.
  */
 export function appendAgentResources(event: H3Event, markdown: string): string {
   if (!markdown.trim() || hasAgentResourcesHeading(markdown)) {
@@ -120,18 +93,15 @@ export function appendAgentResources(event: H3Event, markdown: string): string {
   return resources ? `${markdown.replace(/\n*$/, '\n\n')}${resources}` : markdown
 }
 
-// CommonMark: up to three spaces of indentation on a heading or a fence, four
-// make an indented code block; a closing `#` run needs a space before it.
+// CommonMark: up to three spaces of indentation on a heading or a fence, four make
+// an indented code block. A closing `#` run needs a space before it.
 const AGENT_RESOURCES_HEADING_LINE = new RegExp(`^ {0,3}#{1,6}[ \\t]+${AGENT_RESOURCES_HEADING}(?:[ \\t]+#+)?[ \\t]*$`)
 const CODE_FENCE = /^ {0,3}(`{3,}|~{3,})/
-// A closing fence carries no info string, so a line opening a fence of the
-// same kind inside a block is content, not its end.
+// A closing fence carries no info string, so a line opening a fence of the same
+// kind inside a block is content, not its end.
 const CLOSING_CODE_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
 
-/**
- * Whether the body carries the heading outside a fenced code block: a page
- * quoting the block it expects has not rendered it.
- */
+/** Whether the body carries the heading outside a fenced code block: a page quoting it has not rendered it. */
 function hasAgentResourcesHeading(markdown: string): boolean {
   let fence: string | undefined
   for (const line of markdown.split(/\r?\n/)) {
@@ -143,8 +113,7 @@ function hasAgentResourcesHeading(markdown: string): boolean {
       continue
     }
     const opening = CODE_FENCE.exec(line)
-    // A backtick fence's info string may not contain a backtick: such a line
-    // is text, and a tilde fence's may.
+    // A backtick fence's info string may not contain a backtick, a tilde fence's may.
     if (opening && !(opening[1]!.startsWith('`') && line.slice(opening[0].length).includes('`'))) {
       fence = opening[1]
       continue
@@ -157,46 +126,34 @@ function hasAgentResourcesHeading(markdown: string): boolean {
 }
 
 /**
- * Resolves a page route to the exact document `/raw/<path>.md` serves.
+ * Resolves a page route to the exact document `/raw/<path>.md` serves. The HTTP
+ * route is a thin shell over this, so an MCP `get-page` tool returns the same
+ * bytes as the URL without `$fetch`ing the site from inside its own function.
  *
- * The HTTP route is a thin shell over this so that anything else reaching for
- * a page's markdown, an MCP `get-page` tool most of all, returns the same
- * bytes as the URL. Sites currently do that by `$fetch`ing their own raw
- * route from inside a serverless function, which pays for a second request to
- * reach code already loaded in the same process, and drifts the moment the
- * two disagree.
- *
- * Returns `null` for a route with no markdown representation. `redirect` is a
- * path that names a section rather than a page, where the section's first
- * document is the answer.
+ * Returns `null` for a route with no markdown representation. `redirect` names a
+ * section rather than a page, where the section's first document is the answer.
  */
 export async function getAgentDocument(event: H3Event, route: string, options: AgentDocumentOptions = {}): Promise<AgentDocument | { redirect: string } | null> {
   const config = useAgentDiscoveryConfig(event)
 
   const path = normalizeAgentRoute(route)
 
-  // The same filter every listing applies, so the raw route (a thin shell
-  // over this) answers 404 where `sitemap.md`, `llms.txt` and
-  // `listAgentPages()` say the page does not exist. Serving it anyway made
-  // the exclusion look like an indexing choice when it is the module-wide
-  // definition of "not a page".
+  // Exclusion is the module-wide definition of "not a page", not an indexing hint,
+  // so the raw route 404s wherever the listings say the page does not exist.
   if (!options.includeExcluded && isExcluded(path, config)) {
     return null
   }
 
   const siteUrl = getAgentSiteUrl(event)
-  // Re-encoded because `normalizeAgentRoute` decoded the path above, and this
-  // URL lands in a `Link` header, where Node rejects anything above U+00FF.
-  // Per segment: `encodeURI` would leave a `#` or `?` in a slug alone, and
-  // either one cuts the URL short right there.
-  const canonicalUrl = `${siteUrl}${path === '/' ? '' : encodeAgentRoute(path)}` || siteUrl
+  // Re-encoded because `normalizeAgentRoute` decoded the path above, and a `Link`
+  // header rejects anything above U+00FF. Per segment, since `encodeURI` leaves a
+  // `#` or `?` in a slug alone and either one cuts the URL short.
+  const canonicalUrl = `${siteUrl}${path === '/' ? '' : encodeAgentRoute(path)}`
 
   const page = await getSourcePage(path, event)
   if (!page) {
-    // A path that names a section rather than a page (`/getting-started` with
-    // no index) resolves to the section's first document, the same as the
-    // HTML page does. Anything else is a genuine 404, except `/`, which falls
-    // through to the generated index below.
+    // A path naming a section rather than a page resolves to its first document,
+    // the same as the HTML page does. `/` falls through to the generated index.
     const leaf = path === '/' ? null : await source?.firstLeaf?.(path, event)
     if (leaf && leaf !== path) {
       return { redirect: leaf }
@@ -208,8 +165,7 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
 
   const index = page ? undefined : await generatedIndex(event, siteUrl)
 
-  // An empty key reads as a value the page deliberately set to nothing, so a
-  // missing title or description is left out rather than emitted as `""`.
+  // An empty key reads as a value the page set to nothing, not a missing one.
   const title = page?.title || index?.title
   const description = page?.description || index?.description
   const frontmatter = [
@@ -225,13 +181,10 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
     return { markdown: frontmatter + index.markdown, title, description, canonicalUrl }
   }
 
-  // Absolute, like the links inside the body: this file is read detached from
-  // the site.
   const sitemap = config.links.some(link => link.href === '/sitemap.md')
     ? `\n\n## Sitemap\n\nSee the full [sitemap](${siteUrl}/sitemap.md) for all pages.\n`
     : '\n'
 
-  // `/` mirrors the generated index: body, the discovery resources, footer.
   const body = path === '/' ? appendAgentResources(event, page!.markdown) : page!.markdown
   const markdown = frontmatter + body + sitemap
 

@@ -31,17 +31,15 @@ function titleCase(value: string): string {
 }
 
 /**
- * Built-in `@nuxt/content` v3 adapter: `queryCollection()` over
- * `type: 'page'` collections, stringified with minimark. Mirrors the raw
- * markdown route `@nuxt/content` registers when `nuxt-llms` is present, so
- * swapping to this module changes nothing for agents.
+ * Built-in `@nuxt/content` v3 adapter: `queryCollection()` over `type: 'page'`
+ * collections, stringified with minimark. Mirrors the raw markdown route
+ * `@nuxt/content` registers when `nuxt-llms` is present.
  */
 const source: AgentContentSource = {
   /**
-   * Reads `contentCollection` and `contentFilters` off the section, the same
-   * two keys `@nuxt/content`'s llms feature declared, so a site's existing
-   * `llms.sections` config keeps working after this module takes the feature
-   * over. A selector naming anything else is not ours.
+   * Reads the same `contentCollection` and `contentFilters` keys
+   * `@nuxt/content`'s llms feature declared, so an existing `llms.sections`
+   * config keeps working. A selector naming anything else is not ours.
    */
   async list(selector: AgentSectionSelector | undefined, event: H3Event) {
     const { contentCollection, contentFilters } = (selector || {}) as ContentSelector
@@ -49,14 +47,13 @@ const source: AgentContentSource = {
       return null
     }
 
-    const names = contentCollection ? [contentCollection as keyof Collections] : pageCollections()
-    if (contentCollection && !pageCollections().includes(contentCollection as keyof Collections)) {
+    const pageNames = pageCollections()
+    if (contentCollection && !pageNames.includes(contentCollection as keyof Collections)) {
       return null
     }
+    const names = contentCollection ? [contentCollection as keyof Collections] : pageNames
 
-    // One query per collection, all in flight at once. `Promise.all` keeps the
-    // results in the order the collections were declared, which is the order
-    // the flattened listing has to come out in.
+    // `Promise.all` keeps the collection declaration order the listing needs.
     const results = await Promise.all(names.map(async (collection) => {
       const query = queryCollection(event, collection)
         .select('path', 'title', 'description')
@@ -77,28 +74,19 @@ const source: AgentContentSource = {
 
   /**
    * First page under a section path, so `/raw/getting-started.md` lands on the
-   * section's first document instead of a 404 when the directory has no index.
-   *
-   * Ordered by `stem`, which keeps the `1.`/`2.` filename prefixes the path has
-   * already dropped, so this lands where the site's own navigation does rather
-   * than on whatever sorts first alphabetically.
+   * section's first document instead of a 404. Ordered by `stem`, which keeps
+   * the `1.`/`2.` filename prefixes the path has dropped, so this lands where
+   * the site's own navigation does.
    */
   async firstLeaf(route: string, event: H3Event) {
     const prefix = `${withLeadingSlash(route).replace(/\/$/, '')}/`
     // `%` is a `LIKE` wildcard and the prefix comes from the URL, so `/raw/%.md`
-    // would match every page in every collection and materialize them all
-    // before the check below throws them away. `_` is a wildcard too but only
-    // for a single character, which is a real path character and barely widens
-    // anything, so it stays.
+    // would materialize every page in every collection.
     if (prefix.includes('%')) {
       return null
     }
-    // One collection at a time, returning on the first match. `list()` needs
-    // every collection and parallelizes; this one needs the first that answers,
-    // so a later collection is a query nothing asked for. It is also the raw
-    // route's 404 path, where the common case is no match at all, and a
-    // `Promise.all` there would reject the whole lookup over a collection the
-    // answer never depended on.
+    // Sequential, unlike `list()`: a `Promise.all` would reject the whole
+    // lookup over a collection the answer never depended on.
     for (const collection of pageCollections()) {
       const pages = await queryCollection(event, collection)
         .select('path', 'stem')
@@ -106,10 +94,8 @@ const source: AgentContentSource = {
         .where('path', 'NOT LIKE', '%/.navigation')
         .order('stem', 'ASC')
         .all() as { path: string }[]
-      // `where` has no `ESCAPE` clause, and the path comes from the URL, where
-      // `%` and `_` are `LIKE` wildcards: `/raw/do_s.md` matches `/docs/...`.
-      // The pattern only ever widens the match, so a plain prefix check on the
-      // way out is enough to pin it back down.
+      // `where` has no `ESCAPE` clause, so `_` still widens the match
+      // (`/raw/do_s.md` matches `/docs/...`). Pinned back down here.
       const page = pages.find(entry => entry.path?.startsWith(prefix))
       if (page?.path) {
         return page.path
@@ -131,29 +117,21 @@ const source: AgentContentSource = {
         break
       }
     }
-    // A structured page carries no markdown body: a YAML landing page, or a
-    // collection backed by data rather than prose. It has no markdown
-    // representation, so the raw route 404s it and the landing page falls
-    // through to the generated index, which is what a site wants for `/`.
+    // A structured page (YAML landing page, data collection) has no markdown
+    // representation, so the raw route 404s it and `/` falls through to the index.
     if (!page?.body?.value) {
       return null
     }
 
-    // Copied before anything touches it, the way the comark adapter does:
-    // whether `queryCollection` hands back a shared object is its business,
-    // and both the hook below and the pipeline mutate the tree in place.
-    // `appendRelatedLinks` in particular is not idempotent.
+    // Copied before anything mutates it: the hook and the pipeline both edit
+    // the tree in place, and `appendRelatedLinks` is not idempotent.
     page = { ...page, body: { ...page.body, value: structuredClone(page.body.value) } }
 
-    // Lets sites transform the minimark tree (MDC components → plain
-    // markdown) without replacing the whole source.
+    // Lets sites transform the tree without replacing the whole source.
     await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
 
-    // Mutated in place: `page.body` below stringifies this same array. The
-    // minimark stringifier drops a highlighter's `<style>` node only while it
-    // is the last one, so the pipeline strips it before appending anything.
-    // `@nuxt/content` keeps `links` either at the root or under `meta`,
-    // depending on the collection schema.
+    // Mutated in place: `page.body` below stringifies this same array. `links`
+    // sits at the root or under `meta`, depending on the collection schema.
     prepareDocumentTree(page.body.value as unknown as DocNode[], {
       title: page.title,
       description: page.description,

@@ -3,9 +3,9 @@ import { useRuntimeConfig } from '#imports'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 
 /**
- * Generated `robots.txt` allowing the same agent list the negotiation
- * matches, so the two can never drift apart. Only registered when the site
- * has neither a static `public/robots.txt` nor `@nuxtjs/robots`.
+ * Generated `robots.txt` allowing the same agent list the negotiation matches.
+ * Only registered when the site has neither a static `public/robots.txt` nor
+ * `@nuxtjs/robots`.
  */
 export default defineEventHandler((event) => {
   const config = useAgentDiscoveryConfig(event)
@@ -16,9 +16,8 @@ export default defineEventHandler((event) => {
   if (contentSignal) {
     lines.push(`Content-Signal: ${contentSignal}`)
   }
-  // Wildcard group only: the agent groups below exempt their agents from
-  // these rules, deliberately, so what search engines are kept out of stays
-  // reachable for the agents the site names.
+  // Wildcard group only: the agent groups below exempt their agents from these
+  // rules, so what search engines are kept out of stays reachable for agents.
   for (const path of disallow || []) {
     lines.push(`Disallow: ${path}`)
   }
@@ -33,10 +32,8 @@ export default defineEventHandler((event) => {
   }
 
   setResponseHeader(event, 'Content-Type', 'text/plain; charset=utf-8')
-  // Same as the api-catalog: the agent list and the content signal are both
-  // build-time configuration, but the sitemap line is only host-independent
-  // when a site URL is configured. Without one the body carries the request
-  // origin, which must never be cached and handed to the next host that asks.
+  // Without a configured site URL the sitemap line carries the request origin,
+  // so it must not be cached. Same rule as the api-catalog.
   setResponseHeader(event, 'Cache-Control', config.siteUrl ? 'public, max-age=3600' : 'no-cache')
   return lines.join('\n')
 })

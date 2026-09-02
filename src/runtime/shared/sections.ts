@@ -1,18 +1,7 @@
 /**
- * Narrows a markdown document to the `##` sections an agent asked for,
- * keeping the frontmatter, the title and the description.
- *
- * A docs page is often far longer than the part of it that answers a
- * question, and an agent that has to read all of it pays for the rest in
- * context. This is the function every site running an MCP `get-page` tool
- * ends up writing.
- *
- * Two copies of it exist in the wild and each fixed a bug the other still
- * has: one bounds the header scan at the first `##`, so a page with no
- * description doesn't swallow the whole document, but returns just the title
- * when nothing matched, which makes the agent fetch the page again; the other
- * falls back to the full document but lost the bound. This has both, plus the
- * frontmatter skip the raw route's output needs.
+ * Narrows a markdown document to the `##` sections an agent asked for, keeping
+ * the frontmatter, the title and the description. A docs page is often far
+ * longer than the part of it that answers a question.
  */
 export function extractSections(markdown: string, sectionTitles: string[]): string {
   const wanted = new Set(sectionTitles.map(title => title.toLowerCase().trim()))
@@ -24,9 +13,8 @@ export function extractSections(markdown: string, sectionTitles: string[]): stri
   const result: string[] = []
   let start = 0
 
-  // The raw route opens every document with a frontmatter block, and a YAML
-  // block scalar (`description: >`) inside it would otherwise read as the
-  // description blockquote and end the header scan early.
+  // A YAML block scalar (`description: >`) in the frontmatter would otherwise
+  // read as the description blockquote and end the header scan early.
   if (lines[0] === '---') {
     const close = lines.indexOf('---', 1)
     if (close !== -1) {
@@ -35,10 +23,8 @@ export function extractSections(markdown: string, sectionTitles: string[]): stri
     }
   }
 
-  // The title and the description, however few lines that turns out to be.
-  // Bounded by the first `##`: a page with no description blockquote would
-  // otherwise push its entire body in here and then repeat the matched
-  // sections below it.
+  // Title and description, bounded by the first `##`: a page with no description
+  // blockquote would otherwise push its entire body in here.
   for (let index = start; index < lines.length; index++) {
     const line = lines[index]!
     if (line.startsWith('## ')) {
@@ -77,9 +63,8 @@ export function extractSections(markdown: string, sectionTitles: string[]): stri
   }
   take()
 
-  // Nothing matched, so the agent named sections this page doesn't have.
-  // Handing back the title alone would just make it ask again without the
-  // argument; the whole document answers the question it was really asking.
+  // Nothing matched, so the agent named sections this page doesn't have. The
+  // title alone would just make it ask again without the argument.
   if (!matched) {
     return markdown
   }

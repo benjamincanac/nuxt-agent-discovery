@@ -4,9 +4,8 @@ import { joinURL } from 'ufo'
 import { useHead, useRequestURL, useRoute, useRuntimeConfig } from '#imports'
 
 /**
- * Adds a canonical URL for the current route plus, optionally, a
- * `rel="alternate"; type="text/markdown"` link pointing at the agent-friendly
- * markdown counterpart:
+ * Adds a canonical link for the current route, plus a
+ * `rel="alternate"; type="text/markdown"` link when a markdown twin is given.
  *
  * ```ts
  * useCanonical(() => `${route.path}.md`)

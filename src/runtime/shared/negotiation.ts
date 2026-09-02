@@ -1,10 +1,4 @@
-/**
- * Markdown content negotiation core.
- *
- * Kept dependency-free on purpose: imported by the build-time module and
- * deploy presets (through the module bundle) and by the Nitro runtime
- * (middleware, error handler, routes). One source of truth for both.
- */
+/** Negotiation core. Dependency-free: shared by build time, presets and runtime. */
 
 import type { AgentRoute, DiscoveryLink, NegotiationConfig } from './types'
 
@@ -25,18 +19,14 @@ export function normalizePathname(path: string): string {
 /**
  * A raw route slug as the content backends spell it: decoded, without a
  * trailing slash, and with `/index` folded into the directory it indexes.
- *
- * The URL arrives percent-encoded while every backend stores decoded paths, so
- * without this `/docs/caf%C3%A9` has no markdown twin at all while its HTML
- * page renders. A malformed escape is left as it came: it matches nothing
- * either way, and throwing would turn a 404 into a 500.
+ * Backends store decoded paths, so `/docs/caf%C3%A9` would have no twin.
  */
 export function normalizeAgentRoute(route: string): string {
   let path = route
   try {
     path = decodeURIComponent(path)
   } catch {
-    // Not a valid escape sequence, so there is nothing to decode.
+    // Malformed escape: leave it as it came rather than turn a 404 into a 500.
   }
   if (path.length > 1 && path.endsWith('/')) {
     path = path.slice(0, -1)
@@ -48,12 +38,9 @@ export function normalizeAgentRoute(route: string): string {
 }
 
 /**
- * The inverse, for URLs this module emits: the decoded route re-encoded the
- * way a page URL is spelled. `encodeURI` alone leaves `#` and `?` in place,
- * where either one cuts a `Link` or `Location` header short, so those two are
- * escaped on top. Not `encodeURIComponent` per segment: that also escapes
- * sub-delims (`@`, `:`, `,`) the HTML page's own canonical keeps literal,
- * which would split the canonical signal into two spellings.
+ * The inverse, for URLs this module emits. `encodeURI` leaves `#` and `?` in
+ * place, where either one cuts a `Link` or `Location` header short. Not
+ * `encodeURIComponent`: it escapes sub-delims the page's canonical keeps.
  */
 export function encodeAgentRoute(path: string): string {
   return encodeURI(path).replace(/#/g, '%23').replace(/\?/g, '%3F')
@@ -76,13 +63,9 @@ const REGEX_SPECIALS = /[.+?^${}()|[\]\\]/
 
 /**
  * Compiles a route pattern to a regex source with one capture group per
- * wildcard: `*` matches one segment, `**` one or more.
- *
- * A trailing slash is matched but never captured. The runtime strips it in
- * `normalizePathname` before matching, but the CDN tests this pattern against
- * the raw request path, and a captured slash lands in the rewrite destination:
- * `/docs/x/` becoming `/raw/docs/x/.md`, which 404s. The `**` capture is lazy
- * so it yields the slash to that optional suffix rather than swallowing it.
+ * wildcard: `*` matches one segment, `**` one or more. A trailing slash is
+ * matched but never captured, because the CDN tests this against the raw
+ * request path and a captured slash rewrites `/docs/x/` to `/raw/docs/x/.md`.
  */
 export function compilePattern(pattern: string): { source: string, captures: number } {
   let source = ''
@@ -125,28 +108,18 @@ export function staticPrefix(pattern: string): string {
   return pattern.split('*')[0]!
 }
 
-/** `/docs/` → `/docs`, so a prefix compares equal to the exact path it covers. */
 function trimSlash(value: string): string {
   return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value
 }
 
-/**
- * Whether `path` is `prefix` or sits under it, on a segment boundary. A plain
- * `startsWith` would put `/toolsx` under `/tools`.
- */
+/** `path` is `prefix` or under it on a segment boundary: `/toolsx` is not. */
 function isUnder(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(prefix === '/' ? '/' : `${prefix}/`)
 }
 
 /**
- * Whether two patterns can match the same path. Used to decide whether a route
- * rule's response cache covers a negotiated pattern, so it errs towards `true`:
- * a false positive costs a redirect where a rewrite would have done, a false
- * negative lets two representations share one cache entry.
- *
- * Static prefixes alone are too loose in two directions: an exact pattern
- * matches exactly one path, so a `/docs/**` rule says nothing about `/`, and a
- * bare string prefix crosses segment boundaries.
+ * Whether two patterns can match the same path. Errs towards `true`, since a
+ * false negative lets two representations share one route rule cache entry.
  */
 export function patternsOverlap(a: string, b: string): boolean {
   const left = trimSlash(staticPrefix(a))
@@ -164,15 +137,9 @@ export function patternsOverlap(a: string, b: string): boolean {
 }
 
 /**
- * Whether a `routeRules` key covers a path, read the way Nitro reads it rather
- * than the way this module's own patterns are read.
- *
- * Route rules are matched by radix3, where `**` stands for zero or more
- * segments: `/docs/**` applies to `/docs` itself, and `/**` applies to `/`.
- * `compilePattern` compiles `**` to `(.+)`, one or more, which is what a page
- * pattern needs (the capture feeds `/raw/$1.md`) and not what a cache rule
- * means. Reading a rule with the pattern matcher silently leaves the section
- * root uncached, which is where a rewrite poisons a cache that really exists.
+ * Whether a `routeRules` key covers a path, read the way radix3 reads it: `**`
+ * is zero or more segments, so `/docs/**` applies to `/docs` itself. The page
+ * patterns compile `**` to one or more, which a cache rule does not mean.
  */
 export function ruleMatchesPath(rule: string, pathname: string): boolean {
   if (rule.endsWith('**')) {
@@ -182,37 +149,21 @@ export function ruleMatchesPath(rule: string, pathname: string): boolean {
 }
 
 /**
- * Whether a cached rule covers *every* path a negotiated pattern matches, the
- * only condition under which the whole pattern may be demoted from a rewrite
- * to a 307. Anything narrower gets its own pair of routes emitted ahead of the
- * pattern instead.
- *
- * Errs towards `false`, the opposite bias to `patternsOverlap`: a pattern
- * wrongly left uncovered still gets that rule's own 307, while a pattern
- * wrongly covered turns every page under it into a redirect.
- *
- * A rule carrying a wildcard before its last segment, a locale prefix say,
- * reports `true` for anything under its static prefix, because `staticPrefix`
- * cuts at the first wildcard. That is the fail-safe direction and matches what
- * the preset did before, so it is left alone deliberately.
+ * Whether a cached rule covers every path a pattern matches, the only case
+ * where the pattern may be demoted from a rewrite to a 307. Errs towards
+ * `false`: a pattern wrongly covered turns its pages into redirects.
  */
 export function ruleCoversPattern(rule: string, pattern: string): boolean {
   if (rule === pattern) {
     return true
   }
-  // A `**` rule owns its whole subtree, so it covers any pattern rooted in it.
   if (rule.endsWith('**')) {
     return isUnder(trimSlash(staticPrefix(pattern)), trimSlash(staticPrefix(rule)))
   }
-  // Anything else matches a bounded set of paths, so it can only cover a
-  // pattern that is itself a single path the rule matches.
   return !pattern.includes('*') && ruleMatchesPath(rule, pattern)
 }
 
-/**
- * The raw markdown destination for a matched page. `raw` is only honoured on
- * exact patterns; wildcard patterns always map to `rawPrefix + path + '.md'`.
- */
+/** The raw markdown destination for a page. `raw` is only honoured on exact patterns. */
 export function rawDestination(config: NegotiationConfig, route: AgentRoute, pathname: string): string {
   if (route.raw && !route.path.includes('*')) {
     return route.raw
@@ -288,17 +239,9 @@ export function acceptQuality(entries: AcceptEntry[], target: string): number {
 
 /**
  * Whether the client explicitly asked for markdown: a literal `text/markdown`
- * entry with a non-zero q-value that html does not outrank. A wildcard on its
- * own never counts as asking, so wildcard-only clients keep HTML on pages.
- *
- * Unless it refused html outright. A client sending `text/html;q=0` alongside
- * a full wildcard has ruled out the only other representation there is, so
- * html hands it the one thing it said it could not read, and the page is not
- * unacceptable either: markdown rates through that wildcard, so there is
- * nothing for `notAcceptable` to refuse. Markdown is the only answer left.
- *
- * Narrow on purpose: a browser and a `fetch()` both rate html through their
- * own wildcard, so neither ever reaches this.
+ * entry with a non-zero q-value that html does not outrank. A wildcard alone
+ * never counts, so browsers and `fetch()` keep HTML. The exception is a client
+ * that refused html outright, where markdown is the only answer left.
  */
 export function acceptsMarkdown(accept?: string | null): boolean {
   const entries = parseAccept(accept)
@@ -311,15 +254,9 @@ export function acceptsMarkdown(accept?: string | null): boolean {
 }
 
 /**
- * Case-insensitive, so it agrees with the CDN `has` matchers: a real Vercel
- * edge has been observed anchoring the value and matching it
- * case-insensitively. The Build Output docs only document `caseSensitive` for
- * `src`, so the edge matchers spell both cases where a miss would matter
- * (`REFUSES_MARKDOWN`) and nothing depends on the observation. The origin
- * errs the same direction, towards matching.
- *
- * Lowered per call on purpose: Nitro klonas the runtime config per request,
- * so a cache keyed on the list's identity could never hit across requests.
+ * Case-insensitive, so it agrees with the CDN `has` matchers. Lowered per call
+ * because Nitro clones the runtime config per request, so a cache keyed on the
+ * list's identity could never hit across requests.
  */
 export function isAgentUserAgent(config: NegotiationConfig, userAgent?: string | null): boolean {
   if (!userAgent) {
@@ -332,11 +269,8 @@ export function isAgentUserAgent(config: NegotiationConfig, userAgent?: string |
 /* ------------------------------- negotiation ------------------------------ */
 
 /**
- * Resolves the raw markdown destination a request should be served from, or
- * `undefined` when the request is not asking for markdown.
- *
- * Mirrors the deploy-preset rewrites so the dev and Node servers behave like
- * the edge.
+ * The raw markdown destination a request should be served from, or `undefined`
+ * when it is not asking for markdown. Mirrors the deploy-preset rewrites.
  */
 export function negotiatedRawPath(config: NegotiationConfig, path: string, options: { accept?: string | null, userAgent?: string | null } = {}): string | undefined {
   const pathname = normalizePathname(path)
@@ -349,10 +283,8 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
     return undefined
   }
 
-  // An explicit `.md` twin URL is a markdown request, whatever the headers
-  // say. A bare `/.md` is not a twin, matching the CDN rewrites. Handled here
-  // rather than through `negotiableRoute`, whose dotted-segment rule would
-  // read the suffix as an asset.
+  // An explicit `.md` twin is a markdown request whatever the headers say. Not
+  // routed through `negotiableRoute`, which would read the suffix as an asset.
   if (pathname.endsWith('.md')) {
     const base = pathname.slice(0, -3)
     if (base.length <= 1) {
@@ -371,16 +303,10 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
 }
 
 /**
- * The twin a page hands Nitro's prerender crawler while it is being rendered:
- * the raw destination of a negotiable path, or `undefined` for a URL with a
- * single representation and for a twin the site serves with a handler of its
- * own, which prerendering would freeze at build.
- *
- * Emitted from the page's own HTML response, because that is the only kind
- * Nitro reads `x-nitro-prerender` from: a hint on a `text/plain` response is
- * dropped with the rest of it, and `/` is not prerendered on every site (a
- * locale-prefixed one starts at `/en`). A twin is prerendered exactly when
- * its page is, whatever the crawl order.
+ * The twin a page hands Nitro's prerender crawler while it renders, or
+ * `undefined` for a single-representation URL and for a twin the site serves
+ * itself. Emitted from the page's own HTML response: Nitro drops
+ * `x-nitro-prerender` on a `text/plain` one, and `/` is not always prerendered.
  */
 export function prerenderTwin(config: NegotiationConfig, path: string): string | undefined {
   const pathname = normalizePathname(path)
@@ -394,21 +320,14 @@ export function prerenderTwin(config: NegotiationConfig, path: string): string |
 
 /**
  * Whether the site answers a raw twin with a handler of its own, so nothing
- * may prerender it: not the exact-route pass, not the llms bridge's hints and
- * not a page's own. The one predicate behind all three, on the handler
- * patterns `ownRawRoutes` carries, because a page matched by a wildcard route
- * has no build-time list of twins to compare against.
+ * may prerender it. Matched on handler patterns, since a page under a wildcard
+ * route has no build-time list of twins.
  */
 export function siteServesRaw(config: Pick<NegotiationConfig, 'ownRawRoutes'>, raw: string): boolean {
   return config.ownRawRoutes?.some(pattern => handlerRouteMatches(pattern, raw)) ?? false
 }
 
-/**
- * Whether a handler's route pattern covers a path, the way Nitro's router
- * reads it: `:name` and `*` match one segment, `**` the rest. An exact string
- * compare read `/raw/:name` as not owning the twin it serves, and the
- * prerender froze it anyway.
- */
+/** Whether a handler route covers a path: `:name` and `*` match one segment, `**` the rest. */
 export function handlerRouteMatches(pattern: string, path: string): boolean {
   if (!/[:*]/.test(pattern)) {
     return pattern === path
@@ -431,9 +350,7 @@ export function handlerRouteMatches(pattern: string, path: string): boolean {
 
 /**
  * The route a path negotiates through, whatever the client asked for.
- * `undefined` when the URL has a single representation: the raw prefix itself,
- * an excluded prefix, a dotted asset (`_payload.json`, images), or a path no
- * configured pattern covers.
+ * `undefined` when the URL has a single representation.
  */
 function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRoute | undefined {
   if (isRawPath(config, pathname)) {
@@ -448,67 +365,35 @@ function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRout
   return matchRoute(config.routes, pathname)
 }
 
-/**
- * Whether a normalized pathname is the raw prefix itself or sits under it.
- * The one definition of "this URL is a raw markdown twin", shared with the
- * sitemap plugin so every consumer agrees on it.
- */
+/** Whether a normalized pathname is the raw prefix itself or sits under it. */
 export function isRawPath(config: Pick<NegotiationConfig, 'rawPrefix'>, pathname: string): boolean {
   return isUnder(pathname, config.rawPrefix)
 }
 
 /**
- * Whether a URL has both an HTML and a markdown representation, so its
- * response genuinely depends on `Accept` and `User-Agent`.
- *
- * This is what `Vary` is set from. Deriving it here rather than from a route
- * rule glob is the only way to exclude the API surface and the assets: a
- * `routeRules` key cannot express a negative pattern, so a catch-all pattern
- * would label every response on the site.
+ * Whether a URL has both an HTML and a markdown representation. This is what
+ * `Vary` is set from, derived here because a `routeRules` key cannot express
+ * the negative pattern that keeps the API surface and the assets out.
  */
 export function isNegotiablePath(config: NegotiationConfig, path: string): boolean {
   return Boolean(negotiableRoute(config, normalizePathname(path)))
 }
 
-/**
- * The media types a negotiated page has a representation for, in the order the
- * 406 body lists them.
- */
+/** The media types a negotiated page has, in the order the 406 body lists them. */
 export const REPRESENTATIONS = ['text/html', 'text/markdown']
 
 /**
- * A media range as RFC 9110 spells one: a full wildcard, `type/*`, or
- * `type/subtype`, each half a non-empty token.
- *
- * `text/`, `/html` and `text/html/extra` are not media ranges, they are a
- * mangled header, and the difference matters: an unacceptable range is a 406
- * while a mangled one is ignored.
+ * A media range as RFC 9110 spells one. `text/` and `/html` are a mangled
+ * header, not a range: an unacceptable range is a 406, a mangled one ignored.
  */
 const MEDIA_RANGE = /^[a-z0-9!#$%&'*+.^_|~-]+\/[a-z0-9!#$%&'*+.^_|~-]+$/
 
 /**
- * Whether a negotiated page has to answer 406: the request carries an `Accept`
- * that rules out both of its representations, which is what RFC 9110 asks for
- * when a server cannot honour the header.
- *
- * Off unless a site turns it on, and narrow when it is on, because every false
- * positive here is a page that used to render turning into an error. So:
- *
- * - no `Accept` at all means the client takes anything, and the full wildcard
- *   a `fetch()` sends, or the one at `q=0.8` every browser sends, rates both
- *   representations through `acceptQuality`, so neither reaches the last check
- * - a `Sec-Fetch-Mode` of `navigate` is a real navigation, and keeps its page
- *   whatever it asked for, the same protection `prefersMarkdownError` gives
- * - a known agent gets markdown whatever its `Accept` says, so it can never be
- *   refused over a header it was not being read on anyway
- * - a header with no media range in it at all is malformed, and RFC 9110 says
- *   to ignore one of those rather than fail the request over it. `garbage` is
- *   one, and so is a half-mangled `text/` or `/html`, which is the shape a
- *   proxy rewriting the header leaves behind
- *
- * `Accept: text/markdown;q=0` reaches the last check and is a 406, on the same
- * reading that makes `Accept: application/xml` one: a quality of zero is a
- * refusal, and refusing both representations leaves nothing to send.
+ * Whether a negotiated page has to answer 406: the `Accept` rules out both of
+ * its representations, as RFC 9110 asks. Off unless a site turns it on, and
+ * narrow when it is, because a false positive turns a page that renders into
+ * an error. A missing `Accept`, a navigation, a known agent and an unparseable
+ * header all keep their page. `text/markdown;q=0` does not, zero is a refusal.
  */
 export function notAcceptable(config: NegotiationConfig, options: {
   method?: string
@@ -530,8 +415,7 @@ export function notAcceptable(config: NegotiationConfig, options: {
     return false
   }
 
-  // Only a URL with more than one representation can refuse them all. Rules
-  // out the assets, the excluded prefixes and the `.md` twins in one call.
+  // Only a URL with more than one representation can refuse them all.
   if (!isNegotiablePath(config, options.path)) {
     return false
   }
@@ -544,10 +428,8 @@ export function notAcceptable(config: NegotiationConfig, options: {
     return false
   }
 
-  // One intelligible range is enough to judge the request on. RFC 9110 says to
-  // ignore what cannot be parsed, so `application/xml, text/` is still a
-  // refusal of both representations while `text/` on its own is not a request
-  // this can read at all.
+  // RFC 9110 says to ignore what cannot be parsed, so `application/xml, text/`
+  // is still a refusal of both while `text/` on its own is unreadable.
   const entries = parseAccept(options.accept)
   if (!entries.some(entry => MEDIA_RANGE.test(entry.type))) {
     return false
@@ -558,7 +440,7 @@ export function notAcceptable(config: NegotiationConfig, options: {
 
 /**
  * Whether an error response should be rendered as markdown rather than the
- * HTML error page (or the JSON payload Nitro falls back to).
+ * HTML error page or Nitro's JSON fallback.
  */
 export function prefersMarkdownError(config: NegotiationConfig, options: {
   method?: string
@@ -583,12 +465,10 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
     return false
   }
 
-  // Explicit markdown URLs.
   if (pathname.endsWith('.md')) {
     return true
   }
 
-  // Assets and non-page documents: images, `.xml`, `.json`, `.js`, ...
   if (hasFileExtension(pathname)) {
     return false
   }
@@ -610,14 +490,13 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
     return false
   }
 
-  // A browser `fetch()` of any mode (`cors`, `no-cors`, `same-origin`) keeps
-  // the HTML or JSON error it was written against. Only navigations fall through.
+  // A browser `fetch()` of any mode keeps the HTML or JSON error it expects.
+  // Only navigations fall through.
   if (options.secFetchMode && options.secFetchMode.toLowerCase() !== 'navigate') {
     return false
   }
 
-  // `*/*`, an empty `Accept`, curl, or any other non-browser client asking for
-  // a page: markdown is the most useful thing we can hand back.
+  // curl and any other non-browser client asking for a page gets markdown.
   return true
 }
 
@@ -627,13 +506,8 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
 const MARKDOWN_LINK = /(\]\(|\]:[ \t]*)(\/(?!\/)[^\s)>]*)/g
 
 /**
- * The `</x>` autolink form, which the resource lists in the raw documents use.
- *
- * The path has to carry a second `/` or a `.` somewhere, or every HTML closing
- * tag in the document is one: `</div>` and `</Callout>` are indistinguishable
- * from an autolink otherwise, and rewriting them destroys the markup. The cost
- * is that a single-segment autolink like `</blog>` is left relative, which is
- * a great deal better than mangling every tag.
+ * The `</x>` autolink form. The path has to carry a second `/` or a `.`, or
+ * `</div>` and `</Callout>` match too and rewriting them destroys the markup.
  */
 const MARKDOWN_AUTOLINK = /<(\/(?!\/)[^\s<>]*)>/g
 
@@ -664,14 +538,8 @@ function absolutizeLine(line: string, siteUrl: string): string {
 }
 
 /**
- * Rewrites site-relative markdown links to absolute ones. A markdown document
- * is read detached from the site it came from, so a relative href in it points
- * nowhere.
- *
- * Every adapter has to do this or the same page reads differently depending on
- * which backend served it, so it lives here rather than in each one. Fenced
- * blocks and inline code spans are left alone: a docs site writing about
- * markdown must keep its examples verbatim.
+ * Rewrites site-relative markdown links to absolute ones, since the document
+ * is read detached from its site. Fenced blocks and code spans are left alone.
  */
 export function absolutizeMarkdownLinks(markdown: string, siteUrl: string): string {
   const base = siteUrl.replace(/\/$/, '')
@@ -693,11 +561,7 @@ export function absolutizeMarkdownLinks(markdown: string, siteUrl: string): stri
   }).join('\n')
 }
 
-/**
- * Prefixes a site-relative href with the site origin, leaving absolute and
- * protocol-relative ones alone. Every discovery surface renders its links
- * through this so they all agree on what "absolute" means.
- */
+/** Prefixes a site-relative href with the site origin, leaving others alone. */
 export function absolutizeHref(href: string, siteUrl: string): string {
   return href.startsWith('/') && !href.startsWith('//') ? `${siteUrl}${href}` : href
 }
@@ -705,14 +569,10 @@ export function absolutizeHref(href: string, siteUrl: string): string {
 const LINK_PROPS = ['href', 'src', 'to']
 
 /**
- * The same rewrite, one level earlier: on the document tree, before it is
- * stringified. Both built-in backends hand back `[tag, props, ...children]`
- * nodes, minimark for `@nuxt/content` and comark for `comark-content`, so one
- * walker serves both.
- *
- * Preferred over the string pass wherever a tree is available: it sees the
- * props of MDC components, which carry links a markdown-level scan cannot
- * find, and it can never touch prose that merely looks like a link.
+ * The same rewrite on the document tree, before it is stringified. Both
+ * backends hand back `[tag, props, ...children]` nodes, so one walker serves
+ * both. Preferred over the string pass: it sees MDC component props and never
+ * touches prose that merely looks like a link.
  */
 export function absolutizeTreeLinks(nodes: unknown[], siteUrl: string): void {
   const base = siteUrl.replace(/\/$/, '')
@@ -725,8 +585,6 @@ export function absolutizeTreeLinks(nodes: unknown[], siteUrl: string): void {
     if (props && typeof props === 'object') {
       for (const prop of LINK_PROPS) {
         const value = props[prop]
-        // Only site-relative paths. Protocol-relative, absolute and in-page
-        // anchors already resolve on their own.
         if (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')) {
           props[prop] = base + value
         }
@@ -737,30 +595,23 @@ export function absolutizeTreeLinks(nodes: unknown[], siteUrl: string): void {
 }
 
 /**
- * Whether the Vercel route table carries the canonical/alternate `Link` pair
- * for a raw markdown URL, mirroring the `config.siteUrl` block of
- * `vercelMarkdownRoutes` request-side: the raw handler skips its own copy
- * exactly there, or every origin-rendered raw response carries the pair
- * twice, doubling with each hop.
- *
- * Covered: the static twin of every exact pattern whose destination sits
- * under the raw prefix, the root twin, and the wildcard twins except the
- * `/index.md` spellings the preset's `noIndex` lookahead keeps out (their
- * capture would advertise a page URL the origin folds away). Everything else
- * (a twin outside every pattern, an exact destination outside the prefix)
- * reaches no pair route and keeps the handler's header.
+ * Whether the Vercel route table already carries the canonical/alternate
+ * `Link` pair for a raw URL, mirroring the `config.siteUrl` block of
+ * `vercelMarkdownRoutes`. The raw handler skips its own copy exactly there, or
+ * every origin-rendered raw response carries the pair twice. `/index.md` is
+ * out because the preset's `noIndex` lookahead keeps it out of the table.
  */
 export function hasCdnLinkPair(config: NegotiationConfig, rawPathname: string): boolean {
   if (!rawPathname.endsWith('.md')) {
     return false
   }
-  // The table matches the encoded request path, the config spells routes
-  // decoded; one spelling here, like `normalizeAgentRoute` without the folds.
+  // The table matches the encoded request path while the config spells routes
+  // decoded.
   let pathname = rawPathname
   try {
     pathname = decodeURIComponent(pathname)
   } catch {
-    // Not a valid escape sequence, so there is nothing to decode.
+    // Malformed escape: leave it as it came.
   }
 
   const rootTwin = `${config.rawPrefix}/index.md`
@@ -815,22 +666,16 @@ const STATUS_TEXT: Record<number, string> = {
 
 /**
  * Short markdown body for an error response, pointing agents at the discovery
- * resources they can recover from. Links are absolute so they resolve wherever
- * the body ends up.
+ * resources they can recover from. Links are absolute: the body travels.
  */
 export function errorMarkdown(config: NegotiationConfig, options: { path: string, status?: number, statusMessage?: string, siteUrl: string }): string {
   const status = options.status || 404
   const siteUrl = options.siteUrl.replace(/\/$/, '')
-  // The pathname is attacker-chosen and lands in a code span of a document
-  // written for agents, so drop anything that could close the span or smuggle
-  // markdown in. Newlines most of all: h3 has already decoded `%0A`, so without
-  // this a crafted path ends the paragraph and everything after it renders as
-  // first-class markdown, links included, in a document an agent will act on.
-  // Capped too, so a long path cannot bury the rest of the body.
+  // The pathname is attacker-chosen and lands in a code span of a document an
+  // agent will act on, so drop anything that could close the span and smuggle
+  // markdown in. Newlines most of all: h3 has already decoded `%0A`.
   const pathname = normalizePathname(options.path).replace(/[`\\\r\n]+/g, '').slice(0, 200)
-  // Server errors never surface their message. Client errors use the status
-  // message when there is one, stripped of anything that could break the
-  // heading or the frontmatter line.
+  // Server errors never surface their message.
   const statusMessage = status < 500
     ? options.statusMessage?.replace(/[\r\n\t`\\]+/g, ' ').trim()
     : undefined
@@ -838,8 +683,7 @@ export function errorMarkdown(config: NegotiationConfig, options: { path: string
     ? STATUS_TEXT[404]!
     : statusMessage || STATUS_TEXT[status] || (status < 500 ? 'Request Error' : 'Server Error')
 
-  // A 406 says which representations exist, which is the "list of available
-  // representation characteristics" RFC 9110 asks a 406 body to carry.
+  // RFC 9110 asks a 406 body to list the available representations.
   const intro = status === 404
     ? `The page \`${pathname}\` does not exist on ${siteUrl}.`
     : status === 406

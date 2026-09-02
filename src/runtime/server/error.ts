@@ -5,13 +5,10 @@ import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/ne
 
 /**
  * Answers errors with a short markdown body when the client is asking for
- * markdown (explicit `Accept`, a known AI agent, a `.md` URL, or any
- * non-browser client requesting a page).
+ * markdown.
  *
  * Registered ahead of Nuxt's HTML error handler through the `nitro:config`
- * hook. Returning without writing a response hands the error back to the
- * chain, so browsers keep the HTML error page and API clients keep the JSON
- * payload.
+ * hook. Returning without writing a response hands the error back to the chain.
  */
 const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler }) => {
   if (event.handled || getRequestHeader(event, 'x-nuxt-error')) {
@@ -30,9 +27,8 @@ const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler })
     return
   }
 
-  // Nitro's default handler is what logs unhandled errors, sets the status
-  // and computes the hardening headers (`nosniff`, `x-frame-options`, ...).
-  // Nuxt's HTML handler goes through it too, so keep the same behavior.
+  // The default handler logs the error, sets the status and computes the
+  // hardening headers. Nuxt's HTML handler goes through it too.
   const res = await defaultHandler(error, event, { json: true })
   const status = res.status || error.statusCode || 500
 
@@ -47,15 +43,13 @@ const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler })
   setResponseHeader(event, 'Vary', MARKDOWN_VARY)
   setResponseHeader(event, 'Cache-Control', 'no-cache')
 
-  // A route can report the path the client asked for (see the raw route,
-  // which serves page paths) through `data.path`.
+  // A route can report the path the client asked for through `data.path`.
   const data = error.data as { path?: unknown } | undefined
 
   return send(event, errorMarkdown(config, {
     path: typeof data?.path === 'string' ? data.path : event.path,
     status,
-    // Not sanitized on the way here: `createError` only warns about an unsafe
-    // status message, and Nitro returns it verbatim. `errorMarkdown` strips it.
+    // Nitro returns the status message verbatim, so `errorMarkdown` strips it.
     statusMessage: res.statusText,
     siteUrl: getAgentSiteUrl(event)
   }))

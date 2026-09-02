@@ -1,8 +1,4 @@
-/**
- * The Agent Skills well-known prefix. One constant, because the route
- * registration, the prerender list, the discovery links, the OpenAPI document
- * and the file route all have to agree on it.
- */
+/** The Agent Skills well-known prefix, shared by every surface that names it. */
 export const SKILLS_PREFIX = '/.well-known/skills/'
 
 /** The generated skills index document. */
