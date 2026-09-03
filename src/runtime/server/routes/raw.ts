@@ -8,7 +8,7 @@ import { encodeAgentRoute, formatLinkHeader, hasCdnLinkPair, normalizePathname, 
  * Serves the raw markdown representation of a page. `getAgentDocument()` builds
  * the document, this handler is the HTTP part.
  *
- * `Vary` is on every response, redirects included: a negotiated page redirects
+ * `Vary` is on the document and redirect responses: a negotiated page redirects
  * here, so this is the response the client keeps and a shared cache stores.
  */
 export default defineEventHandler(async (event) => {

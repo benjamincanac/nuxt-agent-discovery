@@ -6,8 +6,9 @@ import type { ConsolaInstance } from 'consola'
 import type { SkillEntry } from './runtime/shared/types'
 
 /**
- * Agent Skills discovery. A skill is a directory holding a `SKILL.md` with
- * `name` and `description` frontmatter, plus any number of reference files.
+ * Agent Skills discovery. A skill is a directory holding a `SKILL.md` whose
+ * frontmatter carries a `description` and, optionally, a `name` defaulting to
+ * the directory name, plus any number of reference files.
  *
  * Naming follows the Agent Skills spec: lowercase alphanumeric and single
  * hyphens, 64 characters at most, matching the directory name.

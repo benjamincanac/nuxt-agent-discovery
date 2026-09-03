@@ -165,7 +165,7 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
 
   const index = page ? undefined : await generatedIndex(event, siteUrl)
 
-  // An empty key reads as a value the page set to nothing, not a missing one.
+  // An empty title or description is left out rather than emitted as `""`.
   const title = page?.title || index?.title
   const description = page?.description || index?.description
   const frontmatter = [
