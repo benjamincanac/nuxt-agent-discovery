@@ -24,9 +24,9 @@ import { setupVercelPreset } from './presets/vercel'
 import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
-import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+import type { AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
-export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentResource, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export interface McpServerCardOptions {
   /** MCP endpoint the card describes, e.g. `/mcp`. */
@@ -133,7 +133,7 @@ interface AgentDiscoveryRuntimeConfig {
 
 /** What this module puts in `runtimeConfig.public`. */
 interface AgentDiscoveryPublicRuntimeConfig {
-  agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string }
+  agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string, resources: AgentResource[] }
 }
 
 declare module '@nuxt/schema' {
@@ -426,7 +426,10 @@ export default defineNuxtModule<ModuleOptions>({
       })
     }
 
-    addImports({ name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') })
+    addImports([
+      { name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') },
+      { name: 'useAgentResources', from: resolve('./runtime/app/composables/useAgentResources') }
+    ])
 
     // Declares the Nitro runtime hooks so a site's server code needs no cast.
     const hookTypes = addTypeTemplate({
@@ -767,7 +770,13 @@ export {}
       runtimeConfig.public.agentDiscovery = {
         siteUrl: config.siteUrl,
         siteName: config.siteName,
-        rawPrefix
+        rawPrefix,
+        // Only the renderable links, the ones the error bodies and the homepage
+        // block already list. The rest are anchors and header flags no page can
+        // show, and this rides the payload of every page on the site.
+        resources: config.links
+          .filter((link): link is DiscoveryLink & { title: string } => Boolean(link.title))
+          .map(link => ({ href: link.href, rel: link.rel, title: link.title, ...(link.type ? { type: link.type } : {}) }))
       }
     })
 

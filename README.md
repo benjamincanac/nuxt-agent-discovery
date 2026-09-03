@@ -254,6 +254,19 @@ The same entry point exports `getAgentSiteUrl(event)` and `useAgentDiscoveryConf
 
 **`useCanonical()`** is the app-side half: a `rel="canonical"` link for the current route, and a `rel="alternate"; type="text/markdown"` one when you pass it a markdown path.
 
+**`useAgentResources()`** reads the same registry from a component, so an HTML error page can offer the recovery links its markdown twin already carries instead of hardcoding a list that drifts from what the site publishes. It returns the titled links, in the order `renderAgentResources()` renders them, with the hrefs spelled as registered:
+
+```vue
+<!-- error.vue -->
+<script setup lang="ts">
+const resources = useAgentResources()
+</script>
+
+<template>
+  <a v-for="resource in resources" :key="resource.href" :href="resource.href">{{ resource.title }}</a>
+</template>
+```
+
 **`agent-discovery:sitemap`** adds to `/sitemap.md` before it renders, for the pages the adapter cannot know about. The map is keyed by the raw first path segment of the grouped routes (`docs`, `blog`; the second segment under an expanded prefix, `pages` for top-level ones), and `sitemap.markdown.labels` only applies at render. So extending an existing section means using its key, while a new section can use any key and renders it capitalized unless `labels` overrides it:
 
 ```ts

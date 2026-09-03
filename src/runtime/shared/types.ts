@@ -57,6 +57,19 @@ export interface DiscoveryLink {
   header?: boolean
 }
 
+/**
+ * A discovery resource as app code reads it: the renderable half of a
+ * `DiscoveryLink`, without the `anchor` and `header` fields that only steer
+ * where the build emits it.
+ */
+export interface AgentResource {
+  href: string
+  rel: string
+  /** Always present: an untitled link has nothing to render, so it never reaches here. */
+  title: string
+  type?: string
+}
+
 /** How `sitemap.md` groups pages into sections. */
 export interface SitemapSections {
   /** Path prefixes whose children each get their own section. `['/docs']` splits "Docs" into "Components", "Composables". */

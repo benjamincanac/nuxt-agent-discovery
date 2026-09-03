@@ -9,7 +9,7 @@ import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from '../../src/defaults'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import { prerenderTwin } from '../../src/runtime/shared/negotiation'
 import type { ModuleOptions } from '../../src/module'
-import type { NegotiationConfig } from '../../src/runtime/shared/types'
+import type { AgentResource, NegotiationConfig } from '../../src/runtime/shared/types'
 
 const rootDir = fileURLToPath(new URL('../fixtures/custom-source', import.meta.url))
 
@@ -996,5 +996,50 @@ describe('module setup: api-catalog', () => {
     })
 
     expect(config.links.some(link => link.href === '/.well-known/api-catalog')).toBe(true)
+  })
+})
+
+describe('module setup: app-side resources', () => {
+  const publicResources = async (options: Partial<ModuleOptions> = {}) => {
+    const nuxt = await runModule(options)
+    return (nuxt.options.runtimeConfig.public.agentDiscovery as { resources: AgentResource[] }).resources
+  }
+
+  it('carries the titled registry links, in registry order', async () => {
+    const nuxt = await runModule({
+      discovery: { links: [{ href: '/openapi.json', rel: 'service-desc', type: 'application/json', anchor: '/', title: 'OpenAPI' }] }
+    })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+    const resources = (nuxt.options.runtimeConfig.public.agentDiscovery as { resources: AgentResource[] }).resources
+
+    // Same set, same order as `renderAgentResources()` and the error bodies,
+    // which filter the very same way: nothing for a site to hardcode.
+    expect(resources.map(resource => resource.href)).toEqual(config.links.filter(link => link.title).map(link => link.href))
+    expect(resources).toContainEqual({ href: '/openapi.json', rel: 'service-desc', type: 'application/json', title: 'OpenAPI' })
+  })
+
+  it('drops the untitled links and the fields only the build reads', async () => {
+    const resources = await publicResources({
+      discovery: { links: [{ href: '/internal.json', rel: 'service-desc', anchor: '/mcp' }] }
+    })
+
+    // An untitled link has nothing to show, and `anchor`/`header` steer the
+    // catalog and the `Link` header rather than a page. Both ride the payload
+    // of every page on the site, so neither is worth carrying.
+    expect(resources.some(resource => resource.href === '/internal.json')).toBe(false)
+    for (const resource of resources) {
+      expect(resource).toEqual({ href: resource.href, rel: resource.rel, title: resource.title, ...(resource.type ? { type: resource.type } : {}) })
+    }
+  })
+
+  it('includes what `agent-discovery:extend` contributed', async () => {
+    const nuxt = await runModule({}, {}, undefined, (nuxt) => {
+      nuxt.hook('agent-discovery:extend', ((registry: { links: { href: string, rel: string, title?: string }[] }) => {
+        registry.links.push({ href: '/corp.txt', rel: 'describedby', title: 'Corp' })
+      }) as never)
+    })
+    const resources = (nuxt.options.runtimeConfig.public.agentDiscovery as { resources: AgentResource[] }).resources
+
+    expect(resources).toContainEqual({ href: '/corp.txt', rel: 'describedby', title: 'Corp' })
   })
 })

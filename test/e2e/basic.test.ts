@@ -2,7 +2,7 @@ import { get } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup, url } from '@nuxt/test-utils/e2e'
-import { BROWSER_ACCEPT, CLAUDE_BOT, MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY, SITE_URL } from './expected'
+import { BROWSER_ACCEPT, CLAUDE_BOT, INDEX_RESOURCES, MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY, SITE_URL } from './expected'
 import { describeSharedDocuments } from './shared'
 
 /**
@@ -159,6 +159,24 @@ describe('errors', () => {
 
     expect(response.status).toBe(404)
     expect(response.headers.get('content-type')).toContain('text/html')
+  })
+
+  it('offers the HTML 404 the same recovery links the markdown one carries', async () => {
+    const html = await (await fetch('/docs/nonexistent', {
+      headers: { 'Accept': BROWSER_ACCEPT, 'Sec-Fetch-Mode': 'navigate' }
+    })).text()
+    const markdown = await (await fetch('/docs/nonexistent', { headers: { 'User-Agent': CLAUDE_BOT } })).text()
+
+    // The fixture's `error.vue` renders `useAgentResources()`, so the two
+    // bodies list the same registry rather than a hand-kept copy of it. The
+    // markdown side absolutizes; the page keeps the hrefs a browser wants.
+    const recovery = markdown.split('## Where to look next')[1]!.split('\n##')[0]!
+    const titled = [...recovery.matchAll(/^- \[([^\]]+)\]\(([^)]+)\)$/gm)]
+    expect(titled.length).toBe(INDEX_RESOURCES.length)
+    for (const [, title, href] of titled) {
+      expect(html).toContain(`>${title}</a>`)
+      expect(html).toContain(`href="${href!.replace(SITE_URL, '')}"`)
+    }
   })
 })
 
