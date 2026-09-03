@@ -98,4 +98,34 @@ Styled.
     expect(extracted).toContain('Deep.')
     expect(extracted).not.toContain('Styled.')
   })
+
+  it('does not end a section on a heading inside a fence', () => {
+    const doc = ['## Headings', 'intro', '```mdc', '## Not a heading', '```', 'after', '## Next'].join('\n')
+    const extracted = extractSections(doc, ['Headings'])
+
+    expect(extracted).toContain('## Not a heading')
+    expect(extracted).toContain('after')
+    expect(extracted).not.toContain('## Next')
+  })
+
+  it('does not close a fence on a nested fence line carrying an info string', () => {
+    // A closing fence has no info string, so ` ```js ` inside a ` ```mdc `
+    // block is content and the heading after it is still fenced.
+    const doc = ['## Headings', '```mdc', '```js', '## Not a heading', '```', 'after', '## Next'].join('\n')
+    const extracted = extractSections(doc, ['Headings'])
+
+    expect(extracted).toContain('## Not a heading')
+    expect(extracted).toContain('after')
+    expect(extracted).not.toContain('## Next')
+  })
+
+  it('closes a fence in a document with CRLF line endings', () => {
+    // A fence that never closes would swallow every section after it.
+    const doc = ['# Title', '', '## Headings', '```mdc', '## Not a heading', '```', 'after', '', '## Next', 'Styled.'].join('\r\n')
+    const extracted = extractSections(doc, ['Headings'])
+
+    expect(extracted).toContain('## Not a heading')
+    expect(extracted).toContain('after')
+    expect(extracted).not.toContain('Styled.')
+  })
 })

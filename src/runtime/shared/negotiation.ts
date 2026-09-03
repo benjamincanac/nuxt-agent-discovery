@@ -519,6 +519,35 @@ const INLINE_CODE = /(`+)[\s\S]*?\1/g
 
 const OPEN_FENCE = /^ {0,3}(`{3,}|~{3,})/
 
+/**
+ * A closing fence carries no info string, so a nested ` ```js ` line is content.
+ * The trailing `\r` is a CRLF document split on `\n`.
+ */
+const CLOSE_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
+
+/**
+ * Feed it a document's lines in order; it answers whether the line just fed
+ * belongs to a fenced block, the fence lines themselves included.
+ */
+export function createFenceTracker(): (line: string) => boolean {
+  let fence: string | undefined
+  return (line) => {
+    if (fence) {
+      const closing = CLOSE_FENCE.exec(line)?.[1]
+      if (closing && closing.startsWith(fence[0]!) && closing.length >= fence.length) {
+        fence = undefined
+      }
+      return true
+    }
+    const opening = OPEN_FENCE.exec(line)?.[1]
+    if (opening) {
+      fence = opening
+      return true
+    }
+    return false
+  }
+}
+
 function absolutizeProse(text: string, siteUrl: string): string {
   return text
     .replace(MARKDOWN_LINK, (_match, prefix: string, path: string) => `${prefix}${siteUrl}${path}`)
@@ -543,22 +572,9 @@ function absolutizeLine(line: string, siteUrl: string): string {
  */
 export function absolutizeMarkdownLinks(markdown: string, siteUrl: string): string {
   const base = siteUrl.replace(/\/$/, '')
-  let fence: string | undefined
+  const inFence = createFenceTracker()
 
-  return markdown.split('\n').map((line) => {
-    const opening = OPEN_FENCE.exec(line)?.[1]
-    if (fence) {
-      if (opening && opening.startsWith(fence[0]!) && opening.length >= fence.length) {
-        fence = undefined
-      }
-      return line
-    }
-    if (opening) {
-      fence = opening
-      return line
-    }
-    return absolutizeLine(line, base)
-  }).join('\n')
+  return markdown.split('\n').map(line => inFence(line) ? line : absolutizeLine(line, base)).join('\n')
 }
 
 /** Prefixes a site-relative href with the site origin, leaving others alone. */

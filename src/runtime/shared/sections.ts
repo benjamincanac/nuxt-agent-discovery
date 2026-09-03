@@ -1,3 +1,5 @@
+import { createFenceTracker } from './negotiation'
+
 /**
  * Narrows a markdown document to the `##` sections an agent asked for, keeping
  * the frontmatter, the title and the description. A docs page is often far
@@ -25,13 +27,15 @@ export function extractSections(markdown: string, sectionTitles: string[]): stri
 
   // Title and description, bounded by the first `##`: a page with no description
   // blockquote would otherwise push its entire body in here.
+  const headerFence = createFenceTracker()
   for (let index = start; index < lines.length; index++) {
     const line = lines[index]!
-    if (line.startsWith('## ')) {
+    const fenced = headerFence(line)
+    if (!fenced && line.startsWith('## ')) {
       break
     }
     result.push(line)
-    if (line.startsWith('>')) {
+    if (!fenced && line.startsWith('>')) {
       result.push('')
       break
     }
@@ -49,9 +53,11 @@ export function extractSections(markdown: string, sectionTitles: string[]): stri
     }
   }
 
+  // A fenced example that documents headings starts lines with `## ` too.
+  const bodyFence = createFenceTracker()
   for (let index = start; index < lines.length; index++) {
     const line = lines[index]!
-    if (line.startsWith('## ')) {
+    if (!bodyFence(line) && line.startsWith('## ')) {
       take()
       current = line.slice(3).trim()
       section = [line]
