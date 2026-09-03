@@ -68,7 +68,7 @@
     "nuxt": "^4.5.2",
     "nuxt-llms": "^0.2.0",
     "release-it": "^21.0.2",
-    "typescript": "~5.9.3",
+    "typescript": "~7.0.2",
     "vitest": "^4.1.11",
     "vue-tsc": "^3.3.11",
     "zod": "^4.5.4"
