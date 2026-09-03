@@ -21,12 +21,12 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { createFenceTracker, formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
-import type { AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+import type { AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
-export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentResource, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export interface McpServerCardOptions {
   /** MCP endpoint the card describes, e.g. `/mcp`. */
@@ -99,6 +99,19 @@ export interface ModuleOptions {
     /** Serve `/sitemap.md`. Pass an object to control how pages are grouped into sections. */
     markdown?: boolean | Partial<SitemapSections>
   }
+  llms?: {
+    /**
+     * Markdown blocks for the details section of `llms.txt`, the space
+     * llmstxt.org reserves between the `>` blockquote and the first `##` for
+     * whatever a site needs to say before the link lists. Headings are not
+     * allowed there, since one would open a section.
+     *
+     * `nuxt-llms` renders the title and the description; this fills the gap it
+     * leaves. Needs `llms.description` to be set, which is what the block
+     * follows.
+     */
+    details?: string | string[]
+  }
   robots?: {
     /**
      * Allow the agent user-agent list in `robots.txt`, through `@nuxtjs/robots`
@@ -133,7 +146,7 @@ interface AgentDiscoveryRuntimeConfig {
 
 /** What this module puts in `runtimeConfig.public`. */
 interface AgentDiscoveryPublicRuntimeConfig {
-  agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string }
+  agentDiscovery: { siteUrl: string, siteName: string, rawPrefix: string, resources: AgentResource[] }
 }
 
 declare module '@nuxt/schema' {
@@ -426,7 +439,10 @@ export default defineNuxtModule<ModuleOptions>({
       })
     }
 
-    addImports({ name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') })
+    addImports([
+      { name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') },
+      { name: 'useAgentResources', from: resolve('./runtime/app/composables/useAgentResources') }
+    ])
 
     // Declares the Nitro runtime hooks so a site's server code needs no cast.
     const hookTypes = addTypeTemplate({
@@ -568,6 +584,35 @@ export {}
       disableContentRawMarkdown(nuxt)
     }
 
+    // Blocks rendered between the `llms.txt` blockquote and its first `##`.
+    // Normalized here so the runtime joins a list it can trust.
+    let llmsDetails = (typeof options.llms?.details === 'string' ? [options.llms.details] : options.llms?.details || [])
+      .map(block => block.trim())
+      .filter(Boolean)
+    if (llmsDetails.length) {
+      const fenced = createFenceTracker()
+      let heading: string | undefined
+      // Scanned to the last line whatever turns up, so the fence state below
+      // reflects the whole block rather than wherever a heading stopped it.
+      for (const line of llmsDetails.join('\n\n').split('\n')) {
+        if (!fenced(line) && !heading && /^#{1,6}\s/.test(line)) {
+          heading = line.trim()
+        }
+      }
+      // A blank line neither opens nor closes a fence, so the tracker reads it
+      // as fenced only while one is still open. An unclosed fence runs to the
+      // end of the document and renders every section after it as code, so the
+      // details are dropped rather than shipped breaking `llms.txt`.
+      if (fenced('')) {
+        logger.warn('`llms.details` leaves a code fence unclosed, which would swallow every `llms.txt` section after it. The details section is left out until the fence is closed.')
+        llmsDetails = []
+      } else if (heading) {
+        // A heading opens a section, which moves every link list under it and
+        // leaves the details reading as that section's prose.
+        logger.warn(`\`llms.details\` carries a heading (\`${heading}\`), which opens a section in \`llms.txt\`. The details section is prose only; put the heading in \`llms.sections\` instead.`)
+      }
+    }
+
     // Route-rule patterns with a response cache that a negotiated pattern
     // reaches; the CDN redirects there instead of rewriting. Collected three
     // times because rules keep arriving: at `modules:done` from
@@ -647,6 +692,18 @@ export {}
       if (hasLlms && sourcePath) {
         dropContentLlmsFeature(nuxt)
         addServerPlugin(resolve('./runtime/server/plugins/llms'))
+
+        if (llmsDetails.length) {
+          // The details follow the blockquote, so without one there is nothing
+          // for them to follow and `nuxt-llms` renders neither.
+          if ((nuxt.options as { llms?: { description?: string } }).llms?.description) {
+            config.llmsDetails = llmsDetails
+          } else {
+            logger.warn('`llms.details` needs `llms.description`, which is the blockquote the details section follows. Set it, or move the prose into a `llms.sections` entry.')
+          }
+        }
+      } else if (llmsDetails.length) {
+        logger.warn('`llms.details` does nothing without the `nuxt-llms` bridge, which needs `nuxt-llms` installed and a content source resolved.')
       }
 
       /* ------------------------------ homepages ----------------------------- */
@@ -767,7 +824,13 @@ export {}
       runtimeConfig.public.agentDiscovery = {
         siteUrl: config.siteUrl,
         siteName: config.siteName,
-        rawPrefix
+        rawPrefix,
+        // Only the renderable links, the ones the error bodies and the homepage
+        // block already list. The rest are anchors and header flags no page can
+        // show, and this rides the payload of every page on the site.
+        resources: config.links
+          .filter((link): link is DiscoveryLink & { title: string } => Boolean(link.title))
+          .map(link => ({ href: link.href, rel: link.rel, title: link.title, ...(link.type ? { type: link.type } : {}) }))
       }
     })
 

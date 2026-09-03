@@ -57,6 +57,19 @@ export interface DiscoveryLink {
   header?: boolean
 }
 
+/**
+ * A discovery resource as app code reads it: the renderable half of a
+ * `DiscoveryLink`, without the `anchor` and `header` fields that only steer
+ * where the build emits it.
+ */
+export interface AgentResource {
+  href: string
+  rel: string
+  /** Always present: an untitled link has nothing to render, so it never reaches here. */
+  title: string
+  type?: string
+}
+
 /** How `sitemap.md` groups pages into sections. */
 export interface SitemapSections {
   /** Path prefixes whose children each get their own section. `['/docs']` splits "Docs" into "Components", "Composables". */
@@ -159,6 +172,11 @@ export interface NegotiationConfig {
    * a twin one of them matches, so a twin backed by live data is never frozen.
    */
   ownRawRoutes?: string[]
+  /**
+   * Markdown blocks rendered into the details section of `llms.txt`, the space
+   * llmstxt.org reserves between the blockquote and the first `##`.
+   */
+  llmsDetails?: string[]
   /**
    * Routes wrapped as the agent homepage besides `/`: the locale roots (`/en`,
    * `/fr`) of a site running `@nuxtjs/i18n`, where `/` only redirects and the

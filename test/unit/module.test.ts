@@ -9,7 +9,7 @@ import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from '../../src/defaults'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
 import { prerenderTwin } from '../../src/runtime/shared/negotiation'
 import type { ModuleOptions } from '../../src/module'
-import type { NegotiationConfig } from '../../src/runtime/shared/types'
+import type { AgentResource, NegotiationConfig } from '../../src/runtime/shared/types'
 
 const rootDir = fileURLToPath(new URL('../fixtures/custom-source', import.meta.url))
 
@@ -996,5 +996,99 @@ describe('module setup: api-catalog', () => {
     })
 
     expect(config.links.some(link => link.href === '/.well-known/api-catalog')).toBe(true)
+  })
+})
+
+describe('module setup: app-side resources', () => {
+  const publicResources = async (options: Partial<ModuleOptions> = {}) => {
+    const nuxt = await runModule(options)
+    return (nuxt.options.runtimeConfig.public.agentDiscovery as { resources: AgentResource[] }).resources
+  }
+
+  it('carries the titled registry links, in registry order', async () => {
+    const nuxt = await runModule({
+      discovery: { links: [{ href: '/openapi.json', rel: 'service-desc', type: 'application/json', anchor: '/', title: 'OpenAPI' }] }
+    })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+    const resources = (nuxt.options.runtimeConfig.public.agentDiscovery as { resources: AgentResource[] }).resources
+
+    // Same set, same order as `renderAgentResources()` and the error bodies,
+    // which filter the very same way: nothing for a site to hardcode.
+    expect(resources.map(resource => resource.href)).toEqual(config.links.filter(link => link.title).map(link => link.href))
+    expect(resources).toContainEqual({ href: '/openapi.json', rel: 'service-desc', type: 'application/json', title: 'OpenAPI' })
+  })
+
+  it('drops the untitled links and the fields only the build reads', async () => {
+    const resources = await publicResources({
+      discovery: { links: [{ href: '/internal.json', rel: 'service-desc', anchor: '/mcp' }] }
+    })
+
+    // An untitled link has nothing to show, and `anchor`/`header` steer the
+    // catalog and the `Link` header rather than a page. Both ride the payload
+    // of every page on the site, so neither is worth carrying.
+    expect(resources.some(resource => resource.href === '/internal.json')).toBe(false)
+    for (const resource of resources) {
+      expect(resource).toEqual({ href: resource.href, rel: resource.rel, title: resource.title, ...(resource.type ? { type: resource.type } : {}) })
+    }
+  })
+
+  it('includes what `agent-discovery:extend` contributed', async () => {
+    const nuxt = await runModule({}, {}, undefined, (nuxt) => {
+      nuxt.hook('agent-discovery:extend', ((registry: { links: { href: string, rel: string, title?: string }[] }) => {
+        registry.links.push({ href: '/corp.txt', rel: 'describedby', title: 'Corp' })
+      }) as never)
+    })
+    const resources = (nuxt.options.runtimeConfig.public.agentDiscovery as { resources: AgentResource[] }).resources
+
+    expect(resources).toContainEqual({ href: '/corp.txt', rel: 'describedby', title: 'Corp' })
+  })
+})
+
+describe('module setup: llms details', () => {
+  /** `nuxt-llms` visible from `setup()`, which is when the bridge is decided. */
+  const withLlms = (llms: Record<string, unknown> = { description: 'Docs' }) => (nuxt: FakeNuxt) => {
+    nuxt.options._installedModules.push({ meta: { name: 'nuxt-llms' } })
+    Object.assign(nuxt.options, { llms })
+  }
+
+  it('normalizes a string, a list and the blank entries into blocks', async () => {
+    const one = await runModule({ llms: { details: 'When to use this' } }, {}, undefined, withLlms())
+    const many = await runModule({ llms: { details: ['  When to use this  ', '', '  And how  '] } }, {}, undefined, withLlms())
+
+    expect((one.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toEqual(['When to use this'])
+    expect((many.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toEqual(['When to use this', 'And how'])
+  })
+
+  it('drops the block when a code fence is left unclosed', async () => {
+    // An unclosed fence runs to the end of `llms.txt` and renders every
+    // section after it as code, so shipping the details breaks the document.
+    for (const fence of ['```sh', '~~~sh']) {
+      const nuxt = await runModule({ llms: { details: `${fence}\ncurl https://example.com/docs.md` } }, {}, undefined, withLlms())
+
+      expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails, fence).toBeUndefined()
+    }
+  })
+
+  it('keeps a closed fence, headings inside it included', async () => {
+    for (const fence of ['```md', '~~~md']) {
+      const details = `${fence}\n# Not a section\n${fence.slice(0, 3)}`
+      const nuxt = await runModule({ llms: { details } }, {}, undefined, withLlms())
+
+      expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails, fence).toEqual([details])
+    }
+  })
+
+  it('is left off without a description for the block to follow', async () => {
+    // `nuxt-llms` renders no blockquote without one, so the details would open
+    // the document where the description belongs.
+    const nuxt = await runModule({ llms: { details: 'When to use this' } }, {}, undefined, withLlms({ title: 'Docs' }))
+
+    expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toBeUndefined()
+  })
+
+  it('is left off without the bridge that renders it', async () => {
+    const nuxt = await runModule({ llms: { details: 'When to use this' } })
+
+    expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toBeUndefined()
   })
 })
