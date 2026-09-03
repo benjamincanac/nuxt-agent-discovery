@@ -98,4 +98,13 @@ Styled.
     expect(extracted).toContain('Deep.')
     expect(extracted).not.toContain('Styled.')
   })
+
+  it('does not end a section on a heading inside a fence', () => {
+    const doc = ['## Headings', 'intro', '```mdc', '## Not a heading', '```', 'after', '## Next'].join('\n')
+    const extracted = extractSections(doc, ['Headings'])
+
+    expect(extracted).toContain('## Not a heading')
+    expect(extracted).toContain('after')
+    expect(extracted).not.toContain('## Next')
+  })
 })
