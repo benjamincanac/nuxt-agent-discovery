@@ -1043,3 +1043,33 @@ describe('module setup: app-side resources', () => {
     expect(resources).toContainEqual({ href: '/corp.txt', rel: 'describedby', title: 'Corp' })
   })
 })
+
+describe('module setup: llms details', () => {
+  /** `nuxt-llms` visible from `setup()`, which is when the bridge is decided. */
+  const withLlms = (llms: Record<string, unknown> = { description: 'Docs' }) => (nuxt: FakeNuxt) => {
+    nuxt.options._installedModules.push({ meta: { name: 'nuxt-llms' } })
+    Object.assign(nuxt.options, { llms })
+  }
+
+  it('normalizes a string, a list and the blank entries into blocks', async () => {
+    const one = await runModule({ llms: { details: 'When to use this' } }, {}, undefined, withLlms())
+    const many = await runModule({ llms: { details: ['  When to use this  ', '', '  And how  '] } }, {}, undefined, withLlms())
+
+    expect((one.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toEqual(['When to use this'])
+    expect((many.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toEqual(['When to use this', 'And how'])
+  })
+
+  it('is left off without a description for the block to follow', async () => {
+    // `nuxt-llms` renders no blockquote without one, so the details would open
+    // the document where the description belongs.
+    const nuxt = await runModule({ llms: { details: 'When to use this' } }, {}, undefined, withLlms({ title: 'Docs' }))
+
+    expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toBeUndefined()
+  })
+
+  it('is left off without the bridge that renders it', async () => {
+    const nuxt = await runModule({ llms: { details: 'When to use this' } })
+
+    expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toBeUndefined()
+  })
+})

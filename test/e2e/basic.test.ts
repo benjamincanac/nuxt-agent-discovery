@@ -574,6 +574,31 @@ describe('nuxt-llms bridge', () => {
     expect(handwritten.split('\n').filter(line => line.startsWith('- '))).toHaveLength(1)
   })
 
+  it('renders `llms.details` between the blockquote and the first section', async () => {
+    const body = await (await fetch('/llms.txt')).text()
+    const header = body.split('\n## ')[0]!
+
+    // Byte-exact on purpose. `nuxt-llms` has no details field, so the module
+    // rides the description: it emits `> ${description}` and joins the
+    // document's blocks with a blank line, which puts everything after the
+    // first blank line outside the quote. A change to either upstream fails
+    // here rather than silently folding every site's details into its
+    // blockquote.
+    expect(header).toBe([
+      '# Basic',
+      '',
+      '> Fixture site for the nuxt-agent-discovery e2e tests.',
+      '',
+      'Fetch any page as markdown by appending `.md` to its URL.',
+      '',
+      '```sh',
+      'curl https://basic.example.com/docs/getting-started.md',
+      '```',
+      // The blank line `nuxt-llms` joins the next section on.
+      ''
+    ].join('\n'))
+  })
+
   it('emits each section once: `@nuxt/content`\'s llms plugin is gone', async () => {
     const body = await (await fetch('/llms.txt')).text()
     const headings = body.split('\n').filter(line => line.startsWith('## '))

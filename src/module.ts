@@ -21,7 +21,7 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
-import { formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { createFenceTracker, formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
 import type { AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -98,6 +98,19 @@ export interface ModuleOptions {
   sitemap?: {
     /** Serve `/sitemap.md`. Pass an object to control how pages are grouped into sections. */
     markdown?: boolean | Partial<SitemapSections>
+  }
+  llms?: {
+    /**
+     * Markdown blocks for the details section of `llms.txt`, the space
+     * llmstxt.org reserves between the `>` blockquote and the first `##` for
+     * whatever a site needs to say before the link lists. Headings are not
+     * allowed there, since one would open a section.
+     *
+     * `nuxt-llms` renders the title and the description; this fills the gap it
+     * leaves. Needs `llms.description` to be set, which is what the block
+     * follows.
+     */
+    details?: string | string[]
   }
   robots?: {
     /**
@@ -571,6 +584,21 @@ export {}
       disableContentRawMarkdown(nuxt)
     }
 
+    // Blocks rendered between the `llms.txt` blockquote and its first `##`.
+    // Normalized here so the runtime joins a list it can trust.
+    const llmsDetails = (typeof options.llms?.details === 'string' ? [options.llms.details] : options.llms?.details || [])
+      .map(block => block.trim())
+      .filter(Boolean)
+    if (llmsDetails.length) {
+      // A heading in there opens a section, which moves every link list under
+      // it and leaves the details reading as that section's prose.
+      const fenced = createFenceTracker()
+      const heading = llmsDetails.join('\n\n').split('\n').find(line => !fenced(line) && /^#{1,6}\s/.test(line))
+      if (heading) {
+        logger.warn(`\`llms.details\` carries a heading (\`${heading.trim()}\`), which opens a section in \`llms.txt\`. The details section is prose only; put the heading in \`llms.sections\` instead.`)
+      }
+    }
+
     // Route-rule patterns with a response cache that a negotiated pattern
     // reaches; the CDN redirects there instead of rewriting. Collected three
     // times because rules keep arriving: at `modules:done` from
@@ -650,6 +678,18 @@ export {}
       if (hasLlms && sourcePath) {
         dropContentLlmsFeature(nuxt)
         addServerPlugin(resolve('./runtime/server/plugins/llms'))
+
+        if (llmsDetails.length) {
+          // The details follow the blockquote, so without one there is nothing
+          // for them to follow and `nuxt-llms` renders neither.
+          if ((nuxt.options as { llms?: { description?: string } }).llms?.description) {
+            config.llmsDetails = llmsDetails
+          } else {
+            logger.warn('`llms.details` needs `llms.description`, which is the blockquote the details section follows. Set it, or move the prose into a `llms.sections` entry.')
+          }
+        }
+      } else if (llmsDetails.length) {
+        logger.warn('`llms.details` does nothing without the `nuxt-llms` bridge, which needs `nuxt-llms` installed and a content source resolved.')
       }
 
       /* ------------------------------ homepages ----------------------------- */

@@ -173,6 +173,11 @@ export interface NegotiationConfig {
    */
   ownRawRoutes?: string[]
   /**
+   * Markdown blocks rendered into the details section of `llms.txt`, the space
+   * llmstxt.org reserves between the blockquote and the first `##`.
+   */
+  llmsDetails?: string[]
+  /**
    * Routes wrapped as the agent homepage besides `/`: the locale roots (`/en`,
    * `/fr`) of a site running `@nuxtjs/i18n`, where `/` only redirects and the
    * landing document lives under the locale. Their twins carry the resources

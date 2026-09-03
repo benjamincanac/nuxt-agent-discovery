@@ -17,6 +17,8 @@ type LlmsSection = {
 
 interface LlmsOptions {
   domain?: string
+  /** The `llms.txt` blockquote, and what the details section follows. */
+  description?: string
   sections: LlmsSection[]
 }
 
@@ -113,6 +115,17 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
   nitroApp.hooks.hook('llms:generate' as never, (async (event: H3Event, options: LlmsOptions) => {
     const config = useAgentDiscoveryConfig(event)
     const domain = options.domain || getAgentSiteUrl(event)
+
+    // The details section llmstxt.org reserves between the blockquote and the
+    // first `##`. `nuxt-llms` has no field for it, and the description is the
+    // only lever a hook has: the generator emits it as `> ${description}` and
+    // joins the document's blocks with a blank line, so everything after the
+    // first blank line lands outside the quote. The `basic` e2e suite pins the
+    // rendered header byte for byte, which turns a change upstream into a
+    // failing build here rather than a broken `llms.txt` on every site.
+    if (config.llmsDetails?.length && options.description) {
+      options.description = [options.description, ...config.llmsDetails].join('\n\n')
+    }
 
     if (source) {
       const adapter = source

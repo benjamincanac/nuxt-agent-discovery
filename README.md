@@ -13,7 +13,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 - Vercel Build Output routes so prerendered pages negotiate at the edge, and a Nitro middleware for dev and every other host
 - Correct `Vary` and `Link` headers on both halves of a negotiated page, CDN-served files included
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, comark through a factory, or your own
-- A `nuxt-llms` bridge: adapter-backed sections and the full document come from the content adapter, hand-written links stay yours
+- A `nuxt-llms` bridge: adapter-backed sections and the full document come from the content adapter, hand-written links stay yours, plus the details section `nuxt-llms` has no field for
 - Markdown error bodies with recovery links for agents hitting a 404
 - `/.well-known/api-catalog` (RFC 9727), an optional MCP server card, and Agent Skills under `/.well-known/skills/`
 - `/sitemap.md`, a markdown index of every page, grouped into sections you control
@@ -99,6 +99,7 @@ export default defineNuxtConfig({
 - **`errors`** Answer errors with a markdown body carrying recovery links when the request prefers it.
 - **`notAcceptable`** See [Strict content negotiation](#strict-content-negotiation).
 - **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings.
+- **`llms.details`** Markdown blocks for the details section of `llms.txt`, the space llmstxt.org reserves between the blockquote and the first `##`. See [llms.txt sections](#llmstxt-sections).
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable.
 - **`robots.aiPolicy`** Feeds the user-agent list into `@nuxtjs/robots` when installed, otherwise generates `/robots.txt` (skipped when a static one exists). **`robots.contentSignal`** adds the `Content-Signal` line, `false` to omit. **`robots.disallow`** adds `Disallow` lines to the wildcard group, in the generated file and through `@nuxtjs/robots` alike. Wildcard only: the per-agent `Allow` groups exempt their agents from these rules, so what search engines skip stays reachable for the agents the site names.
 
@@ -187,6 +188,23 @@ export default defineAgentContentSource({
 ### llms.txt sections
 
 The module removes `@nuxt/content`'s llms feature and generates `llms.txt` and `llms-full.txt` from the adapter, so the documents agree with what `/raw/**.md` serves. Existing `llms.sections` config keeps working: each section is handed to the adapter, which reads the keys it declares (`contentCollection`/`contentFilters` for `@nuxt/content`, `navigation` for comark). A section carrying its own `links` is left alone, its same-origin page links rendered into the full document, and each link matching a configured route rewritten to its raw twin; off-site and data links pass through untouched. Declare no sections at all and pages are grouped by the `section` label the adapter returns.
+
+`llms.details` fills the details section, the space [llmstxt.org](https://llmstxt.org) reserves between the `>` blockquote and the first `##` for whatever a site needs to say before the link lists. `nuxt-llms` renders the title and the description and goes straight to the sections, so this is the field it leaves out:
+
+```ts
+export default defineNuxtConfig({
+  agentDiscovery: {
+    llms: {
+      details: [
+        'Every page is available as markdown by appending `.md` to its URL.',
+        'Reach for `llms-full.txt` when you need the whole documentation in one request.'
+      ]
+    }
+  }
+})
+```
+
+A single string works too. The blocks are joined with a blank line and rendered after the blockquote, so they need `llms.description` set, which is what they follow. Headings are not allowed there: one would open a section and pull every link list under it, and the module warns at build when it finds one.
 
 `nuxt-llms` prerenders both documents unconditionally, so on a backend resolving content per request they go stale without a redeploy ([nuxt-llms#24](https://github.com/nuxtlabs/nuxt-llms/issues/24)). Until that lands, opt the two routes out yourself:
 

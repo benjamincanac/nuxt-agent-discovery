@@ -59,6 +59,14 @@ export default defineNuxtConfig({
         labels: { components: 'UI Components' }
       }
     },
+    llms: {
+      // The details section: two blocks, one carrying a fenced example, so the
+      // rendered header pins both the join and the fence handling.
+      details: [
+        'Fetch any page as markdown by appending `.md` to its URL.',
+        '```sh\ncurl https://basic.example.com/docs/getting-started.md\n```'
+      ]
+    },
     discovery: {
       mcpServerCard: {
         endpoint: '/mcp',
