@@ -40,7 +40,7 @@ Record:
 - **Content backend**: `@nuxt/content`, comark, or something else. Decides the `source` option.
 - **Deploy target**: Vercel gets edge negotiation, everything else gets the middleware only, where a prerendered page keeps serving HTML to agents.
 - **Route rules carrying `isr`, `swr` or `cache`**, and which page patterns they cover. The module detects these and switches those patterns to a 307, but you need to know which pages change behaviour.
-- **i18n locales**, which become a wildcard segment in a `routes` pattern rather than one pattern per locale.
+- **i18n locales**, which become a wildcard segment in a `routes` pattern rather than one pattern per locale. With `@nuxtjs/i18n` installed the module detects the locale roots (`/en`, `/fr`) itself and wraps their twins as homepages, so they need no entry either.
 - **Companion modules**: `@nuxtjs/robots` and `@nuxtjs/sitemap` take over `robots.txt` and `sitemap.xml`, and the module hands off to them automatically.
 - **Every existing agent-facing file**: negotiation utils, an `md-rewrite` module, a raw route, `.well-known` routes, `sitemap.md`, a static `public/robots.txt`, `vercel.json` rewrites, an error handler chained in `nitro:config`, a `useCanonical` composable, skills served from `publicAssets`, and any `index.md` handler.
 - **Standalone `.md` documents the site serves itself** (`/design.md` and friends). These need `excludePrefixes.extend` or the rewrites will send them to a raw twin that does not exist.
@@ -124,7 +124,7 @@ export default defineNitroPlugin((nitroApp) => {
 
 Three helpers replace hand-written equivalents:
 
-- `renderAgentResources(event)` renders the discovery registry as a markdown block, for a page the site renders by hand. The module appends it to the `/` document itself and leaves a body that already carries the heading alone, so a `/` document has no reason to render it.
+- `renderAgentResources(event)` renders the discovery registry as a markdown block, for a page the site renders by hand. The module appends it to the `/` document and to each locale landing document itself, and leaves a body that already carries the heading alone, so those documents have no reason to render it.
 - `agentDiscoveryOpenApi(event)` returns the discovery layer as OpenAPI fragments. Spread the site's own paths last so they win.
 - `rawUrl(event, href)` resolves a page URL to its markdown twin from the same route config, for links the site builds itself inside `llms:generate` hooks.
 
@@ -164,7 +164,7 @@ Two wrinkles. A tool that deliberately serves excluded content, say a nightly do
 
 Two that are easy to miss: the `Vary`/`Link` `routeRules` block, which now conflicts with what the module emits, and the `nitro:config` hook chaining the error handler, which the module does itself.
 
-Keep a hand-written `/raw/index.md` handler only when the site wants full control of that document. Otherwise prefer a `/` document in the content source, which the module wraps with the resources block and the sitemap footer, and keep the `agent-discovery:index` hook for metadata when no `/` document exists.
+Keep a hand-written `/raw/index.md` handler only when the site wants full control of that document. Otherwise prefer a `/` document in the content source, which the module wraps with the resources block and the sitemap footer, and keep the `agent-discovery:index` hook for metadata when no `/` document exists. On an i18n site the landing documents live at the locale roots, and the module wraps `content/en/index.md` and its siblings the same way; the hook only ever fills the generated `/`.
 
 ## Adopting `@nuxtjs/sitemap` in the same PR
 

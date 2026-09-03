@@ -20,6 +20,11 @@ export interface VercelRoute {
   continue?: boolean
 }
 
+/** Opens a routing phase: every route after it in the table runs in that phase only. */
+export interface VercelHandle {
+  handle: 'filesystem' | 'resource' | 'miss' | 'rewrite' | 'hit' | 'error'
+}
+
 /** The negotiation middleware only answers GET/HEAD, so every emitted route carries the same restriction. */
 const METHODS = ['GET', 'HEAD']
 
@@ -111,7 +116,9 @@ function negotiatedRoute(src: string, dest: string, has: RouteMatcher[], cached:
  *
  * The two `Vary` routes come first and carry `continue: true`: Nitro emits its
  * own `routeRules` header routes after these and without `continue`, so they
- * never run for a request that gets rewritten to a prerendered file.
+ * never run for a request that gets rewritten to a prerendered file. The
+ * canonical pair on the twins is the one header kept out of here, see
+ * `vercelTwinLinkRoutes`.
  */
 export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // Anchored at a media-range boundary: a bare substring also matches inside a
@@ -169,62 +176,6 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     methods: METHODS,
     continue: true
   })
-
-  // The canonical/alternate pair the raw handler sets, for prerendered twins the
-  // CDN answers off the filesystem. The value embeds the page URL, so it needs a
-  // configured site URL: the edge cannot know the request host at build time.
-  // Absent from the page rewrites, whose URLs also serve HTML.
-  if (config.siteUrl) {
-    const canonicalLink = (href: string) => formatLinkHeader([
-      { href, rel: 'canonical' },
-      { href, rel: 'alternate', type: 'text/html' }
-    ])
-    // Twins with a static entry of their own: exact patterns whose raw
-    // destination sits under `rawPrefix`, plus the root twin, whose wildcard
-    // capture would otherwise mis-derive the page as `/index`.
-    const isRaw = (raw: string) => isRawPath(config, raw)
-    const rootTwin = `${config.rawPrefix}/index.md`
-    const statics: { raw: string, href: string }[] = []
-    for (const route of config.routes) {
-      if (route.path.includes('*')) {
-        continue
-      }
-      const raw = rawDestination(config, route, route.path)
-      // Two exact routes can name the same twin, `/` and `/index` both mapping to
-      // the root one: one entry per `src`, or two conflicting headers.
-      if (!isRaw(raw) || statics.some(entry => entry.raw === raw)) {
-        continue
-      }
-      // The origin folds a trailing `/index` into the directory it indexes, so
-      // `/docs/index`'s twin advertises `/docs`, the URL that answers.
-      const page = route.path.endsWith('/index') ? route.path.slice(0, -6) || '/' : route.path
-      statics.push({ raw, href: page === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${encodeAgentRoute(page)}` })
-    }
-    if (!statics.some(entry => entry.raw === rootTwin)) {
-      // `/raw/index.md` folds to `/` at the origin whatever the patterns say, so
-      // the wildcard capture must never read it as `/index`.
-      statics.push({ raw: rootTwin, href: config.siteUrl })
-    }
-    // The wildcard capture must not also match a statically-mapped twin.
-    const rawExclusion = statics.length ? `(?!(?:${statics.map(entry => escapeEncoded(entry.raw.slice(config.rawPrefix.length))).join('|')})$)` : ''
-    // A trailing `/index` folds away at the origin, so a capture reading
-    // `/docs/index.md` would advertise a page URL the handler never serves.
-    const noIndex = String.raw`(?!.*/index\.md$)`
-    for (const route of config.routes) {
-      if (route.path.includes('*')) {
-        const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
-        const link = canonicalLink(`${config.siteUrl}${patternDest(encodeAgentRoute(route.path))}`)
-        routes.push({ src: `^${excluded}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
-        routes.push({ src: `^${escapeEncoded(config.rawPrefix)}${rawExclusion}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
-      } else if (route.path !== '/' && !route.path.endsWith('/index') && isRaw(rawDestination(config, route, route.path))) {
-        // An index-shaped exact path folds the same way, so its twin gets no entry.
-        routes.push({ src: `^${escapeEncoded(route.path)}\\.md$`, headers: { Link: canonicalLink(`${config.siteUrl}${encodeAgentRoute(route.path)}`) }, methods: METHODS, continue: true })
-      }
-    }
-    for (const entry of statics) {
-      routes.push({ src: `^${escapeEncoded(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
-    }
-  }
 
   // Opt-in: a negotiated page has exactly two representations, so an `Accept`
   // allowing neither is a 406 per RFC 9110. Emitted here as well as in the
@@ -317,6 +268,75 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
 }
 
 /**
+ * The canonical/alternate `Link` pair the raw handler sets, for the prerendered
+ * twins the CDN answers off the filesystem. Emitted in the `hit` phase of the
+ * Build Output table, which only runs once a static file has been matched, so
+ * the pair never lands on a function answer: the handler keeps setting it on the
+ * twins it renders, and a missing twin's 404 advertises no page. The value
+ * embeds the page URL, so it needs a configured site URL: the edge cannot know
+ * the request host at build time. Both twin URL spaces stay listed: the phase
+ * matches whichever path the `.md` alias rewrite left the request at.
+ */
+export function vercelTwinLinkRoutes(config: NegotiationConfig): VercelRoute[] {
+  const routes: VercelRoute[] = []
+  if (!config.siteUrl) {
+    return routes
+  }
+  const excluded = excludeLookahead(config)
+  const canonicalLink = (href: string) => formatLinkHeader([
+    { href, rel: 'canonical' },
+    { href, rel: 'alternate', type: 'text/html' }
+  ])
+  // Twins with a static entry of their own: exact patterns whose raw
+  // destination sits under `rawPrefix`, plus the root twin, whose wildcard
+  // capture would otherwise mis-derive the page as `/index`.
+  const isRaw = (raw: string) => isRawPath(config, raw)
+  const rootTwin = `${config.rawPrefix}/index.md`
+  const statics: { raw: string, href: string }[] = []
+  for (const route of config.routes) {
+    if (route.path.includes('*')) {
+      continue
+    }
+    const raw = rawDestination(config, route, route.path)
+    // Two exact routes can name the same twin, `/` and `/index` both mapping to
+    // the root one: one entry per `src`, or two conflicting headers.
+    if (!isRaw(raw) || statics.some(entry => entry.raw === raw)) {
+      continue
+    }
+    // The origin folds a trailing `/index` into the directory it indexes, so
+    // `/docs/index`'s twin advertises `/docs`, the URL that answers.
+    const page = route.path.endsWith('/index') ? route.path.slice(0, -6) || '/' : route.path
+    statics.push({ raw, href: page === '/' || raw === rootTwin ? config.siteUrl : `${config.siteUrl}${encodeAgentRoute(page)}` })
+  }
+  if (!statics.some(entry => entry.raw === rootTwin)) {
+    // `/raw/index.md` folds to `/` at the origin whatever the patterns say, so
+    // the wildcard capture must never read it as `/index`.
+    statics.push({ raw: rootTwin, href: config.siteUrl })
+  }
+  // The wildcard capture must not also match a statically-mapped twin.
+  const rawExclusion = statics.length ? `(?!(?:${statics.map(entry => escapeEncoded(entry.raw.slice(config.rawPrefix.length))).join('|')})$)` : ''
+  // A trailing `/index` folds away at the origin, so a capture reading
+  // `/docs/index.md` would advertise a page URL the handler never serves.
+  const noIndex = String.raw`(?!.*/index\.md$)`
+  for (const route of config.routes) {
+    if (route.path.includes('*')) {
+      const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
+      const link = canonicalLink(`${config.siteUrl}${patternDest(encodeAgentRoute(route.path))}`)
+      routes.push({ src: `^${excluded}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+      routes.push({ src: `^${escapeEncoded(config.rawPrefix)}${rawExclusion}${noIndex}${body}\\.md$`, headers: { Link: link }, methods: METHODS, continue: true })
+    } else if (route.path !== '/' && !route.path.endsWith('/index') && isRaw(rawDestination(config, route, route.path))) {
+      // An index-shaped exact path folds the same way, so its twin gets no entry.
+      routes.push({ src: `^${escapeEncoded(route.path)}\\.md$`, headers: { Link: canonicalLink(`${config.siteUrl}${encodeAgentRoute(route.path)}`) }, methods: METHODS, continue: true })
+    }
+  }
+  for (const entry of statics) {
+    routes.push({ src: `^${escapeEncoded(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
+  }
+
+  return routes
+}
+
+/**
  * Patches the Vercel Build Output config after Nitro compiles. We edit
  * `.vercel/output/config.json` (Build Output API v3), not `vercel.json`, which
  * has a different schema. https://vercel.com/docs/build-output-api/configuration
@@ -327,23 +347,26 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, colle
   if (nitro.options.dev || nitro.options.static || !nitro.options.preset.includes('vercel')) {
     return
   }
-  // The emitted table injects the `Link` pair on the raw twins, so the raw
-  // handler has to skip its own copy or every origin-rendered raw response
-  // carries it twice. Set on Nitro's copy: the module-scope one was cloned away.
-  if (config.siteUrl) {
-    const runtime = nitro.options.runtimeConfig.agentDiscovery as NegotiationConfig | undefined
-    if (runtime) {
-      runtime.cdnLinkPairs = true
-    }
-  }
   nitro.hooks.hook('compiled', async () => {
     // The last read of the rule table before it decides rewrite or 307: an
     // inline `defineRouteRules({ isr })` only lands on it during the Nuxt build,
     // after every module hook has run.
     collectCachedRoutes?.(nitro.options.routeRules)
     const vcJSON = resolve(nitro.options.output.dir, 'config.json')
-    const vcConfig = JSON.parse(await readFile(vcJSON, 'utf8'))
+    const vcConfig = JSON.parse(await readFile(vcJSON, 'utf8')) as { routes: (VercelRoute | VercelHandle)[] }
     vcConfig.routes.unshift(...vercelMarkdownRoutes(config))
+    // Nitro emits no `hit` phase of its own, so the pair opens one at the end of
+    // the table. A phase is a position in the array, so one already there takes
+    // the routes instead of a second marker.
+    const twinLinks = vercelTwinLinkRoutes(config)
+    if (twinLinks.length) {
+      const hit = vcConfig.routes.findIndex(route => 'handle' in route && route.handle === 'hit')
+      if (hit === -1) {
+        vcConfig.routes.push({ handle: 'hit' }, ...twinLinks)
+      } else {
+        vcConfig.routes.splice(hit + 1, 0, ...twinLinks)
+      }
+    }
     await writeFile(vcJSON, JSON.stringify(vcConfig, null, 2), 'utf8')
   })
 }

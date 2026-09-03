@@ -2,7 +2,7 @@ import { createError, defineEventHandler, sendRedirect, setResponseHeader } from
 import source from '#agent-discovery/source'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
-import { encodeAgentRoute, formatLinkHeader, hasCdnLinkPair, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
+import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves the raw markdown representation of a page. `getAgentDocument()` builds
@@ -43,15 +43,12 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
 
-  // On Vercel the CDN header table already injects this pair on the twins it
-  // covers, origin-rendered responses included, so setting it here would ship
-  // it twice. Everywhere else this handler is the only source.
-  if (!(config.cdnLinkPairs && hasCdnLinkPair(config, pathname))) {
-    setResponseHeader(event, 'Link', formatLinkHeader([
-      { href: document.canonicalUrl, rel: 'canonical' },
-      { href: document.canonicalUrl, rel: 'alternate', type: 'text/html' }
-    ]))
-  }
+  // The Vercel table stamps the same pair on prerendered twins, in its `hit`
+  // phase, so a response this handler renders never carries it twice.
+  setResponseHeader(event, 'Link', formatLinkHeader([
+    { href: document.canonicalUrl, rel: 'canonical' },
+    { href: document.canonicalUrl, rel: 'alternate', type: 'text/html' }
+  ]))
 
   return document.markdown
 })

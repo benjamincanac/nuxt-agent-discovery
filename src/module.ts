@@ -162,6 +162,36 @@ function hasActiveNuxtModule(nuxt: Nuxt, name: string, configKey: string): boole
   return moduleOptions !== false && moduleOptions?.enabled !== false
 }
 
+/** What this module reads off `nuxt.options.i18n`, a subset of the `@nuxtjs/i18n` options. */
+interface I18nOptions {
+  locales?: (string | { code?: string })[]
+  defaultLocale?: string
+  strategy?: 'no_prefix' | 'prefix_except_default' | 'prefix' | 'prefix_and_default'
+  differentDomains?: boolean
+}
+
+/**
+ * The locale roots `@nuxtjs/i18n` serves as landing pages, read the way its
+ * router does: every locale under `prefix` and `prefix_and_default`, every
+ * locale but the default under `prefix_except_default` (its default, where the
+ * default locale lives at `/`), none under `no_prefix` or across different
+ * domains, where each locale has a root of its own.
+ */
+function i18nHomepages(nuxt: Nuxt): string[] {
+  if (!hasActiveNuxtModule(nuxt, '@nuxtjs/i18n', 'i18n')) {
+    return []
+  }
+  const i18n = (nuxt.options as { i18n?: I18nOptions }).i18n
+  const strategy = i18n?.strategy || 'prefix_except_default'
+  if (!i18n?.locales?.length || strategy === 'no_prefix' || i18n.differentDomains) {
+    return []
+  }
+  const codes = new Set(i18n.locales.map(locale => typeof locale === 'string' ? locale : locale.code))
+  return [...codes]
+    .filter((code): code is string => Boolean(code) && (strategy !== 'prefix_except_default' || code !== i18n.defaultLocale))
+    .map(code => `/${code}`)
+}
+
 export default defineNuxtModule<ModuleOptions>({
   meta: {
     name: 'nuxt-agent-discovery',
@@ -213,6 +243,9 @@ export default defineNuxtModule<ModuleOptions>({
     const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
       .map(route => typeof route === 'string' ? { path: route } : route)
       .map(route => ({ ...route, path: withLeadingSlash(route.path) }))
+    // Exact routes this module appends at `modules:done` rather than the site
+    // naming them, so a twin of theirs that 404s is skipped, not a build error.
+    const detectedRoutes = new Set<string>()
     for (const [name, option] of [['userAgents', options.userAgents], ['excludePrefixes', options.excludePrefixes]] as const) {
       if (option?.replace && option.extend?.length) {
         logger.warn(`\`${name}\` has both \`replace\` and \`extend\`; \`replace\` wins and the extended entries are dropped.`)
@@ -616,6 +649,25 @@ export {}
         addServerPlugin(resolve('./runtime/server/plugins/llms'))
       }
 
+      /* ------------------------------ homepages ----------------------------- */
+
+      // On an i18n site `/` only redirects and the landing documents live at the
+      // locale roots, which is where `llms.txt` sends agents, so those count as
+      // homepages too: negotiated as an exact route where no pattern covers
+      // them already, their twin prerendered and wrapped with the resources
+      // block like `/raw/index.md` either way. Detected here like the other
+      // companions, so a site pulling `@nuxtjs/i18n` in through a layer is covered.
+      const homepages = i18nHomepages(nuxt)
+      for (const homepage of homepages) {
+        if (!matchRoute(routes, homepage)) {
+          routes.push({ path: homepage })
+          detectedRoutes.add(homepage)
+        }
+      }
+      if (homepages.length) {
+        config.homepages = homepages
+      }
+
       /* ------------------------------ registry ----------------------------- */
 
       // Advertised only when something serves it: this module does not
@@ -807,7 +859,24 @@ export {}
             const raw = rawDestination(config, route, route.path)
             if (!siteServesRaw(config, raw)) {
               addPrerenderRoutes(raw)
-              queuedRawRoutes.add(raw)
+              // A detected locale root may have no landing document, and its
+              // twin then answers a 404 the site never asked to be written.
+              if (!detectedRoutes.has(route.path)) {
+                queuedRawRoutes.add(raw)
+              }
+            }
+          }
+        }
+        // A locale root a pattern covers has no exact entry of its own, and its
+        // twin is a homepage all the same: queued like `/raw/index.md` rather
+        // than left to whether the site prerenders the landing page, and never
+        // a build error, since the site named neither.
+        for (const homepage of config.homepages || []) {
+          const route = detectedRoutes.has(homepage) ? undefined : matchRoute(routes, homepage)
+          if (route) {
+            const raw = rawDestination(config, route, homepage)
+            if (!siteServesRaw(config, raw)) {
+              addPrerenderRoutes(raw)
             }
           }
         }

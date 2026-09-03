@@ -262,3 +262,78 @@ URL or send \`Accept: text/markdown\`.
     })
   })
 })
+
+describe('getAgentDocument: locale homepages', () => {
+  // On an i18n site `/` only redirects and the landing documents live at the
+  // locale roots, where `llms.txt` and the redirect send agents. The module
+  // lists those in `homepages`, and they wrap like `/` does.
+  const links = [
+    { href: '/sitemap.md', rel: 'sitemap', title: 'Sitemap (Markdown): every page on the site' },
+    { href: '/llms.txt', rel: 'describedby', title: 'llms.txt: index of the documentation for LLMs' }
+  ]
+
+  beforeEach(() => {
+    setRuntimeConfig({
+      agentDiscovery: {
+        siteUrl: 'https://example.com',
+        rawPrefix: '/raw',
+        routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+        excludePrefixes: [],
+        links,
+        homepages: ['/en', '/fr']
+      }
+    })
+    setAgentContentSource({
+      async get(route) {
+        return route === '/en' || route === '/en/docs/guide' ? { title: route.slice(1), markdown: `# ${route.slice(1)}\n\nWelcome.\n` } : null
+      },
+      async firstLeaf(route) {
+        return route === '/fr' ? '/fr/docs/guide' : null
+      }
+    })
+  })
+
+  it('wraps a locale root the way it wraps `/`, footer included', async () => {
+    await expect(getAgentDocument(event, '/en')).resolves.toMatchObject({
+      canonicalUrl: 'https://example.com/en',
+      markdown: `---
+title: "en"
+canonical_url: "https://example.com/en"
+---
+# en
+
+Welcome.
+
+## Resources for Agents
+
+- [Sitemap (Markdown): every page on the site](https://example.com/sitemap.md)
+- [llms.txt: index of the documentation for LLMs](https://example.com/llms.txt)
+
+
+## Sitemap
+
+See the full [sitemap](https://example.com/sitemap.md) for all pages.
+`
+    })
+  })
+
+  it('leaves the pages under the locale without the block', async () => {
+    const document = await getAgentDocument(event, '/en/docs/guide') as { markdown: string }
+
+    expect(document.markdown).not.toContain('Resources for Agents')
+  })
+
+  it('keeps the generated index for `/` alone: a locale root with no document redirects like a section', async () => {
+    await expect(getAgentDocument(event, '/fr')).resolves.toEqual({ redirect: '/fr/docs/guide' })
+  })
+
+  it('reads a config with no locale roots as `/` alone', async () => {
+    setRuntimeConfig({
+      agentDiscovery: { siteUrl: 'https://example.com', rawPrefix: '/raw', routes: [{ path: '/**' }], excludePrefixes: [], links }
+    })
+
+    const document = await getAgentDocument(event, '/en') as { markdown: string }
+
+    expect(document.markdown).not.toContain('Resources for Agents')
+  })
+})

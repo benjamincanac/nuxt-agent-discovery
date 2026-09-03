@@ -160,9 +160,10 @@ export interface NegotiationConfig {
    */
   ownRawRoutes?: string[]
   /**
-   * Whether the deployed CDN route table injects the canonical/alternate `Link`
-   * pair on the raw markdown twins. The raw handler skips its own copy where the
-   * table covers the URL, or the pair goes out twice.
+   * Routes wrapped as the agent homepage besides `/`: the locale roots (`/en`,
+   * `/fr`) of a site running `@nuxtjs/i18n`, where `/` only redirects and the
+   * landing document lives under the locale. Their twins carry the resources
+   * block the way `/raw/index.md` does. The generated index stays `/`'s alone.
    */
-  cdnLinkPairs?: boolean
+  homepages?: string[]
 }

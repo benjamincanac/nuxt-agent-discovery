@@ -324,57 +324,6 @@ describe('module setup: cached routes', () => {
   })
 })
 
-describe('module setup: CDN link pairs', () => {
-  const vercelNitro = (config: NegotiationConfig, preset: string) => {
-    const dir = mkdtempSync(join(tmpdir(), 'agent-discovery-vercel-'))
-    writeFileSync(join(dir, 'config.json'), JSON.stringify({ routes: [] }))
-    const cloned = JSON.parse(JSON.stringify(config)) as NegotiationConfig
-    return {
-      cloned,
-      nitro: {
-        options: {
-          dev: false,
-          static: false,
-          preset,
-          output: { dir },
-          routeRules: {},
-          runtimeConfig: { agentDiscovery: cloned }
-        },
-        hooks: { hook: () => {} }
-      }
-    }
-  }
-
-  it('tells the runtime when the Vercel table carries the pairs', async () => {
-    // The raw handler otherwise emits the canonical/alternate `Link` a second
-    // time on every origin-rendered response, doubling with each hop.
-    const nuxt = await runModule({ siteUrl: 'https://example.com' })
-    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
-    const { cloned, nitro } = vercelNitro(config, 'vercel')
-    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
-
-    expect(cloned.cdnLinkPairs).toBe(true)
-  })
-
-  it('says nothing without a site URL, where the preset emits no pairs', async () => {
-    const nuxt = await runModule()
-    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
-    const { cloned, nitro } = vercelNitro(config, 'vercel')
-    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
-
-    expect(cloned.cdnLinkPairs).toBeUndefined()
-  })
-
-  it('says nothing off Vercel', async () => {
-    const nuxt = await runModule({ siteUrl: 'https://example.com' })
-    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
-    const { cloned, nitro } = vercelNitro(config, 'node-server')
-    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
-
-    expect(cloned.cdnLinkPairs).toBeUndefined()
-  })
-})
-
 describe('module setup: companion modules', () => {
   /** What Nuxt does with `@nuxtjs/seo`'s declarative `moduleDependencies`. */
   const installLate = (name: string) => (nuxt: FakeNuxt) => {
@@ -550,6 +499,125 @@ describe('module setup: companion modules', () => {
     })
 
     expect(nuxt.options.nitro.alias?.['#agent-discovery/mcp']).toContain('mcp/none')
+  })
+})
+
+describe('module setup: i18n homepages', () => {
+  // On a site running `@nuxtjs/i18n` the landing documents live at the locale
+  // roots and `/` only redirects, so `/raw/en.md` is the homepage agents are
+  // actually sent to. Detected at `modules:done` like the other companions,
+  // off the module's own config key.
+  const i18n = (options: Record<string, unknown>) => (nuxt: FakeNuxt) => {
+    nuxt.options._installedModules.push({ meta: { name: '@nuxtjs/i18n' } })
+    Object.assign(nuxt.options, { i18n: options })
+  }
+  const locales = [{ code: 'en', name: 'English' }, 'fr']
+  const resolved = (nuxt: FakeNuxt) => nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+
+  it('appends the locale roots as exact routes and wraps them as homepages', async () => {
+    const config = resolved(await runModule({ routes: ['/', '/*/docs/**'] }, {}, i18n({ locales, defaultLocale: 'en', strategy: 'prefix' })))
+
+    expect(config.routes.map(route => route.path)).toEqual(['/', '/*/docs/**', '/en', '/fr'])
+    expect(config.homepages).toEqual(['/en', '/fr'])
+  })
+
+  it('leaves a locale root a pattern already covers to that pattern', async () => {
+    // The default `/**` negotiates `/en` already; a second entry would only pad
+    // the CDN table. The twin still gets the block through `homepages`, and is
+    // still queued for prerender like `/raw/index.md` rather than left to
+    // whether the site prerenders `/en` itself.
+    const nuxt = await runModule({}, {}, i18n({ locales, strategy: 'prefix' }))
+    const config = resolved(nuxt)
+
+    expect(config.routes.map(route => route.path)).toEqual(['/', '/**'])
+    expect(config.homepages).toEqual(['/en', '/fr'])
+
+    const ctx = { routes: new Set<string>() }
+    await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+    expect(ctx.routes).toContain('/raw/index.md')
+    expect(ctx.routes).toContain('/raw/en.md')
+    expect(ctx.routes).toContain('/raw/fr.md')
+  })
+
+  it('leaves a covered locale twin the site serves itself alone', async () => {
+    const nuxt = await runModule({}, {}, (nuxt) => {
+      i18n({ locales, strategy: 'prefix' })(nuxt)
+      nuxt.options.serverHandlers.push({ route: '/raw/fr.md', handler: '/site/server/raw-fr.ts' })
+    })
+    const ctx = { routes: new Set<string>() }
+    await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+
+    expect(ctx.routes).toContain('/raw/en.md')
+    expect(ctx.routes).not.toContain('/raw/fr.md')
+  })
+
+  it('skips the default locale under `prefix_except_default`, where it lives at `/`', async () => {
+    // That module's own default, so an unset strategy reads the same way.
+    for (const strategy of ['prefix_except_default', undefined]) {
+      const config = resolved(await runModule({}, {}, i18n({ locales, defaultLocale: 'en', strategy })))
+      expect(config.homepages, String(strategy)).toEqual(['/fr'])
+    }
+  })
+
+  it('keeps the default locale under `prefix_and_default`, where both roots serve it', async () => {
+    const config = resolved(await runModule({}, {}, i18n({ locales, defaultLocale: 'en', strategy: 'prefix_and_default' })))
+
+    expect(config.homepages).toEqual(['/en', '/fr'])
+  })
+
+  it('detects nothing without prefixes, without locales, or across domains', async () => {
+    for (const options of [
+      { locales, strategy: 'no_prefix' },
+      { locales: [], strategy: 'prefix' },
+      { strategy: 'prefix' },
+      { locales, strategy: 'prefix', differentDomains: true }
+    ]) {
+      const config = resolved(await runModule({}, {}, i18n(options)))
+      expect(config.homepages, JSON.stringify(options)).toBeUndefined()
+      expect(config.routes.map(route => route.path)).toEqual(['/', '/**'])
+    }
+  })
+
+  it('ignores an `i18n` key with no module behind it', async () => {
+    const config = resolved(await runModule({}, {}, (nuxt) => {
+      Object.assign(nuxt.options, { i18n: { locales, strategy: 'prefix' } })
+    }))
+
+    expect(config.homepages).toBeUndefined()
+  })
+
+  it('prerenders the locale twins without making a missing landing a build error', async () => {
+    // Detected rather than named by the site, whether appended as an exact
+    // route or covered by a pattern: a locale with docs but no landing document
+    // answers 404 on its twin, skipped the way a Vue page's twin is. The root
+    // twin the site did name keeps failing the build.
+    type Route = { route: string, contentType?: string, error?: Error & { statusCode: number, statusMessage: string }, skip?: boolean }
+    const failed = () => Object.assign(new Error('[404]'), { statusCode: 404, statusMessage: '' })
+
+    for (const routes of [['/', '/*/docs/**'], ['/', '/**']]) {
+      const nuxt = await runModule({ routes }, {}, i18n({ locales, strategy: 'prefix' }))
+      const ctx = { routes: new Set<string>() }
+      await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+      expect(ctx.routes).toContain('/raw/en.md')
+      expect(ctx.routes).toContain('/raw/fr.md')
+
+      const hooks: Record<string, (route: Route) => void> = {}
+      const nitro = {
+        options: { dev: false, static: false, preset: 'node-server', routeRules: {}, runtimeConfig: { agentDiscovery: {} } },
+        hooks: { hook: (name: string, callback: (route: Route) => void) => { hooks[name] = callback } }
+      }
+      await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+
+      const missing: Route = { route: '/raw/fr.md', contentType: 'text/markdown; charset=utf-8', error: failed() }
+      hooks['prerender:generate']!(missing)
+      expect(missing.skip, routes.join(' ')).toBe(true)
+      expect(missing.error).toBeUndefined()
+
+      const root: Route = { route: '/raw/index.md', contentType: 'text/markdown; charset=utf-8', error: failed() }
+      hooks['prerender:generate']!(root)
+      expect(root.skip).toBeUndefined()
+      expect(root.error?.statusCode).toBe(404)
+    }
   })
 })
 
