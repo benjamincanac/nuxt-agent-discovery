@@ -19,12 +19,27 @@ export default defineNuxtConfig({
   agentDiscovery: {
     siteName: 'i18n',
     // One wildcard segment covers every locale, so the generated CDN route
-    // table stays O(patterns) instead of O(locales × pages).
+    // table stays O(patterns) instead of O(locales × pages). The locale roots
+    // are outside it on purpose: the module appends them itself.
     routes: [{ path: '/', raw: '/raw/index.md' }, '/*/docs/**']
+  },
+  // Read by the homepage detection off the stub module in `modules/i18n.ts`,
+  // which carries the `@nuxtjs/i18n` name. `prefix` is what Docus forces, so
+  // both locale roots are landing pages and `/` only redirects browsers.
+  i18n: {
+    locales: [{ code: 'en', name: 'English' }, { code: 'fr', name: 'Français' }],
+    defaultLocale: 'en',
+    strategy: 'prefix'
   },
   llms: {
     domain: 'https://i18n.example.com',
     title: 'i18n',
-    description: 'Fixture site with locale-prefixed documentation routes.'
+    description: 'Fixture site with locale-prefixed documentation routes.',
+    // The full document is where the locale landings have to carry their
+    // resources block too, byte for byte with their twins.
+    full: {
+      title: 'i18n',
+      description: 'Fixture site with locale-prefixed documentation routes.'
+    }
   }
 })

@@ -4,7 +4,7 @@ import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
 import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
 import { extractSections } from '../../shared/sections'
-import { absolutizeMarkdownLinks, encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
+import { absolutizeMarkdownLinks, encodeAgentRoute, isExcluded, isHomepage, normalizeAgentRoute } from '../../shared/negotiation'
 import type { AgentIndex, AgentPage } from '../../shared/types'
 
 /** A resolved markdown document, or where to go instead. */
@@ -80,10 +80,11 @@ export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
 }
 
 /**
- * The `/` body with the discovery resources appended, shared by `getAgentDocument`
- * and the `llms-full.txt` builder so the homepage reads identically wherever it is
- * served. An empty body stays empty, and a body already carrying the heading is
- * left alone: a homepage rendering the registry by hand is not listed twice.
+ * A homepage body with the discovery resources appended, shared by
+ * `getAgentDocument` and the `llms-full.txt` builder so `/` and the locale roots
+ * read identically wherever they are served. An empty body stays empty, and a
+ * body already carrying the heading is left alone: a homepage rendering the
+ * registry by hand is not listed twice.
  */
 export function appendAgentResources(event: H3Event, markdown: string): string {
   if (!markdown.trim() || hasAgentResourcesHeading(markdown)) {
@@ -185,7 +186,8 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
     ? `\n\n## Sitemap\n\nSee the full [sitemap](${siteUrl}/sitemap.md) for all pages.\n`
     : '\n'
 
-  const body = path === '/' ? appendAgentResources(event, page!.markdown) : page!.markdown
+  // A homepage mirrors the generated index: body, the discovery resources, footer.
+  const body = isHomepage(config, path) ? appendAgentResources(event, page!.markdown) : page!.markdown
   const markdown = frontmatter + body + sitemap
 
   return {

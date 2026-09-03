@@ -182,12 +182,12 @@ describe('vercel build output', () => {
     const exact = 1 // `/`
     const cachedRules = 2 // `/docs/components/**`, plus `/docs/late/**` from `nitro:config`
     const headerRoutes = 3 // `Vary` on the pages, `Vary` on the markdown twins, `Link`
-    const canonicalLinks = 3 // canonical/alternate per twin space: two for `/**`, one for `/`
     const refusals = 1 // `notAcceptable: true` in the fixture
     // Per pattern: an `Accept` route and a User-Agent route, plus a `.md` alias
     // for a wildcard. Per cached rule narrower than the pattern over it: its own
-    // redirect pair.
-    expect(count).toBe(headerRoutes + canonicalLinks + refusals + patterns * 2 + (patterns - exact) + cachedRules * 2)
+    // redirect pair. The canonical pair on the twins sits in the `hit` phase at
+    // the end of the table, see below.
+    expect(count).toBe(headerRoutes + refusals + patterns * 2 + (patterns - exact) + cachedRules * 2)
   })
 
   // The cache-correctness path, asserted against real emitted output rather
@@ -224,11 +224,29 @@ describe('vercel build output', () => {
     expect(late.map(route => route.has?.[0]?.key)).toEqual(['accept', 'user-agent'])
   })
 
-  it('labels the prerendered twins with their canonical page', () => {
+  it('labels the prerendered twins with their canonical page, in the `hit` phase only', () => {
     // The raw handler sets this pair, but a prerendered twin never reaches
     // it, so the table has to carry the header for the CDN-answered files.
-    const linkRoutes = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    // In the phase that only runs once a static file matched: ahead of the
+    // filesystem it would land on every function answer too, and the 404 of
+    // a twin that does not exist advertised a canonical for a page that does
+    // not exist either.
+    const filesystem = routes.findIndex(route => route.handle === 'filesystem')
+    const hit = routes.findIndex(route => route.handle === 'hit')
+    expect(filesystem).toBeGreaterThan(0)
+    expect(hit).toBeGreaterThan(filesystem)
+    expect(routes.filter(route => route.handle === 'hit')).toHaveLength(1)
+    expect(routes.slice(0, hit).some(route => route.headers?.Link?.includes('rel="canonical"'))).toBe(false)
+
+    // The phase accepts nothing but header routes carrying `continue`.
+    const linkRoutes = routes.slice(hit + 1)
     expect(linkRoutes.length).toBeGreaterThanOrEqual(3)
+    for (const route of linkRoutes) {
+      expect(route.continue, route.src).toBe(true)
+      expect(route.dest, route.src).toBeUndefined()
+      expect(route.status, route.src).toBeUndefined()
+      expect(route.headers?.Link, route.src).toContain('rel="canonical"')
+    }
 
     const twin = linkRoutes.find(route => new RegExp(route.src!).test('/raw/docs/getting-started.md'))
     expect(twin).toBeDefined()

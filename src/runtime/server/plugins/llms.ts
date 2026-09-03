@@ -7,7 +7,7 @@ import source from '#agent-discovery/source'
 import type { AgentListEntry, NegotiationConfig } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { appendAgentResources, generatedIndexPage, getSourcePage } from '../utils/document'
-import { hasFileExtension, isExcluded, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
+import { hasFileExtension, isExcluded, isHomepage, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
 
 type LlmsSection = {
   title: string
@@ -251,15 +251,14 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
     }
 
     // The same `get()` the raw route calls, so a page reads identically whether an
-    // agent fetches `/raw/**.md` or the full document. `/` alone has a fallback.
+    // agent fetches `/raw/**.md` or the full document. The homepages carry the
+    // resources block like their twins do, and `/` alone has a fallback.
     const pages = await mapLimit(routes, async (route) => {
       const page = await getSourcePage(route, event)
-      if (route !== '/') {
-        return page
+      if (page) {
+        return isHomepage(config, route) ? { ...page, markdown: appendAgentResources(event, page.markdown) } : page
       }
-      return page
-        ? { ...page, markdown: appendAgentResources(event, page.markdown) }
-        : await generatedIndexPage(event)
+      return route === '/' ? await generatedIndexPage(event) : null
     })
     for (const page of pages) {
       if (page?.markdown) {

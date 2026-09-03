@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fetch, setup, useTestContext } from '@nuxt/test-utils/e2e'
-import { vercelMarkdownRoutes } from '../../src/presets/vercel'
+import { vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 import { CLAUDE_BOT, MARKDOWN_CONTENT_TYPE, MARKDOWN_VARY } from './expected'
 
@@ -112,10 +112,13 @@ describe('O(1) route table', () => {
   it('keeps the locale a wildcard instead of enumerating the locales', async () => {
     const config = await resolved()
 
-    expect(config.routes.map(route => route.path)).toEqual(['/', '/*/docs/**'])
+    // The two locale roots are the homepages, appended by the module as one
+    // exact entry each since no pattern covers them, see `locale homepages`.
+    expect(config.routes.map(route => route.path)).toEqual(['/', '/*/docs/**', '/en', '/fr'])
+    expect(config.homepages).toEqual(['/en', '/fr'])
     // The twin file the site serves itself, as the pattern Nitro registers.
     expect(config.ownRawRoutes).toContain('/raw/en/docs/live.md')
-    // The fixture ships `en` and `fr`; neither may appear as a pattern.
+    // The fixture ships `en` and `fr`; no page under either may appear as a pattern.
     expect(config.routes.some(route => /\/(?:en|fr)\//.test(route.path))).toBe(false)
   })
 
@@ -126,11 +129,15 @@ describe('O(1) route table', () => {
     const glob = config.routes.filter(route => route.path.includes('*')).length
 
     // 3 header routes (`Vary` on the pages, `Vary` on the markdown twins,
-    // `Link`) + 3 per exact path (the negotiated pair and the canonical
-    // `Link` on its raw twin) + 5 per glob (three rewrites and the canonical
-    // `Link` pair on both twin spaces), and nothing that scales with the 5
-    // content files or the 2 locales.
-    expect(routes).toHaveLength(3 + exact * 3 + glob * 5)
+    // `Link`) + 2 per exact path (the negotiated pair) + 1 per exact path but
+    // the root (its `.md` alias) + 3 per glob (three rewrites), and nothing
+    // that scales with the 8 content files. The locale roots are exact paths
+    // here, one entry each, not one per page under them.
+    expect(routes).toHaveLength(3 + exact * 2 + (exact - 1) + glob * 3)
+    // The canonical `Link` pair on the twins, in the `hit` phase: one static
+    // entry per exact twin, the `.md` alias of each exact path but the root,
+    // and both twin spaces of a glob.
+    expect(vercelTwinLinkRoutes(config)).toHaveLength(exact + (exact - 1) + glob * 2)
   })
 
   it('captures the locale segment rather than enumerating locales', async () => {
@@ -148,12 +155,21 @@ describe('O(1) route table', () => {
     expect(routes.filter(route => route.dest === '/raw/index.md')).toHaveLength(2)
   })
 
-  it('never names a locale or a page', async () => {
-    const serialized = JSON.stringify(vercelMarkdownRoutes(await resolved()))
+  it('never names a page, and a locale only as its root', async () => {
+    const config = await resolved()
+    const routes = [...vercelMarkdownRoutes(config), ...vercelTwinLinkRoutes(config)]
+    const serialized = JSON.stringify(routes)
 
-    for (const fragment of ['/en', '/fr', 'getting-started', 'button', 'about']) {
+    for (const fragment of ['getting-started', 'button', 'about']) {
       expect(serialized).not.toContain(fragment)
     }
+    // A locale followed by a path segment would be a page under it. The
+    // compiled root patterns end in `/en/?`, which is the root itself.
+    expect(serialized).not.toMatch(/\/(?:en|fr)\/[^?]/)
+    // The locale roots are exact routes: their `.md` alias and their static
+    // twin entry, and nothing under them.
+    expect(routes.filter(route => route.src === '^/en\\.md$')).toHaveLength(2)
+    expect(routes.filter(route => route.src === '^/raw/en\\.md$')).toHaveLength(1)
   })
 
   it('stays smaller than a per-page table for the pages the fixture serves', async () => {
@@ -161,7 +177,7 @@ describe('O(1) route table', () => {
     const pages = sitemap.split('\n').filter(line => line.startsWith('- [')).length
     const routes = vercelMarkdownRoutes(await resolved())
 
-    expect(pages).toBeGreaterThanOrEqual(5)
+    expect(pages).toBeGreaterThanOrEqual(7)
     // A per-link table (two routes per page) would already be larger here and
     // would keep growing; this one does not move with the page count.
     expect(routes.length).toBeLessThan(pages * 2)
@@ -212,6 +228,15 @@ describe('prerender', () => {
     expect(built('/raw/fr/docs/getting-started.md')).toBe(false)
   })
 
+  it('prerenders the twin of each locale root like the root one', () => {
+    // Appended as exact routes, so their twins are queued like `/raw/index.md`
+    // whether or not the site prerenders the landing page itself: the French
+    // one is not, and its twin is written all the same.
+    expect(built('/raw/index.md')).toBe(true)
+    expect(built('/raw/en.md')).toBe(true)
+    expect(built('/raw/fr.md')).toBe(true)
+  })
+
   it('drops the twin of a section instead of storing its redirect as HTML', async () => {
     // `/en/docs/components` is a Vue page over a directory with no index
     // document, so its twin answers a 302 to the first document. Nitro reads
@@ -245,5 +270,83 @@ describe('prerender', () => {
     // Answered by the handler, not off a file: Nitro's asset layer would add
     // an `ETag`.
     expect(response.headers.get('etag')).toBe(null)
+  })
+})
+
+/**
+ * On this shape of site `/` only redirects browsers to a locale, `llms.txt`
+ * lists the locale roots, and `sitemap.md` puts them first: `/en` is the page
+ * agents actually land on. So the landing documents get the resources block
+ * `/raw/index.md` carries, through the same `appendAgentResources()`.
+ */
+describe('locale homepages', () => {
+  const BLOCK = `## Resources for Agents
+
+- [API catalog: every service document this site publishes](${SITE_URL}/.well-known/api-catalog)
+- [Sitemap (Markdown): every page on the site](${SITE_URL}/sitemap.md)
+- [llms.txt: index of the documentation for LLMs](${SITE_URL}/llms.txt)
+- [llms-full.txt: the full documentation as a single file](${SITE_URL}/llms-full.txt)
+`
+  const FOOTER = `\n\n## Sitemap\n\nSee the full [sitemap](${SITE_URL}/sitemap.md) for all pages.\n`
+
+  it('ends each locale root with the resources block and the sitemap footer', async () => {
+    for (const [locale, title] of [['en', 'Welcome'], ['fr', 'Bienvenue']]) {
+      const response = await fetch(`/raw/${locale}.md`)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+
+      const body = await response.text()
+      expect(body).toContain(`canonical_url: "${SITE_URL}/${locale}"`)
+      expect(body).toContain(`# ${title}`)
+      expect(body.endsWith(BLOCK + FOOTER), body).toBe(true)
+      expect(body.match(/Resources for Agents/g)).toHaveLength(1)
+    }
+  })
+
+  it('negotiates the locale root itself, an exact route the module appended', async () => {
+    const response = await fetch('/en', { headers: { Accept: 'text/markdown' } })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+    expect(await response.text()).toBe(await (await fetch('/raw/en.md')).text())
+  })
+
+  it('returns the same bytes from `getAgentDocument()`', async () => {
+    expect(await (await fetch('/agent-document.md?route=/en')).text()).toBe(await (await fetch('/raw/en.md')).text())
+  })
+
+  it('carries the same document into `llms-full.txt`, block included', async () => {
+    const document = await (await fetch('/agent-document.md?route=/en')).text()
+    const full = await (await fetch('/llms-full.txt')).text()
+
+    // Minus the envelope: the frontmatter and the sitemap footer belong to the
+    // raw route, the block to the document.
+    const body = document.split('---\n')[2]!.split('\n\n## Sitemap')[0]!
+    expect(body.endsWith(BLOCK)).toBe(true)
+    expect(full).toContain(body)
+  })
+
+  it('leaves the pages under a locale without the block', async () => {
+    const body = await (await fetch('/raw/en/docs/getting-started.md')).text()
+
+    expect(body).not.toContain('Resources for Agents')
+    expect(body.endsWith(FOOTER)).toBe(true)
+  })
+
+  it('lists the locale roots by their twins', async () => {
+    const sitemap = await (await fetch('/sitemap.md')).text()
+    const llms = await (await fetch('/llms.txt')).text()
+
+    for (const document of [sitemap, llms]) {
+      expect(document).toContain(`${SITE_URL}/raw/en.md`)
+      expect(document).toContain(`${SITE_URL}/raw/fr.md`)
+    }
+  })
+
+  it('keeps `/` wrapped once, as before', async () => {
+    const body = await (await fetch('/raw/index.md')).text()
+
+    expect(body).toContain('# i18n')
+    expect(body.match(/Resources for Agents/g)).toHaveLength(1)
   })
 })

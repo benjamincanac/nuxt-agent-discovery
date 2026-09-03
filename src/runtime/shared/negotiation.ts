@@ -595,44 +595,12 @@ export function absolutizeTreeLinks(nodes: unknown[], siteUrl: string): void {
 }
 
 /**
- * Whether the Vercel route table already carries the canonical/alternate
- * `Link` pair for a raw URL, mirroring the `config.siteUrl` block of
- * `vercelMarkdownRoutes`. The raw handler skips its own copy exactly there, or
- * every origin-rendered raw response carries the pair twice. `/index.md` is
- * out because the preset's `noIndex` lookahead keeps it out of the table.
+ * Whether a normalized route is wrapped as the agent homepage: `/`, or one of
+ * the locale roots `homepages` carries on an i18n site. The resources block
+ * lands on these and nowhere else.
  */
-export function hasCdnLinkPair(config: NegotiationConfig, rawPathname: string): boolean {
-  if (!rawPathname.endsWith('.md')) {
-    return false
-  }
-  // The table matches the encoded request path while the config spells routes
-  // decoded.
-  let pathname = rawPathname
-  try {
-    pathname = decodeURIComponent(pathname)
-  } catch {
-    // Malformed escape: leave it as it came.
-  }
-
-  const rootTwin = `${config.rawPrefix}/index.md`
-  for (const route of config.routes) {
-    if (route.path.includes('*')) {
-      continue
-    }
-    const raw = rawDestination(config, route, route.path)
-    if (raw === pathname && isRawPath(config, raw)) {
-      return true
-    }
-  }
-  if (pathname === rootTwin) {
-    return true
-  }
-
-  if (!isRawPath(config, pathname) || pathname.endsWith('/index.md')) {
-    return false
-  }
-  const page = pathname.slice(config.rawPrefix.length, -3)
-  return config.routes.some(route => route.path.includes('*') && patternRegExp(route.path).test(page))
+export function isHomepage(config: Pick<NegotiationConfig, 'homepages'>, route: string): boolean {
+  return route === '/' || (config.homepages?.includes(route) ?? false)
 }
 
 /* ------------------------------- Link header ------------------------------ */

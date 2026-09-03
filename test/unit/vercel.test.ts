@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { vercelMarkdownRoutes } from '../../src/presets/vercel'
+import { vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
 import type { VercelRoute } from '../../src/presets/vercel'
-import { acceptsMarkdown, formatLinkHeader, hasCdnLinkPair, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
+import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -240,26 +240,32 @@ describe('vercelMarkdownRoutes: route count', () => {
     const routes = vercelMarkdownRoutes(createConfig())
     expect(rewrites(routes).filter(route => route.dest === '/raw/docs/$1.md')).toHaveLength(3)
     expect(rewrites(routes).filter(route => route.dest === '/raw/index.md')).toHaveLength(2)
-    // 7 rewrites/headers plus the 3 canonical Link routes on the twins.
-    expect(routes).toHaveLength(10)
+    // 7 rewrites/headers. The 3 canonical Link routes on the twins sit in the
+    // `hit` phase, see `vercelTwinLinkRoutes`.
+    expect(routes).toHaveLength(7)
+    expect(vercelTwinLinkRoutes(createConfig())).toHaveLength(3)
   })
 
   it('emits 3 rewrites for an exact pattern that is not the root', () => {
     const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/changelog' }] }))
     expect(rewrites(routes).filter(route => route.dest === '/raw/changelog.md')).toHaveLength(3)
-    // 5 rewrites/headers plus 3 canonical Link routes: the page twin, the raw
-    // twin, and the root twin the generated index serves on every config.
-    expect(routes).toHaveLength(8)
+    // 5 rewrites/headers, and 3 canonical Link routes in the `hit` phase: the
+    // page twin, the raw twin, and the root twin the generated index serves on
+    // every config.
+    expect(routes).toHaveLength(5)
+    expect(vercelTwinLinkRoutes(createConfig({ routes: [{ path: '/changelog' }] }))).toHaveLength(3)
   })
 
   it('stays O(patterns), never O(pages)', () => {
     const base = createConfig()
     const many = createConfig({ routes: [...base.routes, { path: '/blog/**' }, { path: '/*/docs/**' }] })
-    expect(vercelMarkdownRoutes(base)).toHaveLength(10)
+    expect(vercelMarkdownRoutes(base)).toHaveLength(7)
+    expect(vercelTwinLinkRoutes(base)).toHaveLength(3)
     // Each extra glob pattern adds 3 rewrites and 2 canonical Link routes.
-    expect(vercelMarkdownRoutes(many)).toHaveLength(10 + 5 + 5)
-    // Nothing in the table depends on the pages behind a pattern.
-    expect(JSON.stringify(vercelMarkdownRoutes(base))).not.toContain('foo')
+    expect(vercelMarkdownRoutes(many)).toHaveLength(7 + 3 + 3)
+    expect(vercelTwinLinkRoutes(many)).toHaveLength(3 + 2 + 2)
+    // Nothing in either table depends on the pages behind a pattern.
+    expect(JSON.stringify([...vercelMarkdownRoutes(base), ...vercelTwinLinkRoutes(base)])).not.toContain('foo')
   })
 })
 
@@ -577,7 +583,7 @@ describe('vercelMarkdownRoutes: methods', () => {
     // an unscoped edge route 406ed or rewrote a POST the origin would serve.
     const config = createConfig({ notAcceptable: true, cachedRoutes: ['/docs/**'], links: LINKS })
 
-    for (const route of vercelMarkdownRoutes(config)) {
+    for (const route of [...vercelMarkdownRoutes(config), ...vercelTwinLinkRoutes(config)]) {
       if (route.src === '^/$' && route.headers?.Link) {
         // The homepage Link route stands in for the `/` route rule, which the
         // origin applies to every method.
@@ -589,9 +595,23 @@ describe('vercelMarkdownRoutes: methods', () => {
   })
 })
 
-describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
-  const routes = vercelMarkdownRoutes(createConfig())
-  const linkRoutes = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+describe('vercelTwinLinkRoutes: canonical Link on the twins', () => {
+  // Emitted in the `hit` phase, which only runs once a static file matched:
+  // the pair reaches every prerendered twin and no function answer, so the
+  // raw handler keeps setting its own and a missing twin's 404 advertises no
+  // page. The phase accepts nothing but header routes carrying `continue`.
+  const linkRoutes = vercelTwinLinkRoutes(createConfig())
+
+  it('stays out of the leading table and header-only, as the `hit` phase requires', () => {
+    expect(vercelMarkdownRoutes(createConfig()).some(route => route.headers?.Link?.includes('rel="canonical"'))).toBe(false)
+    expect(linkRoutes.length).toBeGreaterThan(0)
+    for (const route of linkRoutes) {
+      expect(route.continue, route.src).toBe(true)
+      expect(route.dest, route.src).toBeUndefined()
+      expect(route.status, route.src).toBeUndefined()
+      expect(route.headers?.Link, route.src).toContain('rel="canonical"')
+    }
+  })
 
   it('labels both twin URL spaces of a wildcard pattern', () => {
     // A prerendered twin is answered off the filesystem, so the handler that
@@ -618,11 +638,11 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
   it('skips a raw destination the site serves itself', () => {
     // An exact `raw` under an excluded prefix is the site's own document: no
     // entry for it, and no garbage sliced into the wildcard's lookahead.
-    const routes = vercelMarkdownRoutes(createConfig({
+    const routes = vercelTwinLinkRoutes(createConfig({
       routes: [{ path: '/design', raw: '/design.md' }, { path: '/**' }],
       excludePrefixes: ['/_', '/api/', '/design.md']
     }))
-    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const links = routes
 
     expect(links.some(route => matches(route, '/design.md'))).toBe(false)
     expect(routes.some(route => route.src.includes('(?:ign'))).toBe(false)
@@ -630,8 +650,8 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
   })
 
   it('maps the root twin to the site URL when only a wildcard covers `/`', () => {
-    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/**' }] }))
-    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const routes = vercelTwinLinkRoutes(createConfig({ routes: [{ path: '/**' }] }))
+    const links = routes
     const index = links.filter(route => matches(route, '/raw/index.md'))
 
     expect(index).toHaveLength(1)
@@ -652,8 +672,8 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
     // The guard is keyed on the twin having an owner, not on a `/` route
     // existing: with a `raw` override the route no longer names
     // `/raw/index.md`, which the origin serves regardless.
-    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/', raw: '/raw/home.md' }, { path: '/**' }] }))
-    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const routes = vercelTwinLinkRoutes(createConfig({ routes: [{ path: '/', raw: '/raw/home.md' }, { path: '/**' }] }))
+    const links = routes
     const index = links.filter(route => matches(route, '/raw/index.md'))
 
     expect(index).toHaveLength(1)
@@ -665,8 +685,8 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
     // `/` and `/index` both map to `/raw/index.md`: two entries would stack
     // two conflicting headers on one response, and the origin folds `/index`
     // into `/` anyway.
-    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/' }, { path: '/index' }, { path: '/**' }] }))
-    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const routes = vercelTwinLinkRoutes(createConfig({ routes: [{ path: '/' }, { path: '/index' }, { path: '/**' }] }))
+    const links = routes
     const index = links.filter(route => matches(route, '/raw/index.md'))
 
     expect(index).toHaveLength(1)
@@ -677,8 +697,8 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
   it('folds an index-shaped exact route in its static entry', () => {
     // The origin folds `/docs/index` into `/docs`, so the twin's static
     // entry has to advertise the folded URL, the one that answers.
-    const routes = vercelMarkdownRoutes(createConfig({ routes: [{ path: '/docs/index' }, { path: '/**' }] }))
-    const links = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const routes = vercelTwinLinkRoutes(createConfig({ routes: [{ path: '/docs/index' }, { path: '/**' }] }))
+    const links = routes
     const entry = links.filter(route => matches(route, '/raw/docs/index.md'))
 
     expect(entry).toHaveLength(1)
@@ -689,55 +709,7 @@ describe('vercelMarkdownRoutes: canonical Link on the twins', () => {
     // The value embeds the page URL and the edge cannot know the request
     // host at build time, so the origin-rendered responses keep the header
     // and the prerendered twins go without, the pre-existing behavior.
-    const bare = vercelMarkdownRoutes(createConfig({ siteUrl: '' }))
-
-    expect(bare.some(route => route.headers?.Link?.includes('rel="canonical"'))).toBe(false)
-  })
-})
-
-describe('vercelMarkdownRoutes: Link pair agreement with the runtime', () => {
-  // `hasCdnLinkPair` is what lets the raw handler skip its own `Link` header
-  // where the table already injects the pair. The two are separate
-  // implementations on purpose (one emits regexes, one answers per request),
-  // so this pins them to the same answer across every twin shape.
-  it('answers exactly where the emitted table carries a pair', () => {
-    const config = createConfig({
-      routes: [
-        { path: '/', raw: '/raw/index.md' },
-        { path: '/about' },
-        { path: '/docs/index' },
-        { path: '/modules', raw: '/elsewhere/modules.md' },
-        { path: '/文档' },
-        { path: '/docs/**' }
-      ]
-    })
-    const pairs = vercelMarkdownRoutes(config)
-      .filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
-
-    // The spellings the edge sees: Vercel matches `src` against the
-    // percent-encoded request path, so a non-ASCII twin only ever arrives
-    // encoded. The exact-pattern regexes used to be built from the decoded
-    // config path and could never match, while the predicate answered true,
-    // losing the pair entirely.
-    const samples = [
-      '/raw/index.md',
-      '/raw/about.md',
-      '/raw/docs/index.md',
-      '/raw/docs/getting-started.md',
-      '/raw/docs/3.x/guide.md',
-      '/raw/docs/deep/index.md',
-      '/raw/blog/post.md',
-      '/raw/docs/image.png',
-      '/raw/modules.md',
-      '/raw/%E6%96%87%E6%A1%A3.md',
-      '/raw/docs/%E6%96%87%E6%A1%A3.md'
-    ]
-    for (const path of samples) {
-      const cdn = pairs.some(route => new RegExp(route.src).test(path))
-      expect(hasCdnLinkPair(config, path), path).toBe(cdn)
-    }
-    // Pinned positively too, or an emitter matching nowhere would still agree.
-    expect(hasCdnLinkPair(config, '/raw/%E6%96%87%E6%A1%A3.md')).toBe(true)
+    expect(vercelTwinLinkRoutes(createConfig({ siteUrl: '' }))).toHaveLength(0)
   })
 })
 
@@ -766,7 +738,7 @@ describe('vercelMarkdownRoutes: non-ASCII exact patterns', () => {
     // The raw handler encodes `canonicalUrl` before it reaches a header;
     // the edge pair has to spell it the same way, and a raw UTF-8 header
     // value is invalid at the CDN anyway.
-    const pairs = routes.filter(route => route.continue && route.headers?.Link?.includes('rel="canonical"'))
+    const pairs = vercelTwinLinkRoutes(config)
     const twinPair = pairs.find(route => new RegExp(route.src).test('/raw/%E6%96%87%E6%A1%A3.md'))
     expect(twinPair?.headers?.Link).toContain('<https://example.com/%E6%96%87%E6%A1%A3>; rel="canonical"')
   })

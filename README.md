@@ -115,7 +115,7 @@ export default defineNuxtConfig({
 
 `/llms.txt` and `/llms-full.txt` belong to `nuxt-llms`; this module feeds them but never registers them.
 
-With the built-in `@nuxt/content` source, the raw twin of every exact route pattern and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. Whatever the source, every prerendered page hands the crawler its own twin, so a twin is frozen exactly when its page is. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is never prerendered, so it keeps answering per request instead of being frozen at build. A hinted twin the raw route cannot answer as markdown, a section redirecting to its first document or a page with no document behind it, is skipped rather than written or reported as a failed route.
+With the built-in `@nuxt/content` source, the raw twin of every exact route pattern (the locale roots of an i18n site included) and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. Whatever the source, every prerendered page hands the crawler its own twin, so a twin is frozen exactly when its page is. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is never prerendered, so it keeps answering per request instead of being frozen at build. A hinted twin the raw route cannot answer as markdown, a section redirecting to its first document or a page with no document behind it, is skipped rather than written or reported as a failed route.
 
 ### The raw route
 
@@ -129,9 +129,9 @@ canonical_url: "https://example.com/docs/getting-started"
 ---
 ```
 
-Then the page markdown, with every same-origin link absolutized. On `/` the discovery registry follows the body as a `## Resources for Agents` block, the same block the generated landing page carries, unless the body already has that heading. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
+Then the page markdown, with every same-origin link absolutized. On `/`, and on each locale root of a site running `@nuxtjs/i18n` (`/en`, `/fr`), the discovery registry follows the body as a `## Resources for Agents` block, the same block the generated landing page carries, unless the body already has that heading. When `/sitemap.md` is served, a `## Sitemap` section is appended pointing at it.
 
-A path naming a section rather than a page redirects 302 to the section's first document when the adapter implements `firstLeaf()`. Anything else missing answers a real 404 with the markdown error body, so an agent can tell an unknown URL from an empty one. `/` is the exception: with no `/` entry in the adapter, `/raw/index.md` falls through to a generated landing page, see [`agent-discovery:index`](#extending). The recommended way to author the agent homepage is a `/` document in the content source: the module wraps it with the resources block and the sitemap footer, and the generated page is the fallback for sites that have none.
+A path naming a section rather than a page redirects 302 to the section's first document when the adapter implements `firstLeaf()`, a locale root with no landing document included. Anything else missing answers a real 404 with the markdown error body, so an agent can tell an unknown URL from an empty one. `/` is the exception: with no `/` entry in the adapter, `/raw/index.md` falls through to a generated landing page, see [`agent-discovery:index`](#extending). The recommended way to author the agent homepage is a `/` document in the content source: the module wraps it with the resources block and the sitemap footer, and the generated page is the fallback for sites that have none.
 
 ## Content sources
 
@@ -303,12 +303,15 @@ Detected automatically, never a dependency, `@nuxtjs/seo`-installed included:
 - **`@nuxtjs/robots`** takes over `robots.txt`; the shared user-agent list and `contentSignal` are contributed through its `robots:config` hook.
 - **`@nuxtjs/mcp-toolkit`** owns `/mcp`; the MCP server card reads what it exposes, so it can't advertise a tool the server dropped.
 - **`@nuxtjs/sitemap`** owns `sitemap.xml`; the raw markdown twins are dropped from it, since they are alternate representations of pages already listed.
+- **`@nuxtjs/i18n`** makes the locale roots homepages: every `/<code>` under its `prefix` and `prefix_and_default` strategies, every one but the default locale under `prefix_except_default`, where that locale lives at `/`. On such a site `/` only redirects and the landing documents sit at `/en` and `/fr`, which is where `llms.txt` sends agents. Each root is negotiated as an exact route when no pattern covers it, its twin prerendered like `/raw/index.md`, and its document wrapped with the resources block and the sitemap footer. The generated landing page and `agent-discovery:index` stay `/`'s alone.
 
 ## Deployment
 
 ### Vercel
 
-On the `vercel` preset, a Nitro `compiled` hook prepends routes to `.vercel/output/config.json` (Build Output API v3): `continue: true` header routes carrying `Vary`, the discovery `Link` on `/` and the canonical/alternate pair for the prerendered twins, then, per configured pattern, a rewrite on `Accept: text/markdown` and one on the agent User-Agent list. Prerendered pages negotiate at the edge this way, before the CDN cache sees the request, and the table stays O(patterns), never O(pages).
+On the `vercel` preset, a Nitro `compiled` hook prepends routes to `.vercel/output/config.json` (Build Output API v3): `continue: true` header routes carrying `Vary` and the discovery `Link` on `/`, then, per configured pattern, a rewrite on `Accept: text/markdown` and one on the agent User-Agent list. Prerendered pages negotiate at the edge this way, before the CDN cache sees the request, and the table stays O(patterns), never O(pages).
+
+The canonical/alternate `Link` pair of the prerendered twins goes at the end of the table, in a `hit` phase, which only runs once a static file has been matched. A twin the function renders gets the pair from the raw handler instead, and a twin that does not exist answers its 404 without advertising a canonical for a page that does not exist.
 
 Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so only the outright refusal `text/markdown;q=0` is covered at the edge. The known divergence: the matcher reads `Accept` by substring, so a prerendered page asked for with a low-q `text/markdown` next to a preferred `text/html` is rewritten to markdown, where the origin ranks per RFC 9110 and serves the HTML.
 
