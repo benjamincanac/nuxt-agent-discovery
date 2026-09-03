@@ -3,9 +3,19 @@
  *
  * One list for the rewrite matchers, the middleware, the error handler and the
  * `robots.txt` AI policy. Re-check against https://github.com/ai-robots-txt/ai.robots.txt.
+ *
+ * Matched as a substring of the incoming `User-Agent`, so a token covers every
+ * version and variant spelled around it: `AI2Bot` answers `Ai2Bot-Dolma`,
+ * `MistralAI-User` answers `MistralAI-User/1.0`, `Diffbot` answers `Diffbot-User`.
+ *
+ * Bare `Applebot` is deliberately absent. It feeds Siri and Spotlight results,
+ * so serving it markdown changes what a search surface shows rather than what an
+ * agent reads; `Applebot-Extended`, the AI control, is the one that belongs here.
  */
 export const AGENT_USER_AGENTS = [
   'ClaudeBot',
+  'Claude-User',
+  'Claude-SearchBot',
   'Claude-Web',
   'anthropic-ai',
   'GPTBot',
@@ -16,13 +26,19 @@ export const AGENT_USER_AGENTS = [
   'Meta-ExternalAgent',
   'Meta-ExternalFetcher',
   'PerplexityBot',
+  'Perplexity-User',
+  'MistralAI-User',
+  'DuckAssistBot',
   'YouBot',
   'DeepSeekBot',
   'Amazonbot',
   'cohere-ai',
   'AI2Bot',
   'Applebot-Extended',
-  'Bytespider'
+  'Bytespider',
+  'CCBot',
+  'Diffbot',
+  'FirecrawlAgent'
 ]
 
 /**
