@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.4.0...v0.5.0) (2026-09-03)
+
+### Features
+
+* app-side discovery registry and a details slot for llms.txt ([#29](https://github.com/benjamincanac/nuxt-agent-discovery/issues/29)) ([facb88f](https://github.com/benjamincanac/nuxt-agent-discovery/commit/facb88f724d35f2057f8ef5c4276bbe9dab9f6ca))
+* **defaults:** negotiate markdown for 8 more AI agents ([#28](https://github.com/benjamincanac/nuxt-agent-discovery/issues/28)) ([5665273](https://github.com/benjamincanac/nuxt-agent-discovery/commit/5665273f3e344fac16dd25b680c66311ec6bfb60))
+
 ## [0.4.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.3.0...v0.4.0) (2026-09-03)
 
 ### Features
