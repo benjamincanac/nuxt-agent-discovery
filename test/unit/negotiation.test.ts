@@ -892,6 +892,13 @@ describe('absolutizeMarkdownLinks', () => {
     expect(run(['````', '```', '[a](/x)', '````'].join('\n'))).toBe(['````', '```', '[a](/x)', '````'].join('\n'))
   })
 
+  it('does not close a fence on a nested fence line carrying an info string', () => {
+    // A closing fence has no info string, so ` ```js ` inside a ` ```mdc `
+    // block is content and the link after it stays fenced.
+    const markdown = ['```mdc', '```js', '[a](/x)', '```', '[b](/y)'].join('\n')
+    expect(run(markdown)).toBe(['```mdc', '```js', '[a](/x)', '```', '[b](https://example.com/y)'].join('\n'))
+  })
+
   it('leaves raw HTML alone: a closing tag is not an autolink', () => {
     // `</div>` is indistinguishable from `</path>` by shape, and the
     // `@nuxt/content` adapter stringifies with `format: 'markdown/html'`, so
