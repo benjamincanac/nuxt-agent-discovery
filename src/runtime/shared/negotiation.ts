@@ -519,8 +519,11 @@ const INLINE_CODE = /(`+)[\s\S]*?\1/g
 
 const OPEN_FENCE = /^ {0,3}(`{3,}|~{3,})/
 
-/** A closing fence carries no info string, so a nested ` ```js ` line is content. */
-const CLOSE_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+/**
+ * A closing fence carries no info string, so a nested ` ```js ` line is content.
+ * The trailing `\r` is a CRLF document split on `\n`.
+ */
+const CLOSE_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
 
 /**
  * Feed it a document's lines in order; it answers whether the line just fed
