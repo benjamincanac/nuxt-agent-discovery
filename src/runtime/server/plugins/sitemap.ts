@@ -7,24 +7,16 @@ import type { SitemapInputCtx } from '@nuxtjs/sitemap'
 /**
  * Drops the raw markdown twins from every sitemap `@nuxtjs/sitemap` builds.
  *
- * They are alternate representations of pages that are already listed, not
- * pages of their own, and the prerender source picks the generated `.md` files
- * up like any other route.
- *
- * At runtime rather than through `sitemap.exclude`, because that option is read
- * during the sitemap module's own setup: a build-time contribution only lands
- * when the site happens to list this module first, and never at all when
- * `@nuxtjs/seo` installs the sitemap through `moduleDependencies`. The hook
- * fires for the prerendered sitemaps too, since those are built by fetching the
- * route through this same Nitro app.
+ * At runtime rather than through `sitemap.exclude`, which is read during that
+ * module's own setup: a build-time contribution only lands when the site lists
+ * this module first, and never when `@nuxtjs/seo` installs the sitemap through
+ * `moduleDependencies`.
  */
 export default defineNitroPlugin((nitroApp) => {
   const { rawPrefix } = useAgentDiscoveryConfig()
 
-  // Typed with the context `@nuxtjs/sitemap` exports, so a shape change in a
-  // sitemap major fails this build instead of silently filtering nothing. The
-  // cast is only for the hook name, which that module declares through no
-  // global augmentation.
+  // Typed with the context `@nuxtjs/sitemap` exports, so a shape change fails
+  // this build. The cast is only for the hook name, which it does not augment.
   const onSitemapInput = nitroApp.hooks.hook as unknown as (
     name: 'sitemap:input',
     cb: (ctx: SitemapInputCtx) => void

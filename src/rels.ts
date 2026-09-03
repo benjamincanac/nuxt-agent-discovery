@@ -1,12 +1,8 @@
 /**
- * Link relations accepted for discovery links.
- *
- * The IANA Link Relations registry
- * (https://www.iana.org/assignments/link-relations), plus `sitemap`, which is
- * not registered but is the de-facto relation every crawler understands.
- * Extension relations are allowed as absolute URIs, per RFC 8288 § 2.1.2.
- * Everything else (`llms`, `mcp`, `design`, ...) fails the build: invented
- * rels are exactly the drift this module exists to stop.
+ * Link relations accepted for discovery links: the IANA registry
+ * (https://www.iana.org/assignments/link-relations) plus the unregistered but
+ * universally understood `sitemap`. Extension relations are allowed as absolute
+ * URIs, per RFC 8288 § 2.1.2, and anything else fails the build.
  */
 const IANA_RELS = new Set([
   'about', 'acl', 'alternate', 'amphtml', 'api-catalog', 'appendix',
@@ -33,7 +29,6 @@ const IANA_RELS = new Set([
   'stylesheet', 'subsection', 'successor-version', 'sunset', 'tag',
   'terms-of-service', 'timegate', 'timemap', 'type', 'ugc', 'up',
   'version-history', 'via', 'webmention', 'working-copy', 'working-copy-of',
-  // De-facto, unregistered but universally understood.
   'sitemap'
 ])
 

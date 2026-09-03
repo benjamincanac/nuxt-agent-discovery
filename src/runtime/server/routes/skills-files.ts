@@ -21,9 +21,8 @@ function contentType(path: string): string {
 }
 
 /**
- * Serves one file of a skill from the bundled server assets. Only paths under
- * a skill listed in the catalog are reachable, so the route cannot be walked
- * outside the skills directory.
+ * Serves one file of a skill from the bundled server assets. Only paths under a
+ * skill listed in the catalog are reachable.
  */
 export default defineEventHandler(async (event) => {
   const pathname = getRequestURL(event).pathname

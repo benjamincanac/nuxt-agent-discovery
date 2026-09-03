@@ -10,17 +10,9 @@ const escapeLabel = (label: string) => label
   .replace(/\]/g, '\\]')
 
 /**
- * Markdown index of every page, grouped by first path segment. Pages covered
- * by the negotiation routes link to their raw markdown twin so agents keep
- * getting markdown when they follow them.
- *
- * Through `rawUrl()`, which is the same `rawDestination()` the CDN rewrites,
- * the middleware and the `llms.txt` bridge resolve. Hand-rolling the twin here
- * put `/` on the HTML page while `llms.txt` pointed it at `/raw/index.md`, in
- * two documents an agent reads together, and ignored `raw` overrides.
- *
- * Carries `Vary` like the raw route does, so every markdown document the module
- * serves answers the same way about what its response depends on.
+ * Markdown index of every page, grouped by first path segment. Links point at
+ * the raw markdown twin, resolved through `rawUrl()` so they cannot drift from
+ * the CDN rewrites, the middleware and the `llms.txt` bridge.
  */
 export default defineEventHandler(async (event) => {
   const config = useAgentDiscoveryConfig(event)
@@ -30,8 +22,6 @@ export default defineEventHandler(async (event) => {
 
   const { expand, labels } = config.sitemapSections
 
-  // Top-level pages share one section; anything deeper is grouped by its first
-  // segment, or by its second when that prefix is expanded.
   const sectionKey = (route: string): string => {
     const parts = route.split('/').filter(Boolean)
     if (parts.length < 2) {
@@ -43,29 +33,28 @@ export default defineEventHandler(async (event) => {
   const sections = new Map<string, { title: string, href: string }[]>()
   for (const entry of entries) {
     const key = sectionKey(entry.route)
-    const href = entry.rawUrl
     if (!sections.has(key)) {
       sections.set(key, [])
     }
-    sections.get(key)!.push({ title: entry.title || entry.route, href })
+    sections.get(key)!.push({ title: entry.title || entry.route, href: entry.rawUrl })
   }
 
-  // The content adapter only knows the pages it holds. A site with hand-written
-  // routes, a Vue-rendered showcase or a design document has no other way to
-  // put them in the index an agent reads first.
+  // The adapter only knows the pages it holds, so hand-written routes and
+  // Vue-rendered pages are added here.
   await useNitroApp().hooks.callHook('agent-discovery:sitemap', event, sections)
 
-  const siteName = config.siteName || new URL(siteUrl).hostname
+  const hostname = new URL(siteUrl).hostname
+  const siteName = config.siteName || hostname
   const lines: string[] = [
     `# ${siteName} Sitemap`,
     '',
-    `> Markdown index of every page on ${new URL(siteUrl).hostname}. Links point at the raw markdown; append \`.md\` to any page URL (or set \`Accept: text/markdown\`) to get it from the page URL instead.`,
+    `> Markdown index of every page on ${hostname}. Links point at the raw markdown; append \`.md\` to any page URL (or set \`Accept: text/markdown\`) to get it from the page URL instead.`,
     ''
   ]
 
   for (const [key, pages] of sections) {
-    // Own keys only: a section named `constructor` or `toString` would
-    // otherwise read a function off `Object.prototype` and print it as a label.
+    // Own keys only: a section named `constructor` would otherwise read a
+    // function off `Object.prototype` and print it as a label.
     const label = (Object.hasOwn(labels, key) && labels[key]) || key.charAt(0).toUpperCase() + key.slice(1).replace(/-/g, ' ')
     lines.push(`## ${label}`, '')
     for (const page of pages) {
@@ -76,8 +65,7 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
   setResponseHeader(event, 'Vary', MARKDOWN_VARY)
-  // Same rule as the api-catalog: every URL below embeds the request origin
-  // when no site URL is configured, so the body is host-dependent.
+  // Without a configured site URL every URL below embeds the request origin.
   if (!config.siteUrl) {
     setResponseHeader(event, 'Cache-Control', 'no-cache')
   }

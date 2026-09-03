@@ -40,20 +40,14 @@ export interface McpServerCardOptions {
   license?: string
   version?: string
   /**
-   * Definition groups kept off the public card, by the subdirectory they live
-   * in under `server/mcp/tools`. Extends the built-in default (`admin`, see
-   * `MCP_EXCLUDED_GROUPS` in `defaults.ts`) rather than replacing it: admin
-   * tools behind a bearer token are on the server but are not something to
-   * advertise.
+   * Definition groups kept off the public card, by subdirectory under
+   * `server/mcp/tools`. Extends the default (`admin`) rather than replacing it.
    */
   excludeGroups?: string[]
 }
 
 export interface ModuleOptions {
-  /**
-   * Canonical site URL. Left empty, it is resolved per-request from the
-   * incoming host, which keeps preview deployments correct.
-   */
+  /** Canonical site URL. Resolved from the request host when empty. */
   siteUrl?: string
   /** Site name, used in `sitemap.md` and markdown error bodies. */
   siteName?: string
@@ -61,18 +55,13 @@ export interface ModuleOptions {
   rawPrefix?: string
   /**
    * Content adapter feeding the raw markdown route, `sitemap.md` and the
-   * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content`; a path points at a
-   * file exporting an `AgentContentSource` (build one for comark with
-   * `createComarkSource()` from `#agent-discovery/comark`); `false` disables every
-   * content-backed feature and leaves negotiation and discovery running
-   * against whatever already serves the raw markdown.
+   * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content`, a path points at a
+   * file exporting an `AgentContentSource`, `false` disables every
+   * content-backed feature and leaves negotiation running against whatever
+   * already serves the raw markdown.
    */
   source?: 'auto' | 'content' | false | string
-  /**
-   * Page patterns markdown is negotiated for. `*` matches one path segment,
-   * `**` one or more, so a locale prefix is one pattern and the generated
-   * CDN route table stays O(patterns) in page count.
-   */
+  /** Page patterns markdown is negotiated for. `*` matches one segment, `**` one or more. */
   routes?: (string | AgentRoute)[]
   excludePrefixes?: {
     /** Extra prefixes on top of the defaults. */
@@ -101,45 +90,32 @@ export interface ModuleOptions {
   /** Answer errors with a markdown body when the client asked for markdown. */
   errors?: boolean
   /**
-   * Answer a negotiated page with 406 when the request's `Accept` allows
-   * neither of its two representations, which is what RFC 9110 asks for.
-   *
-   * Off by default. Browsers and `fetch()` send a wildcard and are never
-   * affected, and neither is a navigation or a known agent, but a client
-   * sending a narrow `Accept` it did not mean starts getting an error where it
-   * used to get a page. See the "Strict content negotiation" README section.
+   * Answer a negotiated page with 406 when its `Accept` allows neither
+   * representation (RFC 9110). Off by default: a client sending a narrow
+   * `Accept` it did not mean would get an error instead of a page.
    */
   notAcceptable?: boolean
   sitemap?: {
-    /**
-     * Serve `/sitemap.md`, a markdown index of every page. Pass an object to
-     * control how pages are grouped into sections.
-     */
+    /** Serve `/sitemap.md`. Pass an object to control how pages are grouped into sections. */
     markdown?: boolean | Partial<SitemapSections>
   }
   robots?: {
     /**
-     * Allow the agent user-agent list in `robots.txt`, through
-     * `@nuxtjs/robots` when installed, otherwise through a generated
-     * `/robots.txt` (skipped when a static one exists).
+     * Allow the agent user-agent list in `robots.txt`, through `@nuxtjs/robots`
+     * when installed, otherwise through a generated `/robots.txt`.
      */
     aiPolicy?: boolean
     /** `Content-Signal` line for the wildcard group. `false` to omit. */
     contentSignal?: string | false
     /**
-     * `Disallow` lines for the wildcard group, in the generated `robots.txt`
-     * and contributed to `@nuxtjs/robots` when that module serves the route.
-     * Wildcard only, deliberately: the per-agent `Allow` groups exempt their
-     * agents from these rules, so what search engines skip stays reachable
-     * for the agents the site names. Not derived from `excludePrefixes`
-     * either, because an excluded path is not necessarily crawl-forbidden.
+     * `Disallow` lines for the wildcard group. The per-agent `Allow` groups
+     * exempt the listed agents from them.
      */
     disallow?: string[]
   }
   /**
-   * Agent Skills served under `/.well-known/skills/`, with a generated
-   * `index.json`. `false` to disable; otherwise the directory is scanned and
-   * the feature turns itself off when it does not exist.
+   * Agent Skills served under `/.well-known/skills/` with a generated
+   * `index.json`. Off when the directory does not exist.
    */
   skills?: false | {
     /** Directory holding one subdirectory per skill, relative to the root. */
@@ -163,15 +139,10 @@ interface AgentDiscoveryPublicRuntimeConfig {
 declare module '@nuxt/schema' {
   interface NuxtHooks {
     /**
-     * Lets other modules add discovery links and agent user agents.
-     *
-     * Fires once, but not always at the same point: with `@nuxtjs/robots`
-     * listed before this module it fires from that module's `robots:config`
-     * pass. The links array collects contributions only, and they are
-     * appended after the module's own links wherever the hook fired from, so
-     * push onto it rather than reading from it. Register the listener during
-     * `setup()`: a listener registered from a later lifecycle hook can miss
-     * the early firing entirely.
+     * Lets other modules add discovery links and agent user agents. Fires once,
+     * possibly early from the `robots:config` pass of `@nuxtjs/robots`, so
+     * register the listener during `setup()` and push onto `links` rather than
+     * reading from it.
      */
     'agent-discovery:extend': (registry: { links: DiscoveryLink[], userAgents: string[] }) => void | Promise<void>
   }
@@ -180,13 +151,8 @@ declare module '@nuxt/schema' {
 }
 
 /**
- * Whether a companion module is installed and will actually run. `hasNuxtModule`
- * alone is not enough: `@nuxtjs/robots`, `@nuxtjs/sitemap` and
- * `@nuxtjs/mcp-toolkit` all return early from their own `setup()` on
- * `{ enabled: false }`, staying installed while registering nothing. And
- * `<configKey>: false` is how Nuxt disables a module by its config key, which
- * is not the same as `{ enabled: false }`: optional chaining alone reads it as
- * `undefined !== false` and counts the module as active.
+ * Installed and not disabled. The companion modules return early from `setup()`
+ * on `{ enabled: false }`, and `<configKey>: false` disables a module too.
  */
 function hasActiveNuxtModule(nuxt: Nuxt, name: string, configKey: string): boolean {
   if (!hasNuxtModule(name, nuxt)) {
@@ -204,23 +170,10 @@ export default defineNuxtModule<ModuleOptions>({
       nuxt: '>=3.0.0'
     }
   },
-  /**
-   * `@nuxt/content` is optional, so this never installs it: with
-   * `optional: true` Nuxt validates the version when the package is there and
-   * skips the entry entirely when it is not.
-   *
-   * Worth declaring because this module reaches into v3 internals rather than a
-   * public API, and every one of those failures is silent. It imports
-   * `@nuxt/content/server` and `#content/manifest`, resolves `minimark/stringify`
-   * out of the installed copy, and removes the llms feature's nitro plugin by
-   * matching the path it registers. A major bump moves any of those and the
-   * site keeps building, with `llms.txt` quietly carrying duplicate sections.
-   *
-   * Deliberately duplicates the `peerDependencies` range, which a package
-   * manager only warns about: keep the two in step when bumping. Nothing else
-   * gets an entry here, because every other integration fails loudly enough
-   * that the install-time warning is the right amount of noise.
-   */
+  // Optional, so this never installs `@nuxt/content`. Declared because the
+  // built-in source reaches into v3 internals (`@nuxt/content/server`,
+  // `#content/manifest`, `minimark/stringify`) that a major bump would break
+  // silently. Keep in step with `peerDependencies`.
   moduleDependencies: {
     '@nuxt/content': { version: '^3.0.0', optional: true }
   },
@@ -229,8 +182,7 @@ export default defineNuxtModule<ModuleOptions>({
     siteName: '',
     rawPrefix: '/raw',
     source: 'auto',
-    // Option arrays merge by concatenation, so the routes default is applied
-    // in setup instead: a site defining its own patterns replaces it.
+    // Arrays merge by concatenation, so the routes default is applied in setup.
     routes: [],
     excludePrefixes: { extend: [] },
     userAgents: { extend: [] },
@@ -251,93 +203,30 @@ export default defineNuxtModule<ModuleOptions>({
     const logger = useLogger('nuxt-agent-discovery')
     const { resolve } = createResolver(import.meta.url)
 
-    // Nuxt generates the `runtimeConfig` type from the site's own resolved
-    // config, so a `Record<string, string>` like `sitemapSections.labels` comes
-    // back with that site's literal keys and stops accepting the type this
-    // module declares. Assign through the module's own shape instead, which
-    // still checks every value. Only bites a site with this module linked from
-    // source, where its `src` is type-checked along with the app.
+    // Nuxt derives the `runtimeConfig` type from the site's resolved config,
+    // which narrows `Record<string, string>` fields to that site's literal
+    // keys. Assign through the module's own shape instead.
     const runtimeConfig = nuxt.options.runtimeConfig as unknown as AgentDiscoveryRuntimeConfig & { public: AgentDiscoveryPublicRuntimeConfig }
 
     const rawPrefix = withoutTrailingSlash(withLeadingSlash(options.rawPrefix || '/raw'))
-    // Normalized, not validated: a pattern without a leading slash can never
-    // match a pathname, and silently emitted a prerender entry of
-    // `/rawabout.md`. The intent is unambiguous, so there is nothing to warn
-    // about.
+    // A pattern without a leading slash never matches, so normalize rather than warn.
     const routes: AgentRoute[] = (options.routes?.length ? options.routes : ['/', '/**'])
       .map(route => typeof route === 'string' ? { path: route } : route)
       .map(route => ({ ...route, path: withLeadingSlash(route.path) }))
-    // Copied, not aliased. `agent-discovery:extend` lets a site push onto this
-    // list, and a `replace` array comes straight from the site's config, which
-    // in a monorepo can be one const imported by two apps.
-    // `replace` wins, and saying both is the one case here where the intent is
-    // genuinely unclear, so it is the one worth a warning.
     for (const [name, option] of [['userAgents', options.userAgents], ['excludePrefixes', options.excludePrefixes]] as const) {
       if (option?.replace && option.extend?.length) {
         logger.warn(`\`${name}\` has both \`replace\` and \`extend\`; \`replace\` wins and the extended entries are dropped.`)
       }
     }
-
+    // Copied, not aliased: `agent-discovery:extend` pushes onto the list and a
+    // `replace` array may be config shared between apps. The prefixes are
+    // deduped too, since they become an alternation in the CDN lookahead.
     const userAgents = options.userAgents?.replace
       ? [...options.userAgents.replace]
       : [...AGENT_USER_AGENTS, ...(options.userAgents?.extend || [])]
-    // Same shape, same copy, and deduped on top: this list becomes an
-    // alternation in the generated CDN lookahead, so a site spelling out a
-    // default it also extends would double it there for nothing.
     const excludePrefixes = [...new Set(options.excludePrefixes?.replace
       ? options.excludePrefixes.replace
       : [...EXCLUDE_PREFIXES, ...(options.excludePrefixes?.extend || [])])]
-
-    // An exact route whose `raw` destination negotiates back into the
-    // middleware makes it proxy itself forever, in one hop (`/about` →
-    // `/about.md`) or through other routes (`/a` → `/b.md` → `/a.md` → …).
-    // The walk mirrors the runtime chain on normalized pathnames, the
-    // spelling the inner request re-enters with: a destination under
-    // `rawPrefix` or an excluded prefix never re-enters negotiation, a
-    // wildcard destination always lands under `rawPrefix`, a dotted
-    // non-`.md` path reads as an asset, and a path no pattern matches
-    // terminates after one hop. Revisiting a pathname is the loop.
-    const negotiationConfig = { rawPrefix } as NegotiationConfig
-    const nextHop = (pathname: string): string | undefined => {
-      if (isRawPath(negotiationConfig, pathname)
-        || excludePrefixes.some(prefix => pathname.startsWith(prefix))) {
-        return undefined
-      }
-      const base = pathname.endsWith('.md') ? pathname.slice(0, -3) : pathname
-      if (base.length <= 1 || (base === pathname && hasFileExtension(base))) {
-        return undefined
-      }
-      const matched = matchRoute(routes, base)
-      return matched ? normalizePathname(rawDestination(negotiationConfig, matched, base)) : undefined
-    }
-    for (const route of routes) {
-      if (!route.raw || route.path.includes('*')) {
-        continue
-      }
-      const visited = new Set<string>()
-      let hop = nextHop(normalizePathname(route.raw))
-      while (hop) {
-        if (visited.has(hop)) {
-          throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
-        }
-        visited.add(hop)
-        hop = nextHop(hop)
-      }
-    }
-
-    // The discovery-link registry, assembled at `modules:done` and extended
-    // through `agent-discovery:extend`. The hook fires once, from whichever
-    // consumer needs it first: `@nuxtjs/robots` snapshots the user agents when
-    // it fires `robots:config` from its own `modules:done`, which runs before
-    // ours whenever it is listed first, so waiting for our own `modules:done`
-    // handed it the un-extended list.
-    const links: DiscoveryLink[] = []
-    // Hook contributions land in their own list and are appended after the
-    // module's own, so their position never depends on which consumer fired
-    // the hook first.
-    const hookLinks: DiscoveryLink[] = []
-    let extended: Promise<void> | undefined
-    const extendRegistry = () => extended ??= nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents })
 
     // Mutated until `modules:done`, then read by the runtime and the presets.
     const config: NegotiationConfig = {
@@ -357,14 +246,51 @@ export default defineNuxtModule<ModuleOptions>({
       }
     }
 
+    // An exact route whose `raw` destination negotiates back into the
+    // middleware proxies itself forever, directly or through other routes.
+    // Walk the runtime chain on normalized pathnames; revisiting one is the loop.
+    const nextHop = (pathname: string): string | undefined => {
+      if (isRawPath(config, pathname) || excludePrefixes.some(prefix => pathname.startsWith(prefix))) {
+        return undefined
+      }
+      const base = pathname.endsWith('.md') ? pathname.slice(0, -3) : pathname
+      if (base.length <= 1 || (base === pathname && hasFileExtension(base))) {
+        return undefined
+      }
+      const matched = matchRoute(routes, base)
+      return matched ? normalizePathname(rawDestination(config, matched, base)) : undefined
+    }
+    for (const route of routes) {
+      if (!route.raw || route.path.includes('*')) {
+        continue
+      }
+      const visited = new Set<string>()
+      let hop = nextHop(normalizePathname(route.raw))
+      while (hop) {
+        if (visited.has(hop)) {
+          throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
+        }
+        visited.add(hop)
+        hop = nextHop(hop)
+      }
+    }
+
+    // The discovery-link registry, assembled at `modules:done`.
+    // `agent-discovery:extend` fires once, from whichever consumer needs it
+    // first: `@nuxtjs/robots` snapshots the user agents from its own
+    // `modules:done`, which runs before ours when it is listed first. Hook
+    // contributions are appended after the module's own links either way.
+    const links: DiscoveryLink[] = []
+    const hookLinks: DiscoveryLink[] = []
+    let extended: Promise<void> | undefined
+    const extendRegistry = () => extended ??= nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents })
+
     /* ------------------------------- source ------------------------------- */
 
     let sourcePath: string | undefined
     let builtinContentSource = false
     let minimarkStringify: string | undefined
     if (options.source === 'content' || (options.source === 'auto' && hasNuxtModule('@nuxt/content'))) {
-      // Everything the built-in adapter needs from the site's `@nuxt/content`
-      // install, in `build/content.ts` with the rest of that backend.
       const contentSource = await resolveContentSource(nuxt, resolve)
       sourcePath = contentSource.sourcePath
       minimarkStringify = contentSource.minimarkStringify
@@ -375,10 +301,8 @@ export default defineNuxtModule<ModuleOptions>({
       sourcePath = await resolvePath(options.source)
     }
 
-    // The MCP server card lists whatever the site's MCP server exposes, which
-    // only `@nuxtjs/mcp-toolkit` knows. Detected, never depended on, the same
-    // way `@nuxtjs/robots` and `@nuxtjs/sitemap` are. Starts on the stub, and
-    // the detection below swaps it.
+    // `@nuxtjs/mcp-toolkit` is detected, never depended on: the alias starts
+    // on the stub and `modules:done` swaps it.
     const aliases = {
       '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
@@ -389,27 +313,20 @@ export default defineNuxtModule<ModuleOptions>({
       ...(minimarkStringify ? { 'minimark/stringify': minimarkStringify } : {}),
       ...aliases
     })
-    // Also aliased app-side, purely so a site whose `tsconfig.json` extends the
-    // app config (the common single-tsconfig setup) can typecheck a server
-    // route importing `#agent-discovery`. Nitro is what actually resolves it.
+    // Also aliased app-side so a single-tsconfig site can typecheck a server
+    // route importing `#agent-discovery`.
     nuxt.options.alias = defu(nuxt.options.alias, aliases)
 
-    // Detection waits for `modules:done` for the same reason the companion
-    // modules do: `@nuxtjs/seo`-style declarative `moduleDependencies` are
-    // installed after every listed module's `setup()`, so deciding here would
-    // read a toolkit installed that way as absent and serve a card listing no
-    // tools at all, silently. Nitro resolves the alias table well after this
-    // hook, so swapping the entry now still lands.
+    const staticBuild = Boolean(nuxt.options.nitro?.static) || (nuxt.options as { _generate?: boolean })._generate === true
+
+    // Every companion module is detected at `modules:done`: one pulled in
+    // through `moduleDependencies` (as `@nuxtjs/seo` does) installs after
+    // every listed module's `setup()`. Nitro resolves the alias table later
+    // still, so swapping the entry here lands.
     nuxt.hook('modules:done', () => {
-      // Active, not merely installed: the toolkit's setup also returns early
-      // under `nuxt generate`, registering none of the `#nuxt-mcp-toolkit/*`
-      // virtual modules its listing API imports. Aliasing the real re-export
-      // in that state fails the Nitro build on an unresolvable id, so the two
-      // build conditions are mirrored here on top of the shared check.
-      const mcpToolkit = hasActiveNuxtModule(nuxt, '@nuxtjs/mcp-toolkit', 'mcp')
-        && !nuxt.options.nitro?.static
-        && (nuxt.options as { _generate?: boolean })._generate !== true
-      if (!mcpToolkit) {
+      // Under `nuxt generate` the toolkit registers none of its virtual
+      // modules, and aliasing the real re-export then fails the Nitro build.
+      if (staticBuild || !hasActiveNuxtModule(nuxt, '@nuxtjs/mcp-toolkit', 'mcp')) {
         return
       }
 
@@ -421,8 +338,7 @@ export default defineNuxtModule<ModuleOptions>({
 
     /* ------------------------------- handlers ----------------------------- */
 
-    // Held in a variable so `siteServesRoute` below can tell this handler
-    // apart from one the site registered on the same route.
+    // Kept so `siteRawRoutes` can tell this handler from a site-registered one.
     const rawHandler = resolve('./runtime/server/routes/raw')
     if (sourcePath) {
       addServerHandler({ route: `${rawPrefix}/**`, handler: rawHandler })
@@ -434,9 +350,6 @@ export default defineNuxtModule<ModuleOptions>({
       addServerHandler({ route: '/.well-known/api-catalog', handler: resolve('./runtime/server/routes/api-catalog') })
     }
     if (options.discovery?.mcpServerCard) {
-      // The default lives in `defaults.ts` with the other lists, and the
-      // option extends it rather than replacing it, so the merge happens here
-      // and the route reads the resolved list.
       runtimeConfig.agentDiscoveryMcp = {
         ...options.discovery.mcpServerCard,
         excludeGroups: [...mcpExcludedGroups(options.discovery.mcpServerCard.excludeGroups)]
@@ -444,11 +357,9 @@ export default defineNuxtModule<ModuleOptions>({
       addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: resolve('./runtime/server/routes/mcp-server-card') })
     }
 
-    // `source: false` is a site saying something else already serves the raw
-    // markdown, so negotiation still runs against it. `'auto'` resolving to
-    // nothing is a site that installed the module and has no adapter: rewriting
-    // every page to a prefix nothing serves would answer agents with a 404 on
-    // pages that render fine in HTML, which is worse than not installing it.
+    // `source: false` means something else serves the raw markdown. `'auto'`
+    // resolving to nothing means no adapter at all, and rewriting every page
+    // to a prefix nothing serves would answer agents with a 404.
     const negotiates = Boolean(sourcePath) || options.source === false
     if (!negotiates) {
       logger.warn('No content source resolved, so markdown negotiation is off. Install `@nuxt/content`, point `agentDiscovery.source` at a file exporting an `AgentContentSource`, or set `source: false` if another route already serves the raw markdown.')
@@ -466,14 +377,10 @@ export default defineNuxtModule<ModuleOptions>({
           : []
         nitroConfig.errorHandler = [errorHandler, ...handlers]
       })
-      // Prepending above is not enough: any module registered later whose
-      // `nitro:config` hook also prepends lands ahead (evlog does, and its
-      // handler serializes agent errors as JSON and ends the response, so the
-      // markdown bodies never fired unless the site reordered `modules`). The
-      // resolved options are re-sorted here instead, after every hook has run;
-      // rollup reads them later, when it emits the handler chain. The
-      // markdown handler passes anything that is not a markdown request
-      // through untouched, so going first takes nothing from the others.
+      // Prepending is not enough: a module registered later whose
+      // `nitro:config` hook also prepends lands ahead (evlog does, and ends
+      // agent errors as JSON). Re-sort once every hook has run; the markdown
+      // handler passes other requests through, so going first costs nothing.
       nuxt.hook('nitro:init', (nitro) => {
         const handlers = nitro.options.errorHandler as unknown
         if (Array.isArray(handlers)) {
@@ -488,9 +395,7 @@ export default defineNuxtModule<ModuleOptions>({
 
     addImports({ name: 'useCanonical', from: resolve('./runtime/app/composables/useCanonical') })
 
-    // The Nitro runtime hooks, declared where a site's server code can see
-    // them. Without this every `nitroApp.hooks.hook('agent-discovery:*')` call
-    // needs a cast, which is a poor API to document.
+    // Declares the Nitro runtime hooks so a site's server code needs no cast.
     const hookTypes = addTypeTemplate({
       filename: 'agent-discovery/hooks.d.ts',
       getContents: () => `
@@ -500,29 +405,22 @@ import type { AgentIndex } from ${JSON.stringify(resolve('./runtime/shared/types
 declare module 'nitropack/types' {
   interface NitroRuntimeHooks {
     /**
-     * Transforms a page before the content adapter stringifies it. The second
-     * argument is whatever the adapter works on: a minimark tree for
-     * \`@nuxt/content\`, the backend's own document elsewhere.
+     * Transforms a page before the content adapter stringifies it. The page is
+     * whatever the adapter works on, a minimark tree for \`@nuxt/content\`.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     'agent-discovery:document': (event: H3Event, page: any) => void | Promise<void>
     /**
-     * Fills in the generated \`/raw/index.md\`, for a site whose landing page is
-     * a Vue page rather than a document. Set \`title\` and \`description\`, which
-     * reach the frontmatter, and push markdown blocks onto \`body\`.
+     * Fills in the generated \`/raw/index.md\` for a site whose landing page is
+     * a Vue page. Set \`title\` and \`description\`, push markdown blocks onto \`body\`.
      */
     'agent-discovery:index': (event: H3Event, index: AgentIndex) => void | Promise<void>
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
     /**
-     * Adds to \`sitemap.md\` before it is rendered, for the pages a content
-     * adapter cannot know about, in the order the sections appear. Keys are
-     * the raw first path segment of the grouped routes (\`docs\`, \`blog\`; the
-     * second segment under an expanded prefix, \`pages\` for top-level ones),
-     * with \`sitemap.markdown.labels\` applied at render only. Extend an
-     * existing section through that key (\`sections.get('docs')\`); a new
-     * section may use any key, which renders capitalized unless \`labels\`
-     * overrides it.
+     * Adds to \`sitemap.md\` before it is rendered. Keys are the first path
+     * segment of the grouped routes (\`docs\`, \`blog\`, \`pages\` for top-level
+     * ones), with \`sitemap.markdown.labels\` applied at render.
      */
     'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
@@ -538,40 +436,25 @@ export {}
     /* ------------------------------- robots ------------------------------- */
 
     if (options.robots?.aiPolicy) {
-      // Feed the shared user-agent list into the robots module instead of
-      // competing for the `/robots.txt` route.
-      //
-      // Registered whether or not `@nuxtjs/robots` is installed, since the
-      // hook simply never fires without it. Waiting for detection would be too
-      // late: that module calls `robots:config` from its own `modules:done`,
-      // which runs before ours whenever it is listed first.
-      //
-      // Through its hook, not `nuxt.options.robots`: that module reads its
-      // options during its own setup, so a site listing it first (which
-      // `@nuxtjs/sitemap` asks for) would silently get none of this.
+      // Fed into `@nuxtjs/robots` through its hook rather than
+      // `nuxt.options.robots`, which that module reads during its own setup.
+      // Registered unconditionally: the hook never fires without the module,
+      // and it fires from that module's `modules:done`, before ours when it is
+      // listed first.
       const contentSignal = options.robots.contentSignal
       const disallow = options.robots.disallow || []
-      // Typed with the hook signature `@nuxtjs/robots` exports, so a group
-      // shape change in a robots major fails this build instead of silently
-      // pushing groups it no longer reads. The cast is only for the hook name,
-      // which that module declares through no global augmentation.
+      // Typed with the hook signature `@nuxtjs/robots` exports so a group shape
+      // change fails this build. The cast only covers the hook name.
       const onRobotsConfig = nuxt.hook as unknown as (
         name: 'robots:config',
         cb: RobotsModuleHooks['robots:config']
       ) => void
       onRobotsConfig('robots:config', async (robotsConfig) => {
-        // The groups below snapshot the user-agent list, so anything a site
-        // adds through `agent-discovery:extend` has to be in it already.
+        // The groups snapshot the user-agent list, so extend it first.
         await extendRegistry()
-        // `Content-Signal` and the `disallow` lines belong on the wildcard
-        // group, which this module's own `robots.txt` route emits too.
-        // Without this either would be lost the moment a site adds
-        // `@nuxtjs/robots`. The agent groups pushed below stay allow-only on
-        // purpose: a UA-specific group exempts its agent from the wildcard
-        // rules, so what search engines are kept out of stays reachable for
-        // the agents the site names. The groups are normalized before the
-        // hook fires, but the declared type still carries the `Arrayable`
-        // input shape.
+        // `Content-Signal` and `disallow` go on the wildcard group, as in this
+        // module's own `robots.txt` route. The agent groups stay allow-only:
+        // a UA-specific group exempts its agent from the wildcard rules.
         for (const group of robotsConfig.groups) {
           const groupAgents = Array.isArray(group.userAgent) ? group.userAgent : [group.userAgent]
           if (!groupAgents.includes('*')) {
@@ -581,8 +464,6 @@ export {}
             group.contentSignal = [contentSignal]
           }
           if (disallow.length) {
-            // Deduplicated against what the site already wrote in that
-            // module's own config, so one path is never disallowed twice.
             const existing = Array.isArray(group.disallow) ? group.disallow : (group.disallow ? [group.disallow] : [])
             group.disallow = [...existing, ...disallow.filter(path => !existing.includes(path))]
           }
@@ -595,22 +476,11 @@ export {}
         })))
       })
 
-      // Whether to serve `/robots.txt` ourselves is decided at `modules:done`,
-      // not here: `@nuxtjs/seo` pulls `@nuxtjs/robots` in through Nuxt's
-      // declarative `moduleDependencies`, which are installed after this
-      // `setup()` runs. `hasNuxtModule` says no at this point, and the handler
-      // we would register is dead code behind theirs.
       nuxt.hook('modules:done', () => {
-        // Active, not merely installed: a robots module disabled through its
-        // own options registers no `/robots.txt` route, so deferring to it
-        // served nobody the agent policy.
+        // A disabled robots module registers no `/robots.txt` route.
         if (hasActiveNuxtModule(nuxt, '@nuxtjs/robots', 'robots')) {
           return
         }
-        // The name check above covers the modules we know. Anything else
-        // serving that route wins it at runtime, and ours would be dead code
-        // whose agent groups never reach a crawler, so say so rather than
-        // registering it.
         if (nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')) {
           logger.warn('Another module already serves `/robots.txt`, so the AI robots policy is not applied to it. Contribute the `agentDiscovery.userAgents` list through that module instead.')
           return
@@ -626,17 +496,10 @@ export {}
 
     /* ------------------------------- sitemap ------------------------------ */
 
-    // The raw markdown twins are alternate representations of pages already in
-    // the sitemap, not pages of their own, so they must never be listed as
-    // separate URLs. Every site that pairs a sitemap module with a raw markdown
-    // route needs this, so the module does it rather than leaving each one to
-    // remember.
-    //
-    // Through the module's runtime hook rather than `sitemap.exclude`:
-    // `@nuxtjs/sitemap` resolves its options during its own setup and bakes
-    // them into a virtual module, so mutating `nuxt.options.sitemap` afterwards
-    // does nothing unless the site happens to list this module first. Detection
-    // waits for `modules:done` for the `moduleDependencies` reason above.
+    // The raw twins are alternate representations, not pages, so they must
+    // stay out of `sitemap.xml`. Through the runtime hook rather than
+    // `sitemap.exclude`, which `@nuxtjs/sitemap` bakes into a virtual module
+    // during its own setup.
     nuxt.hook('modules:done', () => {
       if (hasActiveNuxtModule(nuxt, '@nuxtjs/sitemap', 'sitemap')) {
         addServerPlugin(resolve('./runtime/server/plugins/sitemap'))
@@ -672,43 +535,19 @@ export {}
       disableContentRawMarkdown(nuxt)
     }
 
-    /**
-     * Route-rule patterns with a response cache that a negotiated pattern
-     * reaches, which decide where the CDN redirects instead of rewriting.
-     *
-     * Collected three times, because rules keep arriving as the build goes:
-     * at `modules:done` from `nuxt.options.routeRules`, which is what the
-     * runtime config snapshots; at `nitro:build:before` from Nitro's own
-     * table, the only place a rule added in a `nitro:config` hook ever lands
-     * (`createNitro` builds a fresh object, so those never reach
-     * `nuxt.options`); and once more when the Vercel preset emits its table,
-     * for a page-level `defineRouteRules({ isr })` applied during the Nuxt
-     * build after every hook here. Missing one means emitting a
-     * URL-preserving rewrite onto a route that really is cached, which is the
-     * one error here that poisons a cache.
-     *
-     * Rebuilt from scratch on every pass rather than accumulated: each later
-     * snapshot is authoritative, and a rule flipped back to `{ isr: false }`
-     * has to drop off the list or the CDN keeps redirecting a route that is
-     * no longer cached.
-     *
-     * The street runs one way only: what lands on `nuxt.options.routeRules`
-     * before `createNitro` (this module's own `/` header rule included) is
-     * defu'd into Nitro's table, so pass one still sees everything written
-     * through `nuxt.options` and the header rule reaches every preset.
-     */
+    // Route-rule patterns with a response cache that a negotiated pattern
+    // reaches; the CDN redirects there instead of rewriting. Collected three
+    // times because rules keep arriving: at `modules:done` from
+    // `nuxt.options.routeRules`, at `nitro:build:before` from Nitro's own
+    // table (the only place a rule added in `nitro:config` lands), and when
+    // the Vercel preset emits its table (for a page-level
+    // `defineRouteRules({ isr })`). Rebuilt from scratch on every pass so a
+    // rule flipped back to `{ isr: false }` drops off.
     const collectCachedRoutes = (routeRules?: Record<string, { isr?: unknown, swr?: unknown, cache?: unknown, static?: unknown } | undefined>) => {
       const previous = config.cachedRoutes.splice(0, config.cachedRoutes.length)
       for (const [key, rule] of Object.entries(routeRules || {})) {
-        // Every shape Nitro turns into a response cache, read the way Nitro
-        // reads it. `isr: 0` and `swr: 0` are not one: the Vercel builder skips
-        // a falsy `isr` outright and `normalizeRouteRules` only configures a
-        // cache for a truthy `swr`, so no cached asset is ever written. A bare
-        // `'cache' in rule` counted `cache: false`, an opt-out, as a cache.
-        // `static` is the legacy Vercel spelling that `deprecateSWR` turns into
-        // `isr: !static`, so `static: false` is a real ISR route no other key
-        // here names; it is inert under `future.nativeSWR`, which errs towards
-        // a redirect and is the safe direction.
+        // Read the way Nitro reads it: `isr: 0` and `swr: 0` are not caches,
+        // `cache: false` is an opt-out, and the legacy `static: false` is ISR.
         const cached = rule && (rule.isr || rule.swr || rule.cache
           || ('static' in rule && !(rule as { static?: boolean | number }).static))
         if (!cached) {
@@ -718,26 +557,18 @@ export {}
         if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
           continue
         }
-        // The question is whether the path negotiates at all, which for an
-        // exact rule is `matchRoute`, not `patternsOverlap`: overlap puts
-        // every path under a `/` pattern, so a non-page rule like
-        // `/llms.txt` joined the list and the CDN gave it a 307 to a
-        // `/raw/llms.txt.md` that does not exist. A dotted last segment is an
-        // asset either way, the same rule `negotiatedRawPath` applies.
+        // For an exact rule the question is whether the path negotiates, not
+        // whether it overlaps a pattern: `/llms.txt` overlaps `/**` but is not a page.
         const negotiable = key.includes('*')
           ? routes.some(route => patternsOverlap(key, route.path))
           : Boolean(matchRoute(routes, key)) && !hasFileExtension(key)
         if (negotiable) {
           config.cachedRoutes.push(key)
-          // Only for rules the earlier passes had not seen, so a rebuild does
-          // not repeat the whole list on every pass.
           if (!previous.includes(key)) {
             logger.info(`Route rule \`${key}\` has a response cache: request-time markdown negotiation is disabled there, and the CDN routes redirect to the raw markdown instead of rewriting.`)
           }
         }
       }
-      // The other direction of the rebuild, so a disappearing cache is as
-      // visible as an appearing one.
       for (const key of previous) {
         if (!config.cachedRoutes.includes(key)) {
           logger.info(`Route rule \`${key}\` no longer has a response cache: the CDN routes rewrite it again instead of redirecting.`)
@@ -747,34 +578,24 @@ export {}
 
     nuxt.hook('modules:done', async () => {
       // Prerendered documents bake the site URL in, so resolve it from the
-      // site config or the llms domain when not set explicitly. Request-time
-      // responses still fall back to the incoming host.
+      // site config or the llms domain. Request-time responses still fall
+      // back to the incoming host.
       const siteOptions = nuxt.options as { site?: { url?: string, name?: string }, llms?: { domain?: string } }
       if (!config.siteUrl) {
         config.siteUrl = (siteOptions.site?.url || siteOptions.llms?.domain || '').replace(/\/$/, '')
       }
-      // Falls back the same way `siteUrl` does, so a site that already told
-      // `@nuxtjs/seo` its name does not repeat it here.
       if (!config.siteName) {
         config.siteName = siteOptions.site?.name || ''
       }
 
-      // Every helper here treats `siteUrl` as an origin: `rawUrl()` compares
-      // against `new URL(siteUrl).origin`, then concatenates the raw path onto
-      // the configured value, so a path would end up in the middle of the URL.
-      // Failing at build is better than shipping documents whose every link is
-      // silently wrong.
+      // `siteUrl` is used as an origin everywhere, so a path in it would
+      // corrupt every link. `site.url` is commonly written without a scheme,
+      // and `new URL()` then throws a bare `Invalid URL`.
       if (config.siteUrl) {
-        // Parsed defensively: `site.url` is commonly written without a scheme,
-        // and `new URL('example.com')` throws a bare `Invalid URL` that names
-        // neither the option nor this module.
-        let parsed: URL | undefined
+        let parsed: URL
         try {
           parsed = new URL(config.siteUrl)
         } catch {
-          parsed = undefined
-        }
-        if (!parsed) {
           throw new Error(`[nuxt-agent-discovery] \`siteUrl\` is not a valid URL (${config.siteUrl}). Give it a scheme, as in \`https://example.com\`.`)
         }
         if (parsed.pathname !== '/') {
@@ -782,46 +603,38 @@ export {}
         }
       }
 
-      // Prerendered documents bake this in, and the prerenderer sends no host
-      // header, so an empty value here becomes `http://localhost` in every
-      // canonical URL and every absolutized link of the built output.
+      // The prerenderer sends no host header, so an empty value becomes
+      // `http://localhost` in every prerendered URL.
       if (!config.siteUrl && nuxt.options.nitro.static) {
         logger.warn('No `siteUrl`: set it, or `site.url`, or `llms.domain`. Prerendered documents resolve it from the request, which is `localhost` at build time.')
       }
 
+      // This plugin builds `llms.txt` from the adapter, replacing the llms
+      // feature of `@nuxt/content`.
       if (hasLlms && sourcePath) {
-        // Whatever `@nuxt/content`'s own llms feature registered goes first,
-        // because this plugin builds `llms.txt` from the adapter instead.
         dropContentLlmsFeature(nuxt)
         addServerPlugin(resolve('./runtime/server/plugins/llms'))
       }
 
       /* ------------------------------ registry ----------------------------- */
 
-      // Advertised only when something serves it. This module does not generate
-      // `sitemap.xml`, so keying on the option alone meant a zero-config site
-      // pointed agents, the api-catalog and `robots.txt` at a 404, and so does
-      // a sitemap module a site installed but disabled. A site that serves its
-      // own can register it through `discovery.links`.
+      // Advertised only when something serves it: this module does not
+      // generate `sitemap.xml`.
       if (options.discovery?.sitemapXml !== false && hasActiveNuxtModule(nuxt, '@nuxtjs/sitemap', 'sitemap')) {
         links.push({ href: '/sitemap.xml', rel: 'sitemap', type: 'application/xml', title: 'Sitemap (XML)' })
       }
       if (sourcePath && options.sitemap?.markdown) {
         links.push({ href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown', title: 'Sitemap (Markdown): every page on the site' })
       }
-      // Advertised only once something would be in it. The catalog groups the
-      // links carrying an `anchor` with a `service-desc`/`service-doc` rel, and
-      // a site with none of `nuxt-llms`, skills or an MCP card has no such
-      // link: the route answered `{"linkset":[]}` while the `Link` header on
-      // `/` pointed agents at it. Registered further down, once the rest of the
-      // registry is known.
+      // Advertised only once something would be in it: the catalog lists the
+      // `service-desc`/`service-doc` links carrying an `anchor`. Registered
+      // after the hook so contributed links count.
       const catalogLink: DiscoveryLink = { href: '/.well-known/api-catalog', rel: 'api-catalog', type: 'application/linkset+json', title: 'API catalog: every service document this site publishes' }
       if (options.discovery?.mcpServerCard) {
         const card = options.discovery.mcpServerCard
         const endpoint = card.endpoint.startsWith('/') ? `${config.siteUrl}${card.endpoint}` : card.endpoint
         links.push({ href: '/.well-known/mcp/server-card.json', rel: 'service-desc', type: 'application/json', title: `MCP server card: MCP endpoint at ${endpoint}`, anchor: card.endpoint })
-        // The endpoint itself, so an agent reading the resources block or the
-        // error body can reach it without fetching the card first.
+        // The endpoint itself, reachable without fetching the card first.
         links.push({ href: card.endpoint, rel: 'service', title: 'MCP endpoint (streamable HTTP)', header: false })
         if (card.documentation) {
           links.push({ href: card.documentation, rel: 'service-doc', type: 'text/html', anchor: card.endpoint, header: false })
@@ -842,8 +655,7 @@ export {}
       }
       if (skills.length) {
         links.push({ href: SKILLS_INDEX, rel: 'index', type: 'application/json', title: 'Agent skills index: every skill published by this site' })
-        // The skills themselves stay out of the `Link` header, which
-        // advertises the discovery documents rather than every resource.
+        // Only the index goes in the `Link` header.
         for (const skill of skills) {
           links.push({ href: `${SKILLS_PREFIX}${skill.name}/SKILL.md`, rel: 'service-doc', type: 'text/markdown', title: `Agent skill: ${skill.name}`, anchor: '/', header: false })
         }
@@ -854,46 +666,39 @@ export {}
       links.push(...(options.discovery?.links || []))
 
       await extendRegistry()
-      // Wherever the hook fired from, its links slot in after the built-ins
-      // and the site's own.
       links.push(...hookLinks)
 
-      // After the hook, so a link contributed by another module counts too.
       if (options.discovery?.apiCatalog && links.some(link => link.anchor && (link.rel === 'service-desc' || link.rel === 'service-doc'))) {
         links.unshift(catalogLink)
       }
 
+      // Layer configs concatenate, so a layer and the app both declaring
+      // `/llms.txt` would double it. First one wins.
+      const seen = new Set<string>()
       for (const link of links) {
         if (!isValidRel(link.rel)) {
           throw new Error(`[nuxt-agent-discovery] \`rel="${link.rel}"\` (${link.href}) is not an IANA-registered link relation. Use a registered rel or an absolute URI extension relation.`)
         }
+        const key = `${link.rel} ${link.href}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          config.links.push(link)
+        }
       }
-      // Layer configs concatenate, so a layer and the app both declaring
-      // `/llms.txt` would double it in the `Link` header, the api-catalog and
-      // every error body. First one wins, which keeps the layer's ordering.
-      const seen = new Set<string>()
-      config.links.push(...links.filter(link => !seen.has(`${link.rel} ${link.href}`) && seen.add(`${link.rel} ${link.href}`)))
 
-      // `/sitemap.md` is not a page twin: without this a catch-all route
-      // pattern rewrites it to `${rawPrefix}/sitemap.md` at the edge and in the
-      // middleware, shadowing whatever serves it, and the request 404s.
-      //
-      // Keyed on the registered link, not on this module owning the route. A
-      // site that serves its own `/sitemap.md` with `sitemap.markdown` off and
-      // registers it through `discovery.links` needs the exclusion just as
-      // much, and was left broken by the narrower check.
+      // `/sitemap.md` is not a page twin: without this a catch-all pattern
+      // rewrites it under `rawPrefix`. Keyed on the registered link rather than
+      // on this module owning the route, so a site serving its own through
+      // `discovery.links` gets the exclusion too.
       if (config.links.some(link => link.href === '/sitemap.md') && !config.excludePrefixes.includes('/sitemap.md')) {
         config.excludePrefixes.push('/sitemap.md')
       }
 
       /* ----------------------------- route rules ---------------------------- */
 
-      // Only the `Link` header, and only on `/`. `Vary` used to be written here
-      // too, once per configured pattern, which under the default `/**` became
-      // a `routeRules` entry matching every path on the site: assets, the API,
-      // `/llms.txt`, `/robots.txt`. A route rule cannot express an exclusion,
-      // so the header now comes from the negotiation middleware, which already
-      // knows exactly which paths have two representations.
+      // Only the `Link` header, and only on `/`. A `Vary` route rule under
+      // `/**` would hit every path on the site and a route rule cannot express
+      // an exclusion, so `Vary` comes from the middleware.
       if (config.linkHeader && config.links.length) {
         nuxt.options.routeRules = defu(nuxt.options.routeRules, {
           '/': { headers: { Vary: MARKDOWN_VARY, Link: formatLinkHeader(config.links) } }
@@ -901,8 +706,7 @@ export {}
       }
 
       // A cached response cannot vary on Accept/User-Agent, so request-time
-      // negotiation is disabled there. The CDN rewrites still cover those
-      // pages because they run before the cache.
+      // negotiation is off there. The CDN rewrites run before the cache.
       collectCachedRoutes(nuxt.options.routeRules)
 
       /* ---------------------------- runtime config --------------------------- */
@@ -918,15 +722,11 @@ export {}
     /* ------------------------------ prerender ------------------------------ */
 
     // The route patterns of every handler the site serves under the raw
-    // prefix, read the way Nitro registers them: one a module registered
-    // (this module's own `${rawPrefix}/**` handler excepted, or every twin
-    // would read as site-owned and nothing would prerender), or a scanned
-    // `server/routes` file, which never reaches `serverHandlers` and is mapped
-    // from its filename the way Nitro maps it (`raw/[...slug].md.get.ts` →
-    // `/raw/**:slug.md`) in every layer's server dir, since a layer's routes
-    // are scanned like the root's. Patterns rather than paths, because a page
-    // matched by a wildcard route has no build-time list of twins: the
-    // runtime asks `siteServesRaw()` per path instead.
+    // prefix: module-registered handlers (this module's own excepted) and
+    // scanned `server/routes` files in every layer, mapped from their filename
+    // the way Nitro maps them (`raw/[...slug].md.get.ts` to `/raw/**:slug.md`).
+    // Patterns rather than paths, since a wildcard route has no build-time
+    // list of twins; the runtime asks `siteServesRaw()` per path.
     const rawSegments = rawPrefix.split('/').filter(Boolean)
     const coversRawPrefix = (pattern: string): boolean => {
       const segments: string[] = []
@@ -959,8 +759,7 @@ export {}
         if (suffix?.index !== undefined && suffix[0]) {
           route = route.slice(0, suffix.index)
         }
-        // A handler that answers no GET serves no twin, and a `.dev` one does
-        // not exist in the build at all.
+        // No GET means no twin, and a `.dev` handler is not in the build.
         const method = suffix?.groups?.method
         if ((method && method !== 'get' && method !== 'head') || suffix?.groups?.env === 'dev') {
           continue
@@ -991,20 +790,13 @@ export {}
       return [...patterns]
     }
 
-    // With a server behind the site, only the built-in source prerenders: a
-    // custom adapter (comark) reads content at request time on purpose. A
-    // fully static build has no server to fall back to, so everything the
-    // discovery documents advertise must be prerendered whatever the source.
-    //
-    // At `modules:done`, not here: a twin the site backs with its own handler
-    // (an swr route reading a live API) must be left alone, or prerendering
-    // freezes it at build, and handlers registered by modules listed later
-    // are not visible yet. The same patterns go into `ownRawRoutes` so the
-    // llms bridge and the negotiation middleware skip their crawler hints for
-    // them too.
-    const staticBuild = Boolean(nuxt.options.nitro?.static) || (nuxt.options as { _generate?: boolean })._generate === true
-    // The twins this pass queued, which stay build errors when they 404: the
-    // site named those patterns, so a missing document there is a mistake.
+    // Behind a server only the built-in source prerenders; a custom adapter
+    // reads content at request time. A static build has no server, so
+    // everything advertised is prerendered whatever the source. At
+    // `modules:done` so handlers registered by later modules are visible: a
+    // twin the site serves itself must not be frozen at build.
+    // Twins queued for exact patterns stay build errors when they 404, since
+    // the site named them.
     const queuedRawRoutes = new Set<string>()
     nuxt.hook('modules:done', () => {
       config.ownRawRoutes = siteRawRoutes()
@@ -1028,10 +820,9 @@ export {}
     /* ------------------------------- presets ------------------------------- */
 
     if (negotiates) {
-      // Nitro's rule table is a fresh object built at `createNitro`, so rules
-      // another module added in `nitro:config` exist only there. The runtime
-      // config was deep-cloned at the same point; syncing Nitro's copy here
-      // still reaches the server bundle, because rollup stringifies it later.
+      // Rules another module added in `nitro:config` exist only in Nitro's
+      // table, and the runtime config was deep-cloned at `createNitro`, so
+      // sync the copy rollup stringifies later.
       nuxt.hook('nitro:build:before', (nitro) => {
         collectCachedRoutes(nitro.options.routeRules)
         const runtime = nitro.options.runtimeConfig.agentDiscovery as NegotiationConfig | undefined
@@ -1040,21 +831,14 @@ export {}
         }
       })
       nuxt.hook('nitro:init', (nitro) => {
-        // The preset collects once more when it emits its table: an inline
-        // `defineRouteRules({ isr })` lands on Nitro's rules during the Nuxt
-        // build, after both passes above, and the CDN table is the one output
-        // late enough to honour it.
+        // The preset collects once more when it emits its table, late enough
+        // to see an inline `defineRouteRules({ isr })`.
         setupVercelPreset(nitro, config, collectCachedRoutes)
 
-        // Every queued twin passes here before Nitro writes it, whichever of
-        // the exact-route pass, the llms bridge or a page's own hint queued
-        // it. One the site serves itself is never frozen, whatever listed it.
-        // One the raw route could not answer as markdown is dropped rather
-        // than written or reported: a section answers a redirect, whose HTML
-        // body Nitro would otherwise store in place of the 302, and a page
-        // with no document behind it answers 404, which is that page's answer
-        // at runtime too and no reason to fail the build. The twins queued for
-        // exact patterns keep their errors: the site named those.
+        // Every queued twin passes here before Nitro writes it. One the site
+        // serves itself is never frozen. One that answered a redirect or a 404
+        // is dropped rather than written or reported, except the twins queued
+        // for exact patterns, which the site named.
         nitro.hooks.hook('prerender:generate', (route) => {
           if (!isRawPath(config, route.route)) {
             return

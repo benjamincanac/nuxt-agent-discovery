@@ -2,8 +2,7 @@ import { absolutizeTreeLinks } from '../../shared/negotiation'
 
 /**
  * The node shape minimark and comark agree on: `[tag, props, ...children]`.
- * Enough to walk and edit a document without importing either backend, which
- * is what lets both adapters run the same pipeline.
+ * Enough to edit a document without importing either backend.
  */
 export type DocNode = [string, Record<string, unknown>?, ...unknown[]]
 
@@ -20,9 +19,8 @@ export interface PrepareDocumentOptions {
 
 /**
  * A highlighter appends a `<style>` node carrying the per-document CSS
- * variables. It is meaningless in a markdown representation, and neither
- * backend drops it once something follows it, so it goes before the related
- * links are appended.
+ * variables. Neither backend drops it once something follows it, so it goes
+ * before the related links are appended.
  */
 function removeStyleNodes(nodes: DocNode[]): void {
   for (let i = nodes.length - 1; i >= 0; i--) {
@@ -53,15 +51,23 @@ function appendRelatedLinks(nodes: DocNode[], links: unknown): void {
   if (!Array.isArray(links) || links.length === 0) {
     return
   }
-  // Frontmatter is user content: a `links: [null]` or a half-filled entry
-  // must be skipped, not thrown on. A numeric label stays a label, because
-  // YAML reads `label: 2024` as a number and the adapters rendered it before.
-  const items = links
-    .filter((link): link is { label: string | number, to: string } => typeof link === 'object' && link !== null
-      && (typeof (link as { label?: unknown }).label === 'number'
-        || (typeof (link as { label?: unknown }).label === 'string' && (link as { label: string }).label !== ''))
-      && typeof (link as { to?: unknown }).to === 'string' && (link as { to: string }).to !== '')
-    .map(link => ['li', {}, ['a', { href: link.to }, String(link.label)]] as DocNode)
+  // Frontmatter is user content: a `links: [null]` or a half-filled entry is
+  // skipped, not thrown on. A numeric label stays a label, since YAML reads
+  // `label: 2024` as a number.
+  const items: DocNode[] = []
+  for (const link of links) {
+    if (typeof link !== 'object' || link === null) {
+      continue
+    }
+    const { label, to } = link as { label?: unknown, to?: unknown }
+    if (typeof to !== 'string' || to === '') {
+      continue
+    }
+    if (typeof label !== 'number' && (typeof label !== 'string' || label === '')) {
+      continue
+    }
+    items.push(['li', {}, ['a', { href: to }, String(label)]])
+  }
   if (items.length > 0) {
     nodes.push(['hr', {}])
     nodes.push(['ul', {}, ...items])
@@ -70,10 +76,8 @@ function appendRelatedLinks(nodes: DocNode[], links: unknown): void {
 
 /**
  * Everything both adapters do to a parsed document before handing the tree to
- * their own stringifier. The two renderings have to come out byte-identical,
- * which is easier to hold when the steps live in one place.
- *
- * Mutates in place: the callers hand the same array to their renderer.
+ * their own stringifier, kept in one place because the two renderings have to
+ * come out byte-identical. Mutates in place.
  */
 export function prepareDocumentTree(nodes: DocNode[], options: PrepareDocumentOptions): void {
   removeStyleNodes(nodes)

@@ -5,24 +5,11 @@ import { getAgentDocument } from '../utils/document'
 import { encodeAgentRoute, formatLinkHeader, hasCdnLinkPair, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
- * Serves the raw markdown representation of a page from the content adapter.
+ * Serves the raw markdown representation of a page. `getAgentDocument()` builds
+ * the document, this handler is the HTTP part.
  *
- * The document itself is built by `getAgentDocument()`, which anything running
- * in-process can call for the same bytes. What is left here is the HTTP part:
- * the status codes, the headers and the redirect.
- *
- * A missing page has to answer a real 404 so agents can tell an unknown URL
- * from an empty one. The error handler renders it as markdown for the raw
- * prefix, reporting the documentation path the client asked for through
- * `data.path`.
- *
- * `Vary` is on every response here, redirects included. This URL serves
- * markdown to every client, so nothing about it depends on the request, but it
- * is where a negotiated page sends one: the CDN answers `Accept: text/markdown`
- * on a cached page with a 307, so the response the client keeps, and the one a
- * shared cache stores, is this one. Without the header on it, whatever follows
- * the hop lands on a URL with two representations behind it and nothing saying
- * so.
+ * `Vary` is on the document and redirect responses: a negotiated page redirects
+ * here, so this is the response the client keeps and a shared cache stores.
  */
 export default defineEventHandler(async (event) => {
   const config = useAgentDiscoveryConfig(event)
@@ -34,7 +21,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Left unnormalized: `getAgentDocument` owns that, and decoding here as well
-  // would decode a doubly-encoded path twice, resolving it to a different page.
+  // would decode a doubly-encoded path twice.
   const path = slug.slice(0, -3)
   const document = await getAgentDocument(event, path)
 
@@ -44,8 +31,7 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeader(event, 'Vary', MARKDOWN_VARY)
 
-  // The canonical URL and every absolutized link fall back to the request
-  // origin when no site URL is configured, so the body is host-dependent and
+  // Without a configured site URL the body embeds the request origin, so it
   // must not enter a shared cache.
   if (!config.siteUrl) {
     setResponseHeader(event, 'Cache-Control', 'no-cache')
@@ -57,11 +43,9 @@ export default defineEventHandler(async (event) => {
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
 
-  // On Vercel the CDN table already injects this pair on the twins it knows
-  // (see `hasCdnLinkPair`), and a header route applies to origin-rendered
-  // responses too, so setting it here as well shipped it twice, doubling per
-  // hop. Everywhere else, and for the twins the table does not cover, this
-  // handler is the only place the pair can come from.
+  // On Vercel the CDN header table already injects this pair on the twins it
+  // covers, origin-rendered responses included, so setting it here would ship
+  // it twice. Everywhere else this handler is the only source.
   if (!(config.cdnLinkPairs && hasCdnLinkPair(config, pathname))) {
     setResponseHeader(event, 'Link', formatLinkHeader([
       { href: document.canonicalUrl, rel: 'canonical' },

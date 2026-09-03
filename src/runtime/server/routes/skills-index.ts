@@ -2,10 +2,7 @@ import { defineEventHandler, setResponseHeader } from 'h3'
 import { useRuntimeConfig } from '#imports'
 import type { SkillEntry } from '../../shared/types'
 
-/**
- * The Agent Skills catalog, generated from the skills directory at build time
- * so it can never fall out of step with the files actually served.
- */
+/** The Agent Skills catalog, generated from the skills directory at build time. */
 export default defineEventHandler((event) => {
   const { skills } = useRuntimeConfig(event).agentDiscoverySkills as { skills: SkillEntry[] }
 

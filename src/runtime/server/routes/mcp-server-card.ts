@@ -27,28 +27,17 @@ interface McpDefinition {
 }
 
 /**
- * MCP server card.
- *
- * The static half comes from `discovery.mcpServerCard`. The live half, what
- * the server actually exposes, is read from `@nuxtjs/mcp-toolkit` when the
- * site runs it: every adopter was otherwise writing the same plugin to copy
- * `listMcpDefinitions()` onto the card, and a card listing tools the server
- * no longer has is worse than no card.
- *
- * Detected, never depended on. Without the toolkit the import resolves to a
- * stub and the card is exactly what config declares. Either way
- * `agent-discovery:mcp-server-card` runs last, so a site can add or correct
- * anything.
+ * MCP server card: the static half from `discovery.mcpServerCard`, the live
+ * half from `@nuxtjs/mcp-toolkit` when the site runs it. Without the toolkit
+ * the import resolves to a stub and the card is what config declares.
+ * `agent-discovery:mcp-server-card` runs last, so a site can correct anything.
  */
 export default defineEventHandler(async (event) => {
   const card = useRuntimeConfig(event).agentDiscoveryMcp as McpServerCardConfig
   const siteUrl = getAgentSiteUrl(event)
 
-  // No `$schema`: the URL this used to carry 404s, and so does the one the
-  // draft that would define it (SEP-2127) proposes, because that draft is
-  // unmerged. The released MCP spec has no server card, so the shape below is
-  // pre-standard by nature and advertising a schema it cannot be checked
-  // against is worse than advertising none.
+  // No `$schema`: the released MCP spec has no server card, and the draft that
+  // would define one is unmerged, so the URL it proposes 404s.
   const serverCard: Record<string, unknown> = {
     serverInfo: {
       name: card.name,
@@ -77,13 +66,6 @@ export default defineEventHandler(async (event) => {
       resources: McpDefinition[]
       prompts: McpDefinition[]
     }
-    // Groups come from the subdirectory a definition sits in, which is how a
-    // site separates its admin tools from the ones anybody may call. The build
-    // merges the `admin` default into `excludeGroups` already, but this list
-    // arrives through runtime config, where
-    // `NUXT_AGENT_DISCOVERY_MCP_EXCLUDE_GROUPS` replaces it wholesale. Unioning
-    // the defaults back in keeps a deploy-time override from publishing the
-    // admin tools.
     const excluded = mcpExcludedGroups(card.excludeGroups)
     const isPublic = (definition: McpDefinition) => !definition.group || !excluded.has(definition.group)
 
@@ -101,10 +83,8 @@ export default defineEventHandler(async (event) => {
   await useNitroApp().hooks.callHook('agent-discovery:mcp-server-card', event, serverCard)
 
   setResponseHeader(event, 'Content-Type', 'application/json; charset=utf-8')
-  // The other discovery documents are build-time output and cache for an hour.
-  // This one is not: the definitions are listed per request and the hook runs
-  // after them, so a shared cache would keep advertising a tool the server has
-  // since dropped, which is worse than serving no card at all.
+  // Listed per request, so a shared cache would keep advertising a tool the
+  // server has since dropped.
   setResponseHeader(event, 'Cache-Control', 'no-cache')
   return serverCard
 })

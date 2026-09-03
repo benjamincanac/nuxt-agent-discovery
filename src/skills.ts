@@ -6,13 +6,9 @@ import type { ConsolaInstance } from 'consola'
 import type { SkillEntry } from './runtime/shared/types'
 
 /**
- * Agent Skills discovery.
- *
- * A skill is a directory holding a `SKILL.md` with `name` and `description`
- * frontmatter, plus any number of reference files. The catalog is scanned at
- * build time so `/.well-known/skills/index.json` is generated rather than
- * hand-maintained, which is where the three sites that ship skills today all
- * drift: a reference file gets added and the index keeps listing the old set.
+ * Agent Skills discovery. A skill is a directory holding a `SKILL.md` whose
+ * frontmatter carries a `description` and, optionally, a `name` defaulting to
+ * the directory name, plus any number of reference files.
  *
  * Naming follows the Agent Skills spec: lowercase alphanumeric and single
  * hyphens, 64 characters at most, matching the directory name.
@@ -27,12 +23,9 @@ interface Frontmatter {
 }
 
 /**
- * The frontmatter mapping, or why it could not be read.
- *
- * The reason is carried out rather than collapsed to `null` because the
- * failures read nothing alike: an unquoted `description` holding a `: ` is a
- * YAML syntax error, and reporting that as a missing description sends you to
- * the wrong line of the wrong file.
+ * The frontmatter mapping, or why it could not be read. The reason is carried
+ * out rather than collapsed to `null` so a YAML syntax error is not reported
+ * as a missing description.
  */
 function parseFrontmatter(content: string): { data: Frontmatter } | { error: string } {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
@@ -71,10 +64,8 @@ async function listFiles(dir: string, base = ''): Promise<string[]> {
   const files: string[] = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = base ? `${base}/${entry.name}` : entry.name
-    // A symlink reports neither directory nor regular file here, so listing it
-    // would publish whatever it points at: the catalog is the allowlist the
-    // runtime route checks against, so a link to `../../.env` would be served.
-    // Skipped rather than resolved, because a skill has no reason to hold one.
+    // The catalog is the allowlist the runtime route checks against, so listing
+    // a symlink would serve whatever it points at, `../../.env` included.
     if (entry.isSymbolicLink()) {
       continue
     }
@@ -101,9 +92,8 @@ export async function scanSkills(dir: string, logger: ConsolaInstance): Promise<
 
     const skillDir = join(dir, entry.name)
     const skillMd = join(skillDir, 'SKILL.md')
-    // `lstat`, not `existsSync`, which follows the link: `SKILL.md` is added to
-    // the catalog unconditionally below, so a symlinked one would publish
-    // whatever it points at. The reference files are filtered the same way.
+    // `lstat`, not `existsSync`, which follows the link: `SKILL.md` goes into
+    // the catalog unconditionally below.
     const stats = await lstat(skillMd).catch(() => null)
     if (!stats?.isFile()) {
       continue

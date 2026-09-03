@@ -6,16 +6,11 @@ import type { AgentRoute, NegotiationConfig } from '../../shared/types'
 
 /**
  * The discovery layer as OpenAPI fragments, for sites that publish an
- * `openapi.json`.
+ * `openapi.json`. Derived from the route config, which hand-written paths drift
+ * from as soon as `routes` or `rawPrefix` changes.
  *
- * These paths are identical across every site running this module by
- * construction: they all negotiate the same way, serve the same raw twins and
- * advertise the same documents. Hand-writing them means restating the route
- * config in a second place, where it drifts the moment `routes` or
- * `rawPrefix` changes.
- *
- * Returns fragments rather than a whole document. A site owns its `info`,
- * `servers` and its own endpoints, and merges these in:
+ * A site owns its `info`, `servers` and its own endpoints, and merges these in,
+ * spreading its own values last so it can replace any path here:
  *
  * ```ts
  * const discovery = agentDiscoveryOpenApi(event, { paths: myPaths })
@@ -24,51 +19,27 @@ import type { AgentRoute, NegotiationConfig } from '../../shared/types'
  *   info: { ... },
  *   tags: [...discovery.tags, ...myTags],
  *   paths: { ...discovery.paths, ...myPaths },
- *   components: {
- *     headers: discovery.components.headers,
- *     responses: discovery.components.responses,
- *     schemas: { ...discovery.components.schemas, ...mySchemas }
- *   }
+ *   components: { ...discovery.components, schemas: { ...discovery.components.schemas, ...mySchemas } }
  * }
  * ```
  *
- * Spreading the site's own values last means any path here can be replaced
- * with a richer, site-specific description.
- *
  * Every call builds its fragments from scratch, so what comes back is the
- * caller's to edit in place. Nothing is shared with the next call.
+ * caller's to edit in place.
  *
- * Pass the `paths` being merged in and every `operationId` in them is claimed
- * before one is derived here, so a site's own operation keeps its name and the
- * generated one takes a numeric suffix. Without it the two namespaces are
- * decided independently and a duplicate is only caught by a linter, if the
- * site runs one. `reserved` does the same for a document assembled where this
- * call cannot see it.
- *
- * The namespace, for a site picking names by hand:
- *
- * - a page pattern gets `get<PascalRoute>`, its raw twin
- *   `get<PascalRoute>Markdown`. `/` is `getHomepage`/`getHomepageMarkdown`,
- *   a wildcard pattern ends in `Page`, so `/docs/**` is `getDocsPage`
- * - the discovery documents get `getSitemapMarkdown`, `getSitemapXml`,
- *   `getLlmsTxt`, `getLlmsFullTxt`, `getApiCatalog`, `getMcpServerCard`,
- *   `getSkillsIndex` and `callMcpServer`, each only when the site serves it
+ * Operation ids: a page pattern gets `get<PascalRoute>` and its raw twin
+ * `get<PascalRoute>Markdown`, a wildcard pattern ends in `Page`, and each
+ * discovery document keeps a fixed id such as `getSitemapMarkdown`. Ids passed
+ * in `paths` and `reserved` are claimed first, so a generated one takes a
+ * numeric suffix on a clash.
  */
 
 type Json = Record<string, unknown>
 
 /** Options for {@link agentDiscoveryOpenApi}. */
 export interface AgentOpenApiOptions {
-  /**
-   * The `paths` object these fragments are being merged into. Every
-   * `operationId` in it is claimed first, so a generated id never lands on a
-   * name the site is already using.
-   */
+  /** The `paths` object these fragments are merged into. Every `operationId` in it is claimed first. */
   paths?: Record<string, unknown>
-  /**
-   * Operation ids to claim without a `paths` object to read them from, for a
-   * document assembled somewhere this call cannot see.
-   */
+  /** Operation ids to claim without a `paths` object to read them from. */
   reserved?: string[]
 }
 
@@ -76,13 +47,9 @@ export interface AgentOpenApiOptions {
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
 /**
- * Operation ids of the discovery documents, by the registered link each one
- * follows.
- *
- * Claimed ahead of every route-derived id, so a page pattern deriving the same
- * name takes the suffix instead of these moving. A generated client calls
- * `getSitemapMarkdown()` on every site running this module, and that should not
- * change because one of them happens to configure a `/sitemap` page.
+ * Operation ids of the discovery documents, by registered link. Claimed ahead
+ * of every route-derived id: a generated client calls `getSitemapMarkdown()` on
+ * every site running this module, so a `/sitemap` page takes the suffix instead.
  */
 const DISCOVERY_OPERATIONS: Record<string, string> = {
   '/sitemap.md': 'getSitemapMarkdown',
@@ -122,14 +89,9 @@ function pascalCase(segment: string): string {
 
 /**
  * The `operationId` of a route pattern, which client generators turn into a
- * method name. Static segments are PascalCased, `*` becomes `Segment` and an
- * inner `**` becomes `Path`; a wildcard pattern ends in `Page`, with the
- * trailing `**` left implicit:
- *
- * `/` → `getHomepage`, `/about` → `getAbout`, `/docs/**` → `getDocsPage`, and a
- * locale wildcard in front of that last one → `getSegmentDocsPage`.
- *
- * Derived from the pattern alone, so an id only moves when that pattern does.
+ * method name. Static segments are PascalCased, `*` becomes `Segment`, an inner
+ * `**` becomes `Path`, and a wildcard pattern ends in `Page` with the trailing
+ * `**` implicit: `/` → `Homepage`, `/docs/**` → `DocsPage`.
  */
 function routeOperation(pattern: string): string {
   if (pattern === '/') {
@@ -146,12 +108,7 @@ function routeOperation(pattern: string): string {
   return wildcard ? `${name}Page` : name
 }
 
-/**
- * Every `operationId` in a caller's `paths` object.
- *
- * Only the fixed method fields are read: a path item also carries `summary`,
- * `parameters` and `servers`, none of which name an operation.
- */
+/** Every `operationId` in a caller's `paths` object. Only the fixed method fields name an operation. */
 function operationIds(paths: Record<string, unknown>): string[] {
   const ids: string[] = []
   for (const item of Object.values(paths)) {
@@ -170,15 +127,9 @@ function operationIds(paths: Record<string, unknown>): string[] {
 }
 
 /**
- * Two patterns can derive the same name (`/docs/api` and `/docs-api`), a
- * pattern can derive a discovery document's name (`/sitemap` derives
- * `getSitemapMarkdown`), and either can land on one the caller is already
- * using. Whichever claims a name first keeps it; the next one along takes a
- * numeric suffix.
- *
- * The order is caller first, then the discovery documents, then the routes in
- * the site's own config order, which makes the result stable for a given
- * config.
+ * Whichever name is claimed first keeps it, the next one along takes a numeric
+ * suffix. Two patterns can derive the same name (`/docs/api` and `/docs-api`),
+ * and either can land on one the caller or a discovery document already uses.
  */
 function claim(taken: Set<string>, name: string): string {
   let candidate = name
@@ -201,11 +152,7 @@ function pathParameters(params: string[], pattern: string): Json[] {
   }))
 }
 
-/**
- * A markdown response. Carries `Vary` like the negotiated page does: these URLs
- * serve markdown to every client, but they are where a negotiated page sends
- * one, so the header is on them too and the document has to say so.
- */
+/** A markdown response. Carries `Vary` because this is where a negotiated page sends a client. */
 function markdown(description: string): Json {
   return {
     description,
@@ -239,9 +186,7 @@ function negotiatedPage(config: NegotiationConfig, route: AgentRoute, operationI
             }
           },
           404: { $ref: '#/components/responses/NotFoundMarkdown' },
-          // Only the pages can refuse every representation, and only where the
-          // site turned that on. Left out otherwise rather than documented as
-          // a status nothing returns.
+          // Only where the site turned it on, rather than documenting a status nothing returns.
           ...(config.notAcceptable ? { 406: { $ref: '#/components/responses/NotAcceptable' } } : {})
         }
       }
@@ -283,21 +228,15 @@ interface DocumentRow {
   href: string
   summary: string
   description: string
-  /**
-   * Built per call, not stored. The document handed back is the caller's to
-   * merge into and edit, and a row holding one object would put that same
-   * reference in every document this module ever emits, so one caller's edit
-   * would land in the next request's response.
-   */
+  /** Built per call: the document is the caller's to edit, so no two callers may share an object. */
   response: () => Json
 }
 
 /**
  * The discovery documents that are a plain `href` → response mapping, in
- * insertion order. The MCP endpoint's own path is not one of these: it is a
- * `post` with a request body, not a document with a `get`, and it sits
- * between the api catalog and the server card below, so building `paths`
- * splits this table at {@link MCP_SPLIT} rather than walking it in one pass.
+ * insertion order. The MCP endpoint is a `post` with a request body and sits
+ * between the api catalog and the server card, so `paths` splits this table at
+ * {@link MCP_SPLIT} rather than walking it in one pass.
  */
 const DOCUMENTS: DocumentRow[] = [
   {
@@ -348,9 +287,7 @@ const DOCUMENTS: DocumentRow[] = [
 const MCP_SPLIT = DOCUMENTS.findIndex(document => document.href === '/.well-known/mcp/server-card.json')
 
 // Rename or drop that row and the split silently becomes `slice(0, -1)` and
-// `slice(-1)`, which are both valid: the skills index moves ahead of the other
-// documents and the MCP endpoint lands in the wrong place, with nothing to say
-// so. Cheaper to refuse to load.
+// `slice(-1)`, both valid and both wrong. Cheaper to refuse to load.
 if (MCP_SPLIT === -1) {
   throw new Error('nuxt-agent-discovery: no `/.well-known/mcp/server-card.json` row in the OpenAPI document table, so the MCP endpoint has nowhere to sit. Restore the row, or split the table on whatever replaced it.')
 }
@@ -359,15 +296,12 @@ export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptio
   const config = useAgentDiscoveryConfig(event)
   const has = (href: string) => config.links.some(link => link.href === href)
 
-  // Only a same-origin path, since `paths` is relative to `servers`. A card
-  // pointing at an endpoint on another host has nothing to describe here.
+  // Only a same-origin path, since `paths` is relative to `servers`.
   const mcp = useRuntimeConfig(event).agentDiscoveryMcp as { endpoint?: string } | undefined
   const mcpEndpoint = mcp?.endpoint?.startsWith('/') ? mcp.endpoint : undefined
 
-  // The caller's names first, so nothing generated here can take one of them.
-  // Then the discovery documents, whose ids are the same on every site running
-  // this module and should not move. The route-derived ids come last and take
-  // the suffix on a clash.
+  // The caller's names first, then the discovery documents, whose ids are the
+  // same on every site. Route-derived ids come last and take the suffix.
   const taken = new Set<string>([
     ...(options.reserved || []),
     ...(options.paths ? operationIds(options.paths) : [])
@@ -395,11 +329,8 @@ export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptio
       paths[document.href] = discoveryDocument(discovery[document.href]!, document.summary, document.description, document.response())
     }
   }
-  // The MCP endpoint itself, alongside the card that describes it. Not a route
-  // this module serves, the same as `/sitemap.xml` and the two llms documents
-  // above: what earns a path here is being in the discovery registry, not who
-  // answers it. Leaving this one out is what made every adopter hand-write the
-  // same JSON-RPC block.
+  // The MCP endpoint itself, alongside the card that describes it. What earns a
+  // path here is being in the discovery registry, not who answers it.
   if (mcpEndpoint) {
     paths[mcpEndpoint] = {
       post: {
@@ -502,9 +433,8 @@ export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptio
           description: 'The page does not exist. The body is a short Markdown document linking to the entry points an agent can recover from.',
           content: { 'text/markdown': { schema: { type: 'string' } } }
         },
-        // The body follows the same rules every other error does, so a browser
-        // `fetch()` keeps the JSON it was written against while an agent or a
-        // command-line client gets the Markdown one.
+        // The body negotiates like every other error: JSON for a browser
+        // `fetch()`, markdown for an agent or a command-line client.
         ...(config.notAcceptable
           ? {
               NotAcceptable: {

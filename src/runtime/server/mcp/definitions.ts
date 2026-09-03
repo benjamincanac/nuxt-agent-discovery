@@ -1,7 +1,6 @@
 /**
- * `@nuxtjs/mcp-toolkit`'s listing API, behind the `#agent-discovery/mcp`
- * alias. Aliased to `none.ts` when the toolkit is absent or has bailed out,
- * so this import only ever runs where the toolkit's own virtual modules
- * (`#nuxt-mcp-toolkit/tools.mjs`, which `listMcpDefinitions` imports) exist.
+ * `@nuxtjs/mcp-toolkit`'s listing API, behind the `#agent-discovery/mcp` alias.
+ * Aliased to `none.ts` when the toolkit is absent or has bailed out, since this
+ * import pulls in the toolkit's own virtual modules.
  */
 export { listMcpDefinitions } from '@nuxtjs/mcp-toolkit/server'

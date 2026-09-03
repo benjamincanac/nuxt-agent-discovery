@@ -1,78 +1,57 @@
 import type { H3Event } from 'h3'
 
-// Mirrored by the `agent-discovery/hooks.d.ts` template in `module.ts`, which
-// is what a consuming site sees. This copy is what type-checks the module's own
-// source; keep the two in step.
+// Mirrored by the `agent-discovery/hooks.d.ts` template in `module.ts`, which is
+// what a consuming site sees. Keep the two in step.
 declare module 'nitropack/types' {
   interface NitroRuntimeHooks {
     /**
-     * Transforms a page before the content adapter stringifies it. `page` is
-     * whatever the adapter works on, a minimark tree for `@nuxt/content` and
-     * the backend's own document elsewhere, so it is deliberately `any`: this
-     * module cannot know the shape, and a site should not have to cast to
-     * hand it to its own transformer.
+     * Transforms a page before the content adapter stringifies it. `page` is the
+     * backend's own document, a minimark tree for `@nuxt/content`, so it is `any`.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     'agent-discovery:document': (event: H3Event, page: any) => void | Promise<void>
     /**
-     * Fills in the generated `/raw/index.md`, for a site whose landing page is
-     * a Vue page rather than a document. Set `title` and `description`, which
+     * Fills in the generated `/raw/index.md`. Set `title` and `description`, which
      * reach the frontmatter, and push markdown blocks onto `body`.
      */
     'agent-discovery:index': (event: H3Event, index: AgentIndex) => void | Promise<void>
     /** Enriches the served MCP server card with live tools, resources and prompts. */
     'agent-discovery:mcp-server-card': (event: H3Event, card: Record<string, unknown>) => void | Promise<void>
     /**
-     * Adds to `sitemap.md` before it is rendered, in the order the sections
-     * appear. Keys are the raw first path segment of the grouped routes
-     * (`docs`, `blog`; the second segment under an expanded prefix, `pages`
-     * for top-level ones), with `sitemapSections.labels` applied at render
-     * only. Extend an existing section through that key
-     * (`sections.get('docs')`); a new section may use any key, which renders
-     * capitalized unless `labels` overrides it.
+     * Adds to `sitemap.md` before it is rendered, in section order. Keys are the
+     * raw path segment a section groups, before `sitemapSections.labels` applies.
      */
     'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
 }
 
 /**
- * A page pattern the module negotiates markdown for.
- *
- * `path` accepts `*` (one segment) and `**` (one or more segments), so a
- * locale prefix is one wildcard segment in a single pattern and the generated
- * route table stays O(patterns), never O(pages).
+ * A page pattern the module negotiates markdown for. `path` accepts `*` (one
+ * segment) and `**` (one or more), so the route table stays O(patterns).
  */
 export interface AgentRoute {
   path: string
   /**
-   * Explicit raw markdown destination, required for exact paths whose `.md`
-   * twin is not `path + '.md'` (the homepage: `{ path: '/', raw: '/raw/index.md' }`).
-   * Defaults to `rawPrefix + path + '.md'`.
+   * Explicit raw markdown destination, for an exact path whose `.md` twin is not
+   * `path + '.md'` (`{ path: '/', raw: '/raw/index.md' }`). Defaults to
+   * `rawPrefix + path + '.md'`.
    */
   raw?: string
 }
 
 /**
- * A discovery resource, declared once and emitted everywhere: the `Link`
- * header on `/`, the `.well-known/api-catalog` linkset, the recovery links in
- * markdown error bodies and the "Resources for Agents" block.
+ * A discovery resource, emitted in the `Link` header on `/`, the
+ * `.well-known/api-catalog` linkset, markdown error bodies and the resources block.
  */
 export interface DiscoveryLink {
   /** Site-relative (`/llms.txt`) or absolute href. */
   href: string
-  /**
-   * IANA-registered link relation (or an absolute URI for an extension
-   * relation, per RFC 8288). Invented rels like `llms` fail the build.
-   */
+  /** IANA-registered relation, or an absolute URI for an extension relation per RFC 8288. Invented rels fail the build. */
   rel: string
   type?: string
   /** Human/agent readable label, used in error bodies and resource listings. */
   title?: string
-  /**
-   * Anchor for the api-catalog linkset (RFC 9727), site-relative or absolute.
-   * Only `service-desc` and `service-doc` links carrying an anchor are grouped
-   * into the catalog.
-   */
+  /** Anchor for the api-catalog linkset (RFC 9727). Only `service-desc` and `service-doc` links carrying one reach it. */
   anchor?: string
   /** Whether the link is emitted in the `Link` header on `/`. Default `true`. */
   header?: boolean
@@ -80,11 +59,7 @@ export interface DiscoveryLink {
 
 /** How `sitemap.md` groups pages into sections. */
 export interface SitemapSections {
-  /**
-   * Path prefixes whose children each get their own section, instead of the
-   * whole prefix being one. `['/docs']` turns a single "Docs" section into
-   * "Components", "Composables", ... while `/blog/**` stays one "Blog".
-   */
+  /** Path prefixes whose children each get their own section. `['/docs']` splits "Docs" into "Components", "Composables". */
   expand: string[]
   /** Label overrides, keyed by the path segment the section groups. */
   labels: Record<string, string>
@@ -103,22 +78,14 @@ export interface AgentPage {
   markdown: string
   title?: string
   description?: string
-  /**
-   * Last modification date. Adapters may supply it, and sites do, but nothing
-   * in the module reads it yet; it is reserved for freshness signals such as
-   * a sitemap `lastmod`.
-   */
+  /** Last modification date. Adapters may supply it, nothing reads it yet. */
   updatedAt?: string
 }
 
 /**
  * The generated `/raw/index.md`, handed to `agent-discovery:index` for a site
- * whose landing page is a Vue page rather than a document.
- *
- * `title` arrives pre-filled from `siteName` (or the host), and everything the
- * hook leaves alone is dropped from the frontmatter rather than emitted empty.
- * The metadata for a landing page like this lives wherever the site keeps it,
- * which is why the module cannot read it itself.
+ * whose landing page is a Vue page. `title` arrives pre-filled from `siteName`
+ * or the host, and anything the hook leaves alone is dropped from frontmatter.
  */
 export interface AgentIndex {
   /** Frontmatter `title`, and the document's `# ` heading. */
@@ -132,49 +99,27 @@ export interface AgentIndex {
 /** One page in a listing: the route plus whatever metadata is cheap to read. */
 export interface AgentListEntry extends Partial<AgentPage> {
   route: string
-  /**
-   * Group this page belongs to, used as the section title in `llms.txt` when
-   * the site declares no sections of its own. Adapters that have a natural
-   * grouping set it: the navigation tree for comark, the collection for
-   * `@nuxt/content`. `sitemap.md` does not read it, it groups by path segment
-   * through `sitemapSections`.
-   */
+  /** Group this page belongs to, the `llms.txt` section title when the site declares none. `sitemap.md` groups by path. */
   section?: string
 }
 
 /**
- * A `llms.sections` entry, handed to `list()` verbatim. The module never reads
- * it: `contentCollection`/`contentFilters` mean something to the `@nuxt/content`
- * adapter and nothing to the others, so each adapter picks out the keys it
- * declares and returns `null` for a selector that isn't its own.
+ * A `llms.sections` entry, handed to `list()` verbatim. Each adapter picks out
+ * the keys it declares and returns `null` for a selector that isn't its own.
  */
 export type AgentSectionSelector = Record<string, unknown>
 
-/**
- * The content adapter seam. The module never serves raw markdown itself, it
- * routes to whatever implements this.
- */
+/** The content adapter seam. The module never serves raw markdown itself, it routes to whatever implements this. */
 export interface AgentContentSource {
   /**
-   * Every markdown-representable page, with whatever metadata the backend has.
-   * `sitemap.md`, the `nuxt-llms` bridge and `listAgentPages()` all read it.
-   *
-   * With a `selector`, a `llms.sections` entry handed over verbatim, return
-   * only the pages it names, or `null` when the selector is not one this
-   * adapter understands.
-   *
-   * Optional, for a backend that can resolve a route but cannot enumerate its
-   * pages. Every listing then comes out empty: `/sitemap.md` and the `llms.txt`
-   * bridge list nothing, while the documents `get()` resolves keep working.
+   * Every markdown-representable page. With a `selector`, a `llms.sections` entry
+   * handed over verbatim, return only the pages it names, or `null` when it is not
+   * one this adapter understands. Left out, every listing comes out empty.
    */
   list?: (selector: AgentSectionSelector | undefined, event: H3Event) => Promise<AgentListEntry[] | null>
   /** Resolve one route to its markdown representation, `null` when unknown. */
   get: (route: string, event: H3Event) => Promise<AgentPage | null>
-  /**
-   * Optional: the first page under a section path, for a URL that names a
-   * directory rather than a page (`/getting-started` with no `index`). The raw
-   * route redirects to its markdown twin, mirroring what the HTML page does.
-   */
+  /** The first page under a section path, for a URL naming a directory. The raw route redirects to that page's twin. */
   firstLeaf?: (route: string, event: H3Event) => Promise<string | null>
 }
 
@@ -190,40 +135,34 @@ export interface NegotiationConfig {
   excludePrefixes: string[]
   links: DiscoveryLink[]
   /**
-   * Whether the discovery `Link` header is emitted on `/`. Carried here rather
-   * than read off the module options, because the deploy presets emit that
-   * header themselves and only ever see this config.
+   * Whether the discovery `Link` header is emitted on `/`. Carried here because
+   * the deploy presets emit that header themselves and only see this config.
    */
   linkHeader: boolean
   /** How `sitemap.md` groups pages into sections. */
   sitemapSections: SitemapSections
   /**
-   * Route-rule patterns with a response cache (`isr`, `swr`, `cache`) that
-   * cannot vary on `Accept`/`User-Agent`. The Nitro middleware skips
-   * negotiation there so a markdown response never poisons the cache; the
-   * CDN-level rewrites still apply because they run before the cache.
+   * Route-rule patterns with a response cache (`isr`, `swr`, `cache`) that cannot
+   * vary on `Accept`/`User-Agent`. The Nitro middleware skips negotiation there so
+   * a markdown response never poisons the cache. CDN rewrites run first and apply.
    */
   cachedRoutes: string[]
   /**
-   * Whether a negotiated page answers 406 to an `Accept` that allows neither
-   * of its two representations. Off unless the site asks for it: the strictly
-   * correct answer breaks any client sending a narrow `Accept` it did not mean.
+   * Whether a negotiated page answers 406 to an `Accept` that allows neither of
+   * its representations. Off unless the site asks for it, since it breaks any
+   * client sending a narrow `Accept` it did not mean.
    */
   notAcceptable: boolean
   /**
-   * Route patterns of the handlers the site serves under the raw prefix
-   * itself, as Nitro registers them (`/raw/modules.md`, `/raw/:name.md`,
-   * `/raw/**:slug.md`). The exact-route prerender pass, the llms bridge's
-   * crawler hints and a page's own hint all skip a twin one of them matches,
-   * so a twin backed by live data is never frozen at build.
+   * Route patterns of the handlers the site serves under the raw prefix itself,
+   * as Nitro registers them (`/raw/:name.md`). Prerendering and crawler hints skip
+   * a twin one of them matches, so a twin backed by live data is never frozen.
    */
   ownRawRoutes?: string[]
   /**
-   * Whether the deployed CDN route table injects the canonical/alternate
-   * `Link` pair on the raw markdown twins (the Vercel preset does, when a
-   * site URL is configured). The raw handler then skips its own copy where
-   * `hasCdnLinkPair` says the table covers the URL, or every origin-rendered
-   * response carries the pair twice.
+   * Whether the deployed CDN route table injects the canonical/alternate `Link`
+   * pair on the raw markdown twins. The raw handler skips its own copy where the
+   * table covers the URL, or the pair goes out twice.
    */
   cdnLinkPairs?: boolean
 }
