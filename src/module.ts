@@ -654,9 +654,9 @@ export {}
       // On an i18n site `/` only redirects and the landing documents live at the
       // locale roots, which is where `llms.txt` sends agents, so those count as
       // homepages too: negotiated as an exact route where no pattern covers
-      // them already, their twin wrapped with the resources block like
-      // `/raw/index.md`. Detected here like the other companions, so a site
-      // pulling `@nuxtjs/i18n` in through a layer is covered.
+      // them already, their twin prerendered and wrapped with the resources
+      // block like `/raw/index.md` either way. Detected here like the other
+      // companions, so a site pulling `@nuxtjs/i18n` in through a layer is covered.
       const homepages = i18nHomepages(nuxt)
       for (const homepage of homepages) {
         if (!matchRoute(routes, homepage)) {
@@ -864,6 +864,19 @@ export {}
               if (!detectedRoutes.has(route.path)) {
                 queuedRawRoutes.add(raw)
               }
+            }
+          }
+        }
+        // A locale root a pattern covers has no exact entry of its own, and its
+        // twin is a homepage all the same: queued like `/raw/index.md` rather
+        // than left to whether the site prerenders the landing page, and never
+        // a build error, since the site named neither.
+        for (const homepage of config.homepages || []) {
+          const route = detectedRoutes.has(homepage) ? undefined : matchRoute(routes, homepage)
+          if (route) {
+            const raw = rawDestination(config, route, homepage)
+            if (!siteServesRaw(config, raw)) {
+              addPrerenderRoutes(raw)
             }
           }
         }

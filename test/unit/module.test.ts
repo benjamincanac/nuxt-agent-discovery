@@ -523,11 +523,32 @@ describe('module setup: i18n homepages', () => {
 
   it('leaves a locale root a pattern already covers to that pattern', async () => {
     // The default `/**` negotiates `/en` already; a second entry would only pad
-    // the CDN table. The twin still gets the block through `homepages`.
-    const config = resolved(await runModule({}, {}, i18n({ locales, strategy: 'prefix' })))
+    // the CDN table. The twin still gets the block through `homepages`, and is
+    // still queued for prerender like `/raw/index.md` rather than left to
+    // whether the site prerenders `/en` itself.
+    const nuxt = await runModule({}, {}, i18n({ locales, strategy: 'prefix' }))
+    const config = resolved(nuxt)
 
     expect(config.routes.map(route => route.path)).toEqual(['/', '/**'])
     expect(config.homepages).toEqual(['/en', '/fr'])
+
+    const ctx = { routes: new Set<string>() }
+    await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+    expect(ctx.routes).toContain('/raw/index.md')
+    expect(ctx.routes).toContain('/raw/en.md')
+    expect(ctx.routes).toContain('/raw/fr.md')
+  })
+
+  it('leaves a covered locale twin the site serves itself alone', async () => {
+    const nuxt = await runModule({}, {}, (nuxt) => {
+      i18n({ locales, strategy: 'prefix' })(nuxt)
+      nuxt.options.serverHandlers.push({ route: '/raw/fr.md', handler: '/site/server/raw-fr.ts' })
+    })
+    const ctx = { routes: new Set<string>() }
+    await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+
+    expect(ctx.routes).toContain('/raw/en.md')
+    expect(ctx.routes).not.toContain('/raw/fr.md')
   })
 
   it('skips the default locale under `prefix_except_default`, where it lives at `/`', async () => {
@@ -566,33 +587,37 @@ describe('module setup: i18n homepages', () => {
   })
 
   it('prerenders the locale twins without making a missing landing a build error', async () => {
-    // Appended rather than named by the site: a locale with docs but no landing
-    // document answers 404 on its twin, skipped the way a Vue page's twin is.
-    // The root twin the site did name keeps failing the build.
+    // Detected rather than named by the site, whether appended as an exact
+    // route or covered by a pattern: a locale with docs but no landing document
+    // answers 404 on its twin, skipped the way a Vue page's twin is. The root
+    // twin the site did name keeps failing the build.
     type Route = { route: string, contentType?: string, error?: Error & { statusCode: number, statusMessage: string }, skip?: boolean }
-    const nuxt = await runModule({ routes: ['/', '/*/docs/**'] }, {}, i18n({ locales, strategy: 'prefix' }))
-    const ctx = { routes: new Set<string>() }
-    await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
-    expect(ctx.routes).toContain('/raw/en.md')
-    expect(ctx.routes).toContain('/raw/fr.md')
-
-    const hooks: Record<string, (route: Route) => void> = {}
-    const nitro = {
-      options: { dev: false, static: false, preset: 'node-server', routeRules: {}, runtimeConfig: { agentDiscovery: {} } },
-      hooks: { hook: (name: string, callback: (route: Route) => void) => { hooks[name] = callback } }
-    }
-    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
     const failed = () => Object.assign(new Error('[404]'), { statusCode: 404, statusMessage: '' })
 
-    const missing: Route = { route: '/raw/fr.md', contentType: 'text/markdown; charset=utf-8', error: failed() }
-    hooks['prerender:generate']!(missing)
-    expect(missing.skip).toBe(true)
-    expect(missing.error).toBeUndefined()
+    for (const routes of [['/', '/*/docs/**'], ['/', '/**']]) {
+      const nuxt = await runModule({ routes }, {}, i18n({ locales, strategy: 'prefix' }))
+      const ctx = { routes: new Set<string>() }
+      await nuxt.hooks.callHook('prerender:routes' as never, ctx as never)
+      expect(ctx.routes).toContain('/raw/en.md')
+      expect(ctx.routes).toContain('/raw/fr.md')
 
-    const root: Route = { route: '/raw/index.md', contentType: 'text/markdown; charset=utf-8', error: failed() }
-    hooks['prerender:generate']!(root)
-    expect(root.skip).toBeUndefined()
-    expect(root.error?.statusCode).toBe(404)
+      const hooks: Record<string, (route: Route) => void> = {}
+      const nitro = {
+        options: { dev: false, static: false, preset: 'node-server', routeRules: {}, runtimeConfig: { agentDiscovery: {} } },
+        hooks: { hook: (name: string, callback: (route: Route) => void) => { hooks[name] = callback } }
+      }
+      await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+
+      const missing: Route = { route: '/raw/fr.md', contentType: 'text/markdown; charset=utf-8', error: failed() }
+      hooks['prerender:generate']!(missing)
+      expect(missing.skip, routes.join(' ')).toBe(true)
+      expect(missing.error).toBeUndefined()
+
+      const root: Route = { route: '/raw/index.md', contentType: 'text/markdown; charset=utf-8', error: failed() }
+      hooks['prerender:generate']!(root)
+      expect(root.skip).toBeUndefined()
+      expect(root.error?.statusCode).toBe(404)
+    }
   })
 })
 

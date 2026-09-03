@@ -303,7 +303,7 @@ Detected automatically, never a dependency, `@nuxtjs/seo`-installed included:
 - **`@nuxtjs/robots`** takes over `robots.txt`; the shared user-agent list and `contentSignal` are contributed through its `robots:config` hook.
 - **`@nuxtjs/mcp-toolkit`** owns `/mcp`; the MCP server card reads what it exposes, so it can't advertise a tool the server dropped.
 - **`@nuxtjs/sitemap`** owns `sitemap.xml`; the raw markdown twins are dropped from it, since they are alternate representations of pages already listed.
-- **`@nuxtjs/i18n`** makes the locale roots homepages: every `/<code>` under its `prefix` and `prefix_and_default` strategies, every one but the default locale under `prefix_except_default`, where that locale lives at `/`. On such a site `/` only redirects and the landing documents sit at `/en` and `/fr`, which is where `llms.txt` sends agents. Each root is negotiated as an exact route when no pattern covers it, its twin prerendered like `/raw/index.md`, and its document wrapped with the resources block and the sitemap footer. The generated landing page and `agent-discovery:index` stay `/`'s alone.
+- **`@nuxtjs/i18n`** makes the locale roots homepages: every `/<code>` under its `prefix` and `prefix_and_default` strategies, every one but the default locale under `prefix_except_default`, where that locale lives at `/`. On such a site `/` only redirects and the landing documents sit at `/en` and `/fr`, which is where `llms.txt` sends agents. Each root is negotiated as an exact route when no pattern covers it, its twin prerendered like `/raw/index.md` either way, and its document wrapped with the resources block and the sitemap footer. The generated landing page and `agent-discovery:index` stay `/`'s alone.
 
 ## Deployment
 
