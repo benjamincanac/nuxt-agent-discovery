@@ -586,16 +586,30 @@ export {}
 
     // Blocks rendered between the `llms.txt` blockquote and its first `##`.
     // Normalized here so the runtime joins a list it can trust.
-    const llmsDetails = (typeof options.llms?.details === 'string' ? [options.llms.details] : options.llms?.details || [])
+    let llmsDetails = (typeof options.llms?.details === 'string' ? [options.llms.details] : options.llms?.details || [])
       .map(block => block.trim())
       .filter(Boolean)
     if (llmsDetails.length) {
-      // A heading in there opens a section, which moves every link list under
-      // it and leaves the details reading as that section's prose.
       const fenced = createFenceTracker()
-      const heading = llmsDetails.join('\n\n').split('\n').find(line => !fenced(line) && /^#{1,6}\s/.test(line))
-      if (heading) {
-        logger.warn(`\`llms.details\` carries a heading (\`${heading.trim()}\`), which opens a section in \`llms.txt\`. The details section is prose only; put the heading in \`llms.sections\` instead.`)
+      let heading: string | undefined
+      // Scanned to the last line whatever turns up, so the fence state below
+      // reflects the whole block rather than wherever a heading stopped it.
+      for (const line of llmsDetails.join('\n\n').split('\n')) {
+        if (!fenced(line) && !heading && /^#{1,6}\s/.test(line)) {
+          heading = line.trim()
+        }
+      }
+      // A blank line neither opens nor closes a fence, so the tracker reads it
+      // as fenced only while one is still open. An unclosed fence runs to the
+      // end of the document and renders every section after it as code, so the
+      // details are dropped rather than shipped breaking `llms.txt`.
+      if (fenced('')) {
+        logger.warn('`llms.details` leaves a code fence unclosed, which would swallow every `llms.txt` section after it. The details section is left out until the fence is closed.')
+        llmsDetails = []
+      } else if (heading) {
+        // A heading opens a section, which moves every link list under it and
+        // leaves the details reading as that section's prose.
+        logger.warn(`\`llms.details\` carries a heading (\`${heading}\`), which opens a section in \`llms.txt\`. The details section is prose only; put the heading in \`llms.sections\` instead.`)
       }
     }
 

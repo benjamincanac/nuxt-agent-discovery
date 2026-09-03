@@ -1059,6 +1059,25 @@ describe('module setup: llms details', () => {
     expect((many.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails).toEqual(['When to use this', 'And how'])
   })
 
+  it('drops the block when a code fence is left unclosed', async () => {
+    // An unclosed fence runs to the end of `llms.txt` and renders every
+    // section after it as code, so shipping the details breaks the document.
+    for (const fence of ['```sh', '~~~sh']) {
+      const nuxt = await runModule({ llms: { details: `${fence}\ncurl https://example.com/docs.md` } }, {}, undefined, withLlms())
+
+      expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails, fence).toBeUndefined()
+    }
+  })
+
+  it('keeps a closed fence, headings inside it included', async () => {
+    for (const fence of ['```md', '~~~md']) {
+      const details = `${fence}\n# Not a section\n${fence.slice(0, 3)}`
+      const nuxt = await runModule({ llms: { details } }, {}, undefined, withLlms())
+
+      expect((nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig).llmsDetails, fence).toEqual([details])
+    }
+  })
+
   it('is left off without a description for the block to follow', async () => {
     // `nuxt-llms` renders no blockquote without one, so the details would open
     // the document where the description belongs.

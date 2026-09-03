@@ -281,7 +281,7 @@ const resources = useAgentResources()
 </script>
 
 <template>
-  <a v-for="resource in resources" :key="resource.href" :href="resource.href">{{ resource.title }}</a>
+  <a v-for="resource in resources" :key="`${resource.rel} ${resource.href}`" :href="resource.href">{{ resource.title }}</a>
 </template>
 ```
 

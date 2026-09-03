@@ -12,7 +12,7 @@ import type { AgentResource } from '../../shared/types'
  * hardcoding a set that drifts from what the site publishes.
  *
  * ```vue
- * <a v-for="resource in useAgentResources()" :key="resource.href" :href="resource.href">
+ * <a v-for="resource in useAgentResources()" :key="`${resource.rel} ${resource.href}`" :href="resource.href">
  *   {{ resource.title }}
  * </a>
  * ```
