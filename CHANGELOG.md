@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.3.0...v0.4.0) (2026-09-03)
+
+### Features
+
+* locale roots as homepages, twin Link pair in the Vercel hit phase ([#26](https://github.com/benjamincanac/nuxt-agent-discovery/issues/26)) ([fa3d88a](https://github.com/benjamincanac/nuxt-agent-discovery/commit/fa3d88a6fe9eed342450c552ec56173f1fd2f7ee))
+
+### Bug Fixes
+
+* **sections:** ignore headings inside fenced blocks ([#27](https://github.com/benjamincanac/nuxt-agent-discovery/issues/27)) ([d6e83b1](https://github.com/benjamincanac/nuxt-agent-discovery/commit/d6e83b16f280112a1e68b1bf51a18ab8a26cdc88))
+
 ## [0.3.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.2.0...v0.3.0) (2026-09-02)
 
 ### Features
