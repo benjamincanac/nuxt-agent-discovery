@@ -57,11 +57,11 @@
     "@nuxtjs/robots": "^6.2.0",
     "@nuxtjs/sitemap": "^8.5.0",
     "@release-it/conventional-changelog": "^12.0.0",
-    "@types/node": "^26.4.0",
+    "@types/node": "^26.4.1",
     "better-sqlite3": "^13.0.3",
     "comark": "^0.6.2",
     "comark-content": "^0.3.0",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "h3": "^1.15.11",
     "minimark": "^1.0.0",
     "nitropack": "^2.13.4",
@@ -73,7 +73,7 @@
     "vue-tsc": "^3.3.11",
     "zod": "^4.5.4"
   },
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "peerDependencies": {
     "@nuxt/content": "^3.0.0",
     "@nuxtjs/mcp-toolkit": ">=0.19.0",
