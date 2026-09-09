@@ -526,6 +526,42 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     }
   })
 
+  // The lookahead spells the trailing slash, so a redirect that does not is a
+  // path both halves refuse, which lands on the origin the pair exists to
+  // spare. comark-docs writes an exact rule beside the wildcard for every
+  // content section, so that is a section root per section.
+  it('redirects an exact cached rule with or without its trailing slash', () => {
+    const alone = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/changelog']
+    }))
+
+    for (const path of ['/changelog', '/changelog/']) {
+      const hit = alone.filter(route => matches(route, path))
+      expect(hit.filter(route => route.dest), path).toHaveLength(0)
+      const redirects = hit.filter(route => route.status === 307)
+      expect(redirects, path).toHaveLength(2)
+      expect(redirects.every(route => route.headers?.Location === '/raw/changelog.md'), path).toBe(true)
+    }
+  })
+
+  it('redirects a section root with or without its trailing slash', () => {
+    // The exact rule answers the root here, so the wildcard beside it must not
+    // add a second pair on either spelling.
+    const paired = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/docs', '/docs/**']
+    }))
+
+    for (const path of ['/docs', '/docs/']) {
+      const hit = paired.filter(route => matches(route, path))
+      expect(hit.filter(route => route.dest), path).toHaveLength(0)
+      const redirects = hit.filter(route => route.status === 307)
+      expect(redirects, path).toHaveLength(2)
+      expect(redirects.every(route => route.headers?.Location === '/raw/docs.md'), path).toBe(true)
+    }
+  })
+
   it('leaves a section root that is answered already', () => {
     // An exact rule beside the wildcard, which is how a site that lists its
     // sections writes them, and the root must not collect two redirects.

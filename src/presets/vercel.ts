@@ -281,9 +281,12 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     const wildcard = rule.includes('*')
     const matched = wildcard ? undefined : matchRoute(config.routes, rule)
 
+    // The trailing slash is optional on the exact form for the same reason the
+    // lookahead above spells it: what a rewrite refuses, a redirect has to
+    // answer, or the one spelling neither side claims goes to the origin.
     const src = wildcard
       ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${compilePattern(encodeAgentRoute(rule)).source.slice(1, -1)}$`
-      : `^${escapeEncoded(rule)}$`
+      : `^${escapeEncoded(rule)}/?$`
     const dest = matched
       ? encodeAgentRoute(rawDestination(config, matched, rule))
       : `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(rule))}.md`
