@@ -84,7 +84,11 @@ export function compilePattern(pattern: string, options: { capture?: boolean } =
       } else {
         source += `${open}[^/]+)`
       }
-      captures++
+      // Counted only when it is really there, so the number always describes
+      // the source that came back with it.
+      if (options.capture !== false) {
+        captures++
+      }
     } else {
       source += REGEX_SPECIALS.test(char) ? `\\${char}` : char
     }

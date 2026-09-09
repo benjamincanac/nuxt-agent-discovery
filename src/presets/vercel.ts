@@ -1,7 +1,7 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Nitro } from 'nitropack'
-import { compilePattern, encodeAgentRoute, formatLinkHeader, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { compilePattern, encodeAgentRoute, formatLinkHeader, isExcluded, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
 export interface VercelRoute {
@@ -228,6 +228,32 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   })
 
   /**
+   * `**` is zero or more segments to the rule matcher, so `/docs/**` caches
+   * `/docs` itself, while the pattern its pair compiles needs a segment after
+   * the slash. Left out, the section root is refused by the rewrites below and
+   * matched by no redirect, which puts it back on the origin this route table
+   * exists to keep it off.
+   *
+   * A root already answered elsewhere is skipped rather than answered twice: by
+   * an exact rule of its own, which sites pairing `/docs` with `/docs/**`
+   * write, or by a cached pattern the loop over `config.routes` demotes whole.
+   */
+  const exactRules = new Set(redirectedRules.filter(rule => !rule.includes('*')))
+  const sectionRoots: string[] = []
+  for (const rule of redirectedRules) {
+    const root = rule.endsWith('/**') ? rule.slice(0, -3) : ''
+    if (!root || exactRules.has(root) || sectionRoots.includes(root) || isExcluded(root, config)) {
+      continue
+    }
+    // No route matching it means no twin to send it to, and no rewrite claiming
+    // it either, since both compile from the same patterns.
+    const matched = matchRoute(config.routes, root)
+    if (matched && !patternCached(matched.path)) {
+      sectionRoots.push(root)
+    }
+  }
+
+  /**
    * Every path this function answers with a 307, as a lookahead a rewrite can
    * carry. `vercel build` rewrites the table it deploys: routes are regrouped
    * by kind, and a `check: true` rewrite is hoisted above the plain redirects
@@ -238,20 +264,16 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
    * alone. Naming the redirected paths inside the rewrite keeps the split
    * correct however the table is ordered.
    */
-  const redirected = [...redirectedRules, ...config.routes.filter(route => patternCached(route.path)).map(route => route.path)]
+  const redirected = [...redirectedRules, ...sectionRoots, ...config.routes.filter(route => patternCached(route.path)).map(route => route.path)]
   const redirectLookahead = (pattern: string) => {
     const overlapping = redirected.filter(entry => patternsOverlap(entry, pattern))
     if (!overlapping.length) {
       return ''
     }
-    // Non-capturing, or the lookahead's own groups would shift `$1` in the destination.
-    const sources = overlapping.flatMap((entry) => {
-      // `^body/?$` without the anchors or the trailing slash the alternation adds back.
-      const source = compilePattern(encodeAgentRoute(entry), { capture: false }).source.slice(1, -3)
-      // `**` is zero or more segments to the rule matcher, so `/docs/**` caches
-      // `/docs` too, while its compiled source needs a segment after the slash.
-      return entry.endsWith('/**') ? [source, escapeEncoded(entry.slice(0, -3))] : [source]
-    })
+    // Non-capturing, or the lookahead's own groups would shift `$1` in the
+    // destination. `^body/?$` without the anchors or the trailing slash the
+    // alternation adds back once for all of them.
+    const sources = overlapping.map(entry => compilePattern(encodeAgentRoute(entry), { capture: false }).source.slice(1, -3))
     return `(?!(?:${sources.join('|')})/?$)`
   }
 
@@ -267,6 +289,13 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       : `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(rule))}.md`
 
     pushNegotiated(src, dest, true)
+  }
+
+  // The section roots the pairs above cannot reach, each through the route that
+  // matches it, so the twin is the one that route would have rewritten to.
+  for (const root of sectionRoots) {
+    const matched = matchRoute(config.routes, root)!
+    pushNegotiated(`^${escapeEncoded(root)}/?$`, encodeAgentRoute(rawDestination(config, matched, root)), true)
   }
 
   for (const route of config.routes) {
