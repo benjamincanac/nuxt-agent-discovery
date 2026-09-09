@@ -477,6 +477,47 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect(matches(cached[0]!, '/about')).toBe(false)
   })
 
+  // `vercel build` regroups the table it deploys and hoists a `check: true`
+  // rewrite above the plain redirects, so the catch-all used to swallow every
+  // cached page: `check` found no static twin, the request fell through to the
+  // function, and its 307 was cached under the path alone. The rewrite has to
+  // refuse those paths itself rather than trusting its position in the array.
+  it('keeps the catch-all rewrite off the paths a cached rule redirects', () => {
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/docs/**', '/changelog']
+    }))
+
+    const catchAll = routes.filter(route => route.dest === '/raw/$1.md' && route.has)
+    expect(catchAll).toHaveLength(2)
+    for (const route of catchAll) {
+      for (const path of ['/docs', '/docs/guide', '/docs/api/x', '/changelog']) {
+        expect(matches(route, path)).toBe(false)
+      }
+      // Everything else still rewrites, and the lookahead leaves `$1` alone.
+      expect(matches(route, '/about')).toBe(true)
+      expect(rewrite(route, '/about')).toBe('/raw/about.md')
+      expect(rewrite(route, '/blog/hello')).toBe('/raw/blog/hello.md')
+    }
+
+    // Each of those paths still has a redirect of its own to fall on.
+    for (const path of ['/docs/guide', '/changelog']) {
+      expect(routes.some(route => route.status === 307 && matches(route, path))).toBe(true)
+    }
+  })
+
+  it('leaves the rewrite alone when no cached rule overlaps it', () => {
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/blog/**' }],
+      cachedRoutes: ['/docs/**']
+    }))
+
+    const catchAll = routes.filter(route => route.dest === '/raw/blog/$1.md' && route.has)
+    expect(catchAll).toHaveLength(2)
+    expect(catchAll.every(route => !route.src.includes('(?!(?:'))).toBe(true)
+    expect(rewrite(catchAll[0]!, '/blog/hello')).toBe('/raw/blog/hello.md')
+  })
+
   it('redirects the whole pattern when the rule covers it', () => {
     const routes = vercelMarkdownRoutes(createConfig({
       routes: [{ path: '/docs/**' }],

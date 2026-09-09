@@ -213,21 +213,51 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // A cached rule narrower than the pattern covering it, `routeRules['/docs/**']`
   // under the default `/**`, gets its own 307 pair ahead of that pattern's
   // rewrite. Marking the whole pattern cached would demote every page on the site.
-  for (const rule of config.cachedRoutes) {
+  const redirectedRules = config.cachedRoutes.filter((rule) => {
     // An exact rule is only negotiable through the route it matches: without one
     // there is no twin, and an invented `rawPrefix + rule + '.md'` 307s to a 404.
     const wildcard = rule.includes('*')
-    const matched = wildcard ? undefined : matchRoute(config.routes, rule)
 
-    // This loop handles what a rule caches beyond the patterns it fully covers,
+    // This filter handles what a rule caches beyond the patterns it fully covers,
     // which are demoted wholesale below, or a path collects two redirects.
     if (wildcard) {
-      if (!config.routes.some(route => patternsOverlap(rule, route.path) && !patternCached(route.path))) {
-        continue
-      }
-    } else if (!matched || patternCached(matched.path)) {
-      continue
+      return config.routes.some(route => patternsOverlap(rule, route.path) && !patternCached(route.path))
     }
+    const matched = matchRoute(config.routes, rule)
+    return Boolean(matched) && !patternCached(matched!.path)
+  })
+
+  /**
+   * Every path this function answers with a 307, as a lookahead a rewrite can
+   * carry. `vercel build` rewrites the table it deploys: routes are regrouped
+   * by kind, and a `check: true` rewrite is hoisted above the plain redirects
+   * of the same phase. That put the catch-all rewrite in front of the 307 pair
+   * of every cached rule under it, so a cached page was rewritten instead,
+   * `check` found no static file for the twin, and the request fell through to
+   * the function, whose own 307 the response cache then stored under the path
+   * alone. Naming the redirected paths inside the rewrite keeps the split
+   * correct however the table is ordered.
+   */
+  const redirected = [...redirectedRules, ...config.routes.filter(route => patternCached(route.path)).map(route => route.path)]
+  const redirectLookahead = (pattern: string) => {
+    const overlapping = redirected.filter(entry => patternsOverlap(entry, pattern))
+    if (!overlapping.length) {
+      return ''
+    }
+    // Non-capturing, or the lookahead's own groups would shift `$1` in the destination.
+    const sources = overlapping.flatMap((entry) => {
+      // `^body/?$` without the anchors or the trailing slash the alternation adds back.
+      const source = compilePattern(encodeAgentRoute(entry), { capture: false }).source.slice(1, -3)
+      // `**` is zero or more segments to the rule matcher, so `/docs/**` caches
+      // `/docs` too, while its compiled source needs a segment after the slash.
+      return entry.endsWith('/**') ? [source, escapeEncoded(entry.slice(0, -3))] : [source]
+    })
+    return `(?!(?:${sources.join('|')})/?$)`
+  }
+
+  for (const rule of redirectedRules) {
+    const wildcard = rule.includes('*')
+    const matched = wildcard ? undefined : matchRoute(config.routes, rule)
 
     const src = wildcard
       ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${compilePattern(encodeAgentRoute(rule)).source.slice(1, -1)}$`
@@ -244,6 +274,9 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     // handled above. The `.md` twins stay rewrites: that URL serves one variant.
     const cached = patternCached(route.path)
 
+    // A 307 needs no exclusion: it *is* what the redirected paths get.
+    const notRedirected = cached ? '' : redirectLookahead(route.path)
+
     if (route.path.includes('*')) {
       const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
       const dest = `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(route.path))}.md`
@@ -252,7 +285,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
         dest,
         methods: METHODS
       })
-      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${body}$`, dest, cached)
+      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${notRedirected}${body}$`, dest, cached)
     } else {
       const dest = encodeAgentRoute(rawDestination(config, route, route.path))
       if (route.path !== '/') {
@@ -260,7 +293,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
       }
       // The same two guards as the wildcard branch: `/faq.html` reads as an asset
       // and `/mcp` sits behind an excluded prefix, both refused by the runtime.
-      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${escapeEncoded(route.path)}/?$`, dest, cached)
+      pushNegotiated(`^${NO_DOTTED_LAST_SEGMENT}${excluded}${notRedirected}${escapeEncoded(route.path)}/?$`, dest, cached)
     }
   }
 

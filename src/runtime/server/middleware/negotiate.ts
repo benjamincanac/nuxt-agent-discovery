@@ -65,6 +65,10 @@ export default defineEventHandler(async (event) => {
     && config.cachedRoutes.some(rule => ruleMatchesPath(rule, pathname))) {
     const index = event.path.indexOf('?')
     setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+    // Reaching here means the CDN routes did not answer, so this response is
+    // about to enter the very cache the redirect exists to avoid: it would be
+    // stored under the path alone and replayed to browsers. Refuse the store.
+    setResponseHeader(event, 'Cache-Control', 'private, no-store')
     return sendRedirect(event, index === -1 ? rawPath : `${rawPath}${event.path.slice(index)}`, 307)
   }
 
