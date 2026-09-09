@@ -66,20 +66,29 @@ const REGEX_SPECIALS = /[.+?^${}()|[\]\\]/
  * wildcard: `*` matches one segment, `**` one or more. A trailing slash is
  * matched but never captured, because the CDN tests this against the raw
  * request path and a captured slash rewrites `/docs/x/` to `/raw/docs/x/.md`.
+ *
+ * `capture: false` emits the same source with non-capturing groups, for the
+ * lookaheads the Vercel preset embeds in another pattern's `src`, where a
+ * capture of its own would shift the `$1` references in the destination.
  */
-export function compilePattern(pattern: string): { source: string, captures: number } {
+export function compilePattern(pattern: string, options: { capture?: boolean } = {}): { source: string, captures: number } {
+  const open = options.capture === false ? '(?:' : '('
   let source = ''
   let captures = 0
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i]!
     if (char === '*') {
       if (pattern[i + 1] === '*') {
-        source += '(.+?)'
+        source += `${open}.+?)`
         i++
       } else {
-        source += '([^/]+)'
+        source += `${open}[^/]+)`
       }
-      captures++
+      // Counted only when it is really there, so the number always describes
+      // the source that came back with it.
+      if (options.capture !== false) {
+        captures++
+      }
     } else {
       source += REGEX_SPECIALS.test(char) ? `\\${char}` : char
     }

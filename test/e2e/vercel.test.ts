@@ -181,21 +181,27 @@ describe('vercel build output', () => {
     const patterns = 2 // `routes: ['/', '/**']`
     const exact = 1 // `/`
     const cachedRules = 2 // `/docs/components/**`, plus `/docs/late/**` from `nitro:config`
+    const sectionRoots = 2 // `/docs/components` and `/docs/late`, which `**` covers
     const headerRoutes = 3 // `Vary` on the pages, `Vary` on the markdown twins, `Link`
     const refusals = 1 // `notAcceptable: true` in the fixture
     // Per pattern: an `Accept` route and a User-Agent route, plus a `.md` alias
     // for a wildcard. Per cached rule narrower than the pattern over it: its own
-    // redirect pair. The canonical pair on the twins sits in the `hit` phase at
-    // the end of the table, see below.
-    expect(count).toBe(headerRoutes + refusals + patterns * 2 + (patterns - exact) + cachedRules * 2)
+    // redirect pair, and a second one for the root its `**` covers but its
+    // compiled pattern cannot match. The canonical pair on the twins sits in the
+    // `hit` phase at the end of the table, see below.
+    expect(count).toBe(headerRoutes + refusals + patterns * 2 + (patterns - exact) + cachedRules * 2 + sectionRoots * 2)
   })
 
   // The cache-correctness path, asserted against real emitted output rather
   // than the pure function, because the module has to read the site's route
   // rules to know the section is cached at all.
   it('redirects the cached section and rewrites everything else', () => {
+    // Two rules, and each one needs a pair for what its `**` matches plus a
+    // pair for the section root, which `**` covers and the pattern cannot.
     const cached = routes.filter(route => route.status === 307)
-    expect(cached).toHaveLength(4)
+    expect(cached).toHaveLength(8)
+    expect(cached.filter(route => route.headers?.Location === '/raw/docs/components.md')).toHaveLength(2)
+    expect(cached.filter(route => route.headers?.Location === '/raw/docs/late.md')).toHaveLength(2)
 
     const components = cached.filter(route => route.headers?.Location === '/raw/docs/components/$1.md')
     expect(components).toHaveLength(2)
@@ -259,5 +265,73 @@ describe('vercel build output', () => {
     expect(existsSync(`${outputDir}static/raw/index.md`)).toBe(true)
     expect(existsSync(`${outputDir}static/sitemap.md`)).toBe(true)
     expect(existsSync(`${outputDir}static/llms.txt`)).toBe(true)
+  })
+})
+
+/**
+ * `vercel build` does not deploy this table as written. It regroups the routes
+ * ahead of the filesystem phase into `continue: true` first, then the
+ * `check: true` rewrites, then the rest, keeping the relative order inside each
+ * group. That hoisted the catch-all rewrite above the redirects of every cached
+ * rule under it, and a cached page went to the origin, whose own 307 the
+ * response cache stored under the path alone.
+ *
+ * Every assertion above reads the order the module wrote. These read the order
+ * Vercel serves, which is where that bug lived.
+ */
+describe('vercel build output: regrouped the way it is deployed', () => {
+  const kindOf = (route: VercelRoute) => route.continue ? 0 : route.check ? 1 : 2
+
+  function deployed(): VercelRoute[] {
+    const filesystem = routes.findIndex(route => route.handle === 'filesystem')
+    const initial = filesystem === -1 ? [...routes] : routes.slice(0, filesystem)
+    return [0, 1, 2].flatMap(kind => initial.filter(route => kindOf(route) === kind))
+  }
+
+  /**
+   * What a known agent's request lands on: the first route that stops routing
+   * and either matches on the user agent or takes no header matcher at all.
+   * The 406 is neither, since it names the agent under `missing`.
+   */
+  function agentAnswer(table: VercelRoute[], path: string): VercelRoute | undefined {
+    return table.find(route => !route.continue
+      && Boolean(route.src)
+      && (!route.has || route.has.some(entry => entry.key === 'user-agent'))
+      && new RegExp(route.src!).test(path))
+  }
+
+  it('sends every cached path to its redirect, not to the catch-all', () => {
+    const table = deployed()
+
+    // The section roots included: `**` caches them and the wildcard pattern
+    // cannot match them, so they need a redirect of their own to land on.
+    for (const path of ['/docs/components/button', '/docs/components', '/docs/late/x', '/docs/late']) {
+      const answer = agentAnswer(table, path)
+      expect(answer, path).toBeDefined()
+      expect(answer!.status, path).toBe(307)
+      expect(destinationOf(answer!), path).toMatch(/^\/raw\//)
+    }
+  })
+
+  it('still rewrites a page no cached rule covers', () => {
+    const answer = agentAnswer(deployed(), '/docs/getting-started')
+
+    expect(answer?.dest).toBe('/raw/$1.md')
+    expect(answer?.check).toBe(true)
+    expect(answer?.status).toBeUndefined()
+  })
+
+  // The invariant behind both, and the one that does not depend on knowing how
+  // the regrouping works: a rewrite never claims a path a redirect answers.
+  it('never lets a rewrite claim a path a redirect answers', () => {
+    const rewritesWithMatcher = routes.filter(route => route.dest?.startsWith('/raw/') && route.has)
+    const redirects = routes.filter(route => route.status === 307 && route.src)
+
+    for (const path of ['/docs/components/button', '/docs/components', '/docs/late/x', '/docs/late']) {
+      expect(redirects.some(route => new RegExp(route.src!).test(path)), path).toBe(true)
+      for (const rewrite of rewritesWithMatcher) {
+        expect(new RegExp(rewrite.src!).test(path), `${rewrite.src} claims ${path}`).toBe(false)
+      }
+    }
   })
 })

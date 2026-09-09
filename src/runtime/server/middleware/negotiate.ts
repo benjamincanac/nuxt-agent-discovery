@@ -65,6 +65,15 @@ export default defineEventHandler(async (event) => {
     && config.cachedRoutes.some(rule => ruleMatchesPath(rule, pathname))) {
     const index = event.path.indexOf('?')
     setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+    // Reaching here means no CDN route answered, so this redirect is about to
+    // enter the very cache it exists to avoid, stored under the path alone and
+    // replayed to browsers. The label is for the caches that read it: a shared
+    // cache in front of another preset, and the client. It is not a guard on
+    // Vercel, where a route backed by a prerender function stores on its own
+    // expiration and hands this same response back on a `HIT` (measured on a
+    // preview, 2026-09-09). The Build Output routes are what keep a cached page
+    // off this branch, see `vercelMarkdownRoutes`.
+    setResponseHeader(event, 'Cache-Control', 'private, no-store')
     return sendRedirect(event, index === -1 ? rawPath : `${rawPath}${event.path.slice(index)}`, 307)
   }
 

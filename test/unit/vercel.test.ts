@@ -468,13 +468,136 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect(catchAll.every(route => !route.status)).toBe(true)
     expect(routes.filter(route => route.dest === '/raw/index.md').every(route => !route.status)).toBe(true)
 
-    // The cached section gets its own redirect pair, ahead of that rewrite.
+    // The cached section gets its own redirect pair, ahead of that rewrite,
+    // and a second one for the root the wildcard cannot reach.
     const cached = routes.filter(route => route.status === 307)
-    expect(cached).toHaveLength(2)
-    expect(cached.every(route => route.headers?.Location === '/raw/docs/$1.md')).toBe(true)
+    expect(cached).toHaveLength(4)
+    expect(cached.filter(route => route.headers?.Location === '/raw/docs/$1.md')).toHaveLength(2)
+    expect(cached.filter(route => route.headers?.Location === '/raw/docs.md')).toHaveLength(2)
     expect(routes.indexOf(cached[0]!)).toBeLessThan(routes.indexOf(catchAll[0]!))
     expect(matches(cached[0]!, '/docs/guide')).toBe(true)
     expect(matches(cached[0]!, '/about')).toBe(false)
+  })
+
+  // `vercel build` regroups the table it deploys and hoists a `check: true`
+  // rewrite above the plain redirects, so the catch-all used to swallow every
+  // cached page: `check` found no static twin, the request fell through to the
+  // function, and its 307 was cached under the path alone. The rewrite has to
+  // refuse those paths itself rather than trusting its position in the array.
+  it('keeps the catch-all rewrite off the paths a cached rule redirects', () => {
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/docs/**', '/changelog']
+    }))
+
+    const catchAll = routes.filter(route => route.dest === '/raw/$1.md' && route.has)
+    expect(catchAll).toHaveLength(2)
+    for (const route of catchAll) {
+      for (const path of ['/docs', '/docs/guide', '/docs/api/x', '/changelog']) {
+        expect(matches(route, path)).toBe(false)
+      }
+      // Everything else still rewrites, and the lookahead leaves `$1` alone.
+      expect(matches(route, '/about')).toBe(true)
+      expect(rewrite(route, '/about')).toBe('/raw/about.md')
+      expect(rewrite(route, '/blog/hello')).toBe('/raw/blog/hello.md')
+    }
+
+    // Each of those paths still has a redirect of its own to fall on. The bare
+    // section root included: refusing it in the rewrite without answering it
+    // here would put it back on the origin, which is what this refusal is for.
+    for (const path of ['/docs', '/docs/guide', '/docs/api/x', '/changelog']) {
+      expect(routes.some(route => route.status === 307 && matches(route, path))).toBe(true)
+    }
+  })
+
+  // `**` is zero or more segments to the rule matcher, so `/docs/**` caches
+  // `/docs`, while the pattern its redirect compiles wants a segment after the
+  // slash. The root needs an entry of its own or it falls between the two.
+  it('redirects the root of a cached section', () => {
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/docs/**']
+    }))
+
+    for (const path of ['/docs', '/docs/']) {
+      const hit = routes.filter(route => route.status === 307 && matches(route, path))
+      expect(hit).toHaveLength(2)
+      expect(hit.every(route => route.headers?.Location === '/raw/docs.md')).toBe(true)
+    }
+  })
+
+  // The lookahead spells the trailing slash, so a redirect that does not is a
+  // path both halves refuse, which lands on the origin the pair exists to
+  // spare. comark-docs writes an exact rule beside the wildcard for every
+  // content section, so that is a section root per section.
+  it('redirects an exact cached rule with or without its trailing slash', () => {
+    const alone = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/changelog']
+    }))
+
+    for (const path of ['/changelog', '/changelog/']) {
+      const hit = alone.filter(route => matches(route, path))
+      expect(hit.filter(route => route.dest), path).toHaveLength(0)
+      const redirects = hit.filter(route => route.status === 307)
+      expect(redirects, path).toHaveLength(2)
+      expect(redirects.every(route => route.headers?.Location === '/raw/changelog.md'), path).toBe(true)
+    }
+  })
+
+  it('redirects a section root with or without its trailing slash', () => {
+    // The exact rule answers the root here, so the wildcard beside it must not
+    // add a second pair on either spelling.
+    const paired = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/docs', '/docs/**']
+    }))
+
+    for (const path of ['/docs', '/docs/']) {
+      const hit = paired.filter(route => matches(route, path))
+      expect(hit.filter(route => route.dest), path).toHaveLength(0)
+      const redirects = hit.filter(route => route.status === 307)
+      expect(redirects, path).toHaveLength(2)
+      expect(redirects.every(route => route.headers?.Location === '/raw/docs.md'), path).toBe(true)
+    }
+  })
+
+  it('leaves a section root that is answered already', () => {
+    // An exact rule beside the wildcard, which is how a site that lists its
+    // sections writes them, and the root must not collect two redirects.
+    const paired = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/docs', '/docs/**']
+    }))
+    expect(paired.filter(route => route.status === 307 && matches(route, '/docs'))).toHaveLength(2)
+
+    // No route matches the root, so there is no twin to send it to. No rewrite
+    // claims it either, since both compile from the same patterns.
+    const unrouted = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }],
+      cachedRoutes: ['/docs/**']
+    }))
+    expect(unrouted.filter(route => matches(route, '/docs') && (route.status === 307 || route.dest))).toHaveLength(0)
+
+    // An excluded root serves HTML only, so neither half should claim it.
+    const skipped = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/', '/docs'],
+      cachedRoutes: ['/docs/**']
+    }))
+    expect(skipped.filter(route => matches(route, '/docs') && (route.status === 307 || route.dest))).toHaveLength(0)
+  })
+
+  it('leaves the rewrite alone when no cached rule overlaps it', () => {
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/blog/**' }],
+      cachedRoutes: ['/docs/**']
+    }))
+
+    const catchAll = routes.filter(route => route.dest === '/raw/blog/$1.md' && route.has)
+    expect(catchAll).toHaveLength(2)
+    expect(catchAll.every(route => !route.src.includes('(?!(?:'))).toBe(true)
+    expect(rewrite(catchAll[0]!, '/blog/hello')).toBe('/raw/blog/hello.md')
   })
 
   it('redirects the whole pattern when the rule covers it', () => {
