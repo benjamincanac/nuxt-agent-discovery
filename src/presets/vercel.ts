@@ -1,7 +1,7 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { Nitro } from 'nitropack'
-import { compilePattern, encodeAgentRoute, formatLinkHeader, isExcluded, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { compilePattern, encodeAgentRoute, formatLinkHeader, isNegotiablePath, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
 export interface VercelRoute {
@@ -237,12 +237,17 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
    * A root already answered elsewhere is skipped rather than answered twice: by
    * an exact rule of its own, which sites pairing `/docs` with `/docs/**`
    * write, or by a cached pattern the loop over `config.routes` demotes whole.
+   *
+   * The runtime's own predicate rather than the excluded prefixes alone: a
+   * `routeRules['/raw/**']`, which sites caching their twins write, has the raw
+   * prefix itself for a root, and that is not an excluded prefix. Redirected, it
+   * would send `/raw` to a twin of itself the raw handler has no page for.
    */
   const exactRules = new Set(redirectedRules.filter(rule => !rule.includes('*')))
   const sectionRoots: string[] = []
   for (const rule of redirectedRules) {
     const root = rule.endsWith('/**') ? rule.slice(0, -3) : ''
-    if (!root || exactRules.has(root) || sectionRoots.includes(root) || isExcluded(root, config)) {
+    if (!root || exactRules.has(root) || sectionRoots.includes(root) || !isNegotiablePath(config, root)) {
       continue
     }
     // No route matching it means no twin to send it to, and no rewrite claiming

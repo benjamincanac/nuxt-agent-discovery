@@ -641,6 +641,29 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect(skipped.filter(route => matches(route, '/docs') && (route.status === 307 || route.dest))).toHaveLength(0)
   })
 
+  it('leaves the raw prefix out of the section roots', () => {
+    // A site caching its own twins writes `routeRules['/raw/**']`, whose root is
+    // the raw prefix itself. It is not an excluded prefix, and redirected it
+    // would send `/raw` to `/raw/raw.md`, a twin of a page that does not exist.
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/raw/**']
+    }))
+
+    expect(routes.filter(route => route.status === 307 && matches(route, '/raw'))).toHaveLength(0)
+  })
+
+  it('leaves a dotted section root alone', () => {
+    // `/docs/3.x` reads as an asset to the runtime, which negotiates neither
+    // half of it, so no redirect may claim it either.
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/' }, { path: '/**' }],
+      cachedRoutes: ['/docs/3.x/**']
+    }))
+
+    expect(routes.filter(route => route.status === 307 && matches(route, '/docs/3.x'))).toHaveLength(0)
+  })
+
   it('leaves the rewrite alone when no cached rule overlaps it', () => {
     const routes = vercelMarkdownRoutes(createConfig({
       routes: [{ path: '/blog/**' }],
