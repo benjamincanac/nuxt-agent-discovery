@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.5.0...v0.5.1) (2026-09-09)
+
+### Bug Fixes
+
+* **vercel:** drop the duplicate homepage `Link` route ([#34](https://github.com/benjamincanac/nuxt-agent-discovery/issues/34)) ([c53d8d0](https://github.com/benjamincanac/nuxt-agent-discovery/commit/c53d8d0e7d224b9e500d9e755dcc9f18a8d6382d))
+* **vercel:** keep the catch-all rewrite off cached routes ([#33](https://github.com/benjamincanac/nuxt-agent-discovery/issues/33)) ([7bdc497](https://github.com/benjamincanac/nuxt-agent-discovery/commit/7bdc49764df20a9f1c736bf9ed53dd9a5c879f61))
+* **vercel:** keep the raw prefix out of the section roots ([6bf81d2](https://github.com/benjamincanac/nuxt-agent-discovery/commit/6bf81d21cb8d8fdce9ce0a1205439d51323bf982))
+
 ## [0.5.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.4.0...v0.5.0) (2026-09-03)
 
 ### Features
