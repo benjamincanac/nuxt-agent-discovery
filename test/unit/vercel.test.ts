@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
-import type { VercelRoute } from '../../src/presets/vercel'
+import { dropDuplicateLinkRoutes, vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
+import type { VercelHandle, VercelRoute } from '../../src/presets/vercel'
 import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
@@ -232,6 +232,59 @@ describe('vercelMarkdownRoutes: Link', () => {
     // The canonical/alternate pairs on the twins stay; only the homepage
     // discovery route is keyed on the registry.
     expect(routes.filter(route => route.src === '^/$' && route.headers?.Link)).toHaveLength(0)
+  })
+})
+
+describe('dropDuplicateLinkRoutes', () => {
+  const linkHeader = formatLinkHeader(LINKS)
+
+  /** Our own routes, plus what Nitro emits for the `/` route rule the module sets. */
+  function table(): (VercelRoute | VercelHandle)[] {
+    return [
+      ...vercelMarkdownRoutes(createConfig({ links: LINKS })),
+      { src: '/', headers: { Link: linkHeader, Vary: MARKDOWN_VARY } },
+      { handle: 'filesystem' }
+    ]
+  }
+
+  it('leaves the homepage answering with the link set once', () => {
+    const routes = table()
+    dropDuplicateLinkRoutes(routes, linkHeader)
+
+    const carrying = routes.filter(route => !('handle' in route) && route.headers?.Link === linkHeader) as VercelRoute[]
+    expect(carrying).toHaveLength(1)
+    expect(carrying[0]!.src).toBe('^/$')
+  })
+
+  it('keeps the rest of the route rule it came from', () => {
+    const routes = table()
+    dropDuplicateLinkRoutes(routes, linkHeader)
+
+    const rule = routes.find(route => !('handle' in route) && route.src === '/') as VercelRoute
+    expect(rule.headers).toEqual({ Vary: MARKDOWN_VARY })
+  })
+
+  it('removes a route the duplicate leaves empty', () => {
+    const routes: (VercelRoute | VercelHandle)[] = [{ src: '/', headers: { Link: linkHeader } }]
+    dropDuplicateLinkRoutes(routes, linkHeader)
+
+    expect(routes).toHaveLength(0)
+  })
+
+  it('leaves a site\'s own homepage `Link` alone', () => {
+    const own = '</feed.xml>; rel="alternate"'
+    const routes: (VercelRoute | VercelHandle)[] = [{ src: '/', headers: { Link: own } }]
+    dropDuplicateLinkRoutes(routes, linkHeader)
+
+    expect(routes).toEqual([{ src: '/', headers: { Link: own } }])
+  })
+
+  it('does nothing when the header is off', () => {
+    const routes = table()
+    const before = structuredClone(routes)
+    dropDuplicateLinkRoutes(routes, '')
+
+    expect(routes).toEqual(before)
   })
 })
 

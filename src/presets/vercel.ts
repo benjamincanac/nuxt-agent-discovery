@@ -337,6 +337,32 @@ export function vercelTwinLinkRoutes(config: NegotiationConfig): VercelRoute[] {
 }
 
 /**
+ * Nitro turns the `/` route rule this module sets into a header route of its
+ * own, and the CDN applies it on top of the `^/$` route above, so the homepage
+ * answers with the whole link set twice. The preset route is the one that stays:
+ * a homepage rewritten to its raw twin never reaches the route rule.
+ *
+ * Only an exact copy of our own header goes, so a site setting a `Link` of its
+ * own on `/` keeps it.
+ */
+export function dropDuplicateLinkRoutes(routes: (VercelRoute | VercelHandle)[], linkHeader: string): void {
+  if (!linkHeader) {
+    return
+  }
+  for (let index = routes.length - 1; index >= 0; index--) {
+    const route = routes[index]!
+    if ('handle' in route || route.src === '^/$' || route.headers?.Link !== linkHeader) {
+      continue
+    }
+    delete route.headers.Link
+    // A rule carrying nothing but the duplicate leaves an inert route behind.
+    if (!Object.keys(route.headers).length && !route.dest && !route.status) {
+      routes.splice(index, 1)
+    }
+  }
+}
+
+/**
  * Patches the Vercel Build Output config after Nitro compiles. We edit
  * `.vercel/output/config.json` (Build Output API v3), not `vercel.json`, which
  * has a different schema. https://vercel.com/docs/build-output-api/configuration
@@ -355,6 +381,7 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, colle
     const vcJSON = resolve(nitro.options.output.dir, 'config.json')
     const vcConfig = JSON.parse(await readFile(vcJSON, 'utf8')) as { routes: (VercelRoute | VercelHandle)[] }
     vcConfig.routes.unshift(...vercelMarkdownRoutes(config))
+    dropDuplicateLinkRoutes(vcConfig.routes, config.linkHeader ? formatLinkHeader(config.links) : '')
     // Nitro emits no `hit` phase of its own, so the pair opens one at the end of
     // the table. A phase is a position in the array, so one already there takes
     // the routes instead of a second marker.

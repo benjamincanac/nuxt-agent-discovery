@@ -114,6 +114,17 @@ describe('vercel build output', () => {
     expect(linkRoute!.headers?.Link).toContain('</>; rel="alternate"; type="text/markdown"')
   })
 
+  // Nitro turns the `/` route rule the module sets into a header route of its
+  // own, and the CDN applies both, so without the dedupe the homepage answers
+  // with every discovery link twice.
+  it('carries the homepage `Link` on exactly one route', () => {
+    const linkRoute = routes.find(route => route.src === '^/$' && route.continue === true)
+    const carrying = routes.filter(route => route.headers?.Link === linkRoute!.headers?.Link)
+
+    expect(carrying).toHaveLength(1)
+    expect(routes.some(route => route.src === '/' && route.headers?.Link)).toBe(false)
+  })
+
   it('negotiates on the `Accept` header', () => {
     // The 406 matches on `Accept` too, but to refuse rather than to resolve a
     // twin, so it is not one of the routes this asserts about.
