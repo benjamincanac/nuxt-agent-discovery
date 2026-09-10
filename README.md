@@ -208,21 +208,7 @@ A single string works too. The blocks are joined with a blank line and rendered 
 
 ### Prerendering
 
-On a backend resolving content per request, prerendered agent documents go stale without a redeploy. `llms.prerender` turns that off ([nuxt-llms#53](https://github.com/nuxt-content/nuxt-llms/pull/53)), and this module's skill files follow the same switch, so one option governs the agent documents a site publishes:
-
-```ts
-export default defineNuxtConfig({
-  llms: {
-    prerender: false
-  }
-})
-```
-
-The skill files are bundled server assets either way, so turning their prerender off moves static files onto the server rather than making them fresher. It is there so one option covers both. A static build has no server to answer them per request, so `nuxt generate` prerenders them whatever the option says.
-
-Worth knowing before you set it: the crawler is handed the twins of pages that never render as HTML while `/llms.txt` is being prerendered, so opting `/llms.txt` out drops those twins from the build as well.
-
-That option is merged but unreleased, so on `nuxt-llms` 0.2.0 and earlier it governs the skill files only and `llms.txt` keeps prerendering. Until it ships, opt those two routes out directly:
+On a backend resolving content per request, prerendered agent documents go stale without a redeploy. `nuxt-llms` 0.2.0 prerenders `llms.txt` and `llms-full.txt` unconditionally, so opt them out through Nitro:
 
 ```ts
 export default defineNuxtConfig({
@@ -233,6 +219,22 @@ export default defineNuxtConfig({
   }
 })
 ```
+
+`llms.prerender` replaces that once it ships ([nuxt-llms#53](https://github.com/nuxt-content/nuxt-llms/pull/53)), and this module's skill files already follow it, so one option covers `llms.txt` and the skills together:
+
+```ts
+export default defineNuxtConfig({
+  llms: {
+    prerender: false
+  }
+})
+```
+
+It is merged but unreleased, so on 0.2.0 and earlier it governs the skill files only, and it fails `nuxt typecheck` there since the released options carry no `prerender` key.
+
+The skill files are bundled server assets either way, so turning their prerender off moves static files onto the server rather than making them fresher. It is there so one option covers both. The raw twins and `/sitemap.md` keep their own rule and prerender whatever it says: they come from the built-in `@nuxt/content` source, which compiles the content into the build. A static build has no server at all, so `nuxt generate` prerenders the skill files however the option is set.
+
+Worth knowing before you set it: the crawler is handed the twins of pages that never render as HTML while `/llms.txt` is being prerendered, so opting `/llms.txt` out drops those twins from the build as well.
 
 ## Extending
 

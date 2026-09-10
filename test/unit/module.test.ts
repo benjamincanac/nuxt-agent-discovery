@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { nuxtCtx } from '@nuxt/kit'
+import { defu } from 'defu'
 import module from '../../src/module'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from '../../src/defaults'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
@@ -76,7 +77,9 @@ type FakeNuxt = ReturnType<typeof createNuxt>
  */
 async function runModule(options: Partial<ModuleOptions> = {}, routeRules: Record<string, unknown> = {}, installLate?: (nuxt: FakeNuxt) => void, preInstall?: (nuxt: FakeNuxt) => void, nuxtOptions: Record<string, unknown> = {}): Promise<FakeNuxt> {
   const nuxt = createNuxt(routeRules)
-  Object.assign(nuxt.options, nuxtOptions)
+  // Merged, not assigned: replacing `nitro` or `modules` wholesale would drop
+  // whatever else the fixture puts there.
+  Object.assign(nuxt.options, defu(nuxtOptions, nuxt.options))
   // Stands in for a module listed before this one: its hooks register first.
   preInstall?.(nuxt)
   // `set`, not `callAsync`: unctx only restores an async context in code the
@@ -157,6 +160,13 @@ describe('module setup: skills', () => {
   // alone answers for a configuration nobody set.
   it('reads `prerender` off the inline `nuxt-llms` module options', async () => {
     expect(await prerendered(await setupSkills({ modules: [['nuxt-llms', { prerender: false }]] }))).toEqual([])
+  })
+
+  // `nuxt-llms` merges its inline options over the config key, so a site
+  // setting both gets the answer that module acts on, not the other one.
+  it('lets the inline module options win over the `llms` config key', async () => {
+    expect(await prerendered(await setupSkills({ modules: [['nuxt-llms', { prerender: true }]], llms: { prerender: false } }))).toEqual(queued)
+    expect(await prerendered(await setupSkills({ modules: [['nuxt-llms', { prerender: false }]], llms: { prerender: true } }))).toEqual([])
   })
 
   // A static build has no server to answer the routes the links keep

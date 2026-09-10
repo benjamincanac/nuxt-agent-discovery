@@ -594,12 +594,13 @@ export {}
       addServerHandler({ route: SKILLS_INDEX, handler: resolve('./runtime/server/routes/skills-index') })
       addServerHandler({ route: `${SKILLS_PREFIX}**`, handler: resolve('./runtime/server/routes/skills-files') })
 
-      // The skill files follow `llms.prerender`, so one switch governs every
-      // agent document a site publishes. A static build has no server to answer
-      // them per request, so there everything advertised is prerendered
-      // whatever the option says, the same invariant the raw twins hold below.
-      // At `modules:done`, since the option is only settled once every module
-      // has installed.
+      // The skill files follow `llms.prerender`, so one switch covers them and
+      // `llms.txt` together. The raw twins and `/sitemap.md` keep their own rule
+      // below, where the built-in source compiles the content into the build
+      // anyway. A static build has no server to answer these per request, so
+      // there everything advertised is prerendered whatever the option says,
+      // the same invariant the raw twins hold. At `modules:done`, since the
+      // option is only settled once every module has installed.
       nuxt.hook('modules:done', () => {
         if (llmsOptions(nuxt).prerender === false && !staticBuild) {
           return
