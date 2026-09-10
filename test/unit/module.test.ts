@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { nuxtCtx } from '@nuxt/kit'
+import { defu } from 'defu'
 import module from '../../src/module'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from '../../src/defaults'
 import { vercelMarkdownRoutes } from '../../src/presets/vercel'
@@ -70,10 +71,15 @@ type FakeNuxt = ReturnType<typeof createNuxt>
 /**
  * One full module setup. `installLate` runs between `setup()` and
  * `modules:done`, which is where Nuxt installs a module's declarative
- * `moduleDependencies`.
+ * `moduleDependencies`. `nuxtOptions` is config another module owns, `llms` and
+ * `nitro.static` above all, which a site writes in `nuxt.config` and `setup()`
+ * reads back off `nuxt.options`.
  */
-async function runModule(options: Partial<ModuleOptions> = {}, routeRules: Record<string, unknown> = {}, installLate?: (nuxt: FakeNuxt) => void, preInstall?: (nuxt: FakeNuxt) => void): Promise<FakeNuxt> {
+async function runModule(options: Partial<ModuleOptions> = {}, routeRules: Record<string, unknown> = {}, installLate?: (nuxt: FakeNuxt) => void, preInstall?: (nuxt: FakeNuxt) => void, nuxtOptions: Record<string, unknown> = {}): Promise<FakeNuxt> {
   const nuxt = createNuxt(routeRules)
+  // Merged, not assigned: replacing `nitro` or `modules` wholesale would drop
+  // whatever else the fixture puts there.
+  Object.assign(nuxt.options, defu(nuxtOptions, nuxt.options))
   // Stands in for a module listed before this one: its hooks register first.
   preInstall?.(nuxt)
   // `set`, not `callAsync`: unctx only restores an async context in code the
@@ -101,6 +107,82 @@ describe('module setup: notAcceptable', () => {
   it('is off by default and carried into the runtime config when set', async () => {
     expect((await setupModule()).notAcceptable).toBe(false)
     expect((await setupModule({ notAcceptable: true })).notAcceptable).toBe(true)
+  })
+})
+
+describe('module setup: skills', () => {
+  // A fixture of its own: reaching into the `basic` e2e skills would tie these
+  // exact lists to a directory another suite is free to grow.
+  const dir = '../unit-skills/skills'
+
+  const queued = [
+    '/.well-known/skills/index.json',
+    '/.well-known/skills/writing/SKILL.md',
+    '/.well-known/skills/writing/references/style.md'
+  ]
+
+  function setupSkills(nuxtOptions: Record<string, unknown> = {}): Promise<FakeNuxt> {
+    return runModule({ skills: { dir } }, {}, undefined, undefined, nuxtOptions)
+  }
+
+  async function prerendered(nuxt: FakeNuxt): Promise<string[]> {
+    const routes = new Set<string>()
+    await nuxt.hooks.callHook('prerender:routes' as never, { routes } as never)
+    return [...routes].filter(route => route.startsWith('/.well-known/skills'))
+  }
+
+  it('prerenders the index and every skill file by default', async () => {
+    expect(await prerendered(await setupSkills())).toEqual(queued)
+  })
+
+  it('prerenders when `llms` carries no `prerender`, and when it is on', async () => {
+    expect(await prerendered(await setupSkills({ llms: {} }))).toEqual(queued)
+    expect(await prerendered(await setupSkills({ llms: { prerender: true } }))).toEqual(queued)
+  })
+
+  it('queues nothing when `llms.prerender` is off, and still serves and advertises the skills', async () => {
+    const nuxt = await setupSkills({ llms: { prerender: false } })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+
+    expect(await prerendered(nuxt)).toEqual([])
+    expect(nuxt.options.serverHandlers.map(handler => handler.route)).toEqual(
+      expect.arrayContaining(['/.well-known/skills/index.json', '/.well-known/skills/**'])
+    )
+    expect((nuxt.options.runtimeConfig.agentDiscoverySkills as { skills: { name: string }[] }).skills.map(skill => skill.name))
+      .toEqual(['writing'])
+    expect(config.links.map(link => link.href)).toEqual(
+      expect.arrayContaining(['/.well-known/skills/index.json', '/.well-known/skills/writing/SKILL.md'])
+    )
+  })
+
+  // `nuxt-llms` merges its inline module options over the config key, so a site
+  // configuring it there leaves `nuxt.options.llms` unwritten and the config key
+  // alone answers for a configuration nobody set.
+  it('reads `prerender` off the inline `nuxt-llms` module options', async () => {
+    expect(await prerendered(await setupSkills({ modules: [['nuxt-llms', { prerender: false }]] }))).toEqual([])
+  })
+
+  // `nuxt-llms` merges its inline options over the config key, so a site
+  // setting both gets the answer that module acts on, not the other one.
+  it('lets the inline module options win over the `llms` config key', async () => {
+    expect(await prerendered(await setupSkills({ modules: [['nuxt-llms', { prerender: true }]], llms: { prerender: false } }))).toEqual(queued)
+    expect(await prerendered(await setupSkills({ modules: [['nuxt-llms', { prerender: false }]], llms: { prerender: true } }))).toEqual([])
+  })
+
+  // A static build has no server to answer the routes the links keep
+  // advertising, so the option cannot take the files out of the output.
+  it('prerenders on a static build whatever `llms.prerender` says', async () => {
+    expect(await prerendered(await setupSkills({ llms: { prerender: false }, nitro: { static: true } }))).toEqual(queued)
+    expect(await prerendered(await setupSkills({ llms: { prerender: false }, _generate: true }))).toEqual(queued)
+  })
+
+  // The option is only settled once every module has installed: a theme listed
+  // after this one still gets to set it.
+  it('reads the option after every module has installed', async () => {
+    const nuxt = await runModule({ skills: { dir } }, {}, (nuxt) => {
+      (nuxt.options as { llms?: unknown }).llms = { prerender: false }
+    })
+    expect(await prerendered(nuxt)).toEqual([])
   })
 })
 

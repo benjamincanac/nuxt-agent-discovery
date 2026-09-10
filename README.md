@@ -100,7 +100,7 @@ export default defineNuxtConfig({
 - **`notAcceptable`** See [Strict content negotiation](#strict-content-negotiation).
 - **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings.
 - **`llms.details`** Markdown blocks for the details section of `llms.txt`, the space llmstxt.org reserves between the blockquote and the first `##`. See [llms.txt sections](#llmstxt-sections).
-- **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable.
+- **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable. The index and the files are prerendered unless `llms.prerender` is off, see [Prerendering](#prerendering).
 - **`robots.aiPolicy`** Feeds the user-agent list into `@nuxtjs/robots` when installed, otherwise generates `/robots.txt` (skipped when a static one exists). **`robots.contentSignal`** adds the `Content-Signal` line, `false` to omit. **`robots.disallow`** adds `Disallow` lines to the wildcard group, in the generated file and through `@nuxtjs/robots` alike. Wildcard only: the per-agent `Allow` groups exempt their agents from these rules, so what search engines skip stays reachable for the agents the site names.
 
 ## Routes
@@ -116,7 +116,7 @@ export default defineNuxtConfig({
 
 `/llms.txt` and `/llms-full.txt` belong to `nuxt-llms`; this module feeds them but never registers them.
 
-With the built-in `@nuxt/content` source, the raw twin of every exact route pattern (the locale roots of an i18n site included) and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. Whatever the source, every prerendered page hands the crawler its own twin, so a twin is frozen exactly when its page is. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is never prerendered, so it keeps answering per request instead of being frozen at build. A hinted twin the raw route cannot answer as markdown, a section redirecting to its first document or a page with no document behind it, is skipped rather than written or reported as a failed route.
+The skills index and the skill files are prerendered too, unless `llms.prerender` is off, see [Prerendering](#prerendering). With the built-in `@nuxt/content` source, the raw twin of every exact route pattern (the locale roots of an i18n site included) and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. Whatever the source, every prerendered page hands the crawler its own twin, so a twin is frozen exactly when its page is. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is never prerendered, so it keeps answering per request instead of being frozen at build. A hinted twin the raw route cannot answer as markdown, a section redirecting to its first document or a page with no document behind it, is skipped rather than written or reported as a failed route.
 
 ### The raw route
 
@@ -206,7 +206,9 @@ export default defineNuxtConfig({
 
 A single string works too. The blocks are joined with a blank line and rendered after the blockquote, so they need `llms.description` set, which is what they follow. Headings are not allowed there: one would open a section and pull every link list under it, and the module warns at build when it finds one.
 
-`nuxt-llms` prerenders both documents unconditionally, so on a backend resolving content per request they go stale without a redeploy ([nuxt-llms#24](https://github.com/nuxtlabs/nuxt-llms/issues/24)). Until that lands, opt the two routes out yourself:
+### Prerendering
+
+On a backend resolving content per request, prerendered agent documents go stale without a redeploy. `nuxt-llms` 0.2.0 prerenders `llms.txt` and `llms-full.txt` unconditionally, so opt them out through Nitro:
 
 ```ts
 export default defineNuxtConfig({
@@ -217,6 +219,22 @@ export default defineNuxtConfig({
   }
 })
 ```
+
+`llms.prerender` replaces that once it ships ([nuxt-llms#53](https://github.com/nuxt-content/nuxt-llms/pull/53)), and this module's skill files already follow it, so one option covers `llms.txt` and the skills together:
+
+```ts
+export default defineNuxtConfig({
+  llms: {
+    prerender: false
+  }
+})
+```
+
+It is merged but unreleased, so on 0.2.0 and earlier it governs the skill files only, and it fails `nuxt typecheck` there since the released options carry no `prerender` key.
+
+The skill files are bundled server assets either way, so turning their prerender off moves static files onto the server rather than making them fresher. It is there so one option covers both. The raw twins and `/sitemap.md` keep their own rule and prerender whatever it says: they come from the built-in `@nuxt/content` source, which compiles the content into the build. A static build has no server at all, so `nuxt generate` prerenders the skill files however the option is set.
+
+Worth knowing before you set it: the crawler is handed the twins of pages that never render as HTML while `/llms.txt` is being prerendered, so opting `/llms.txt` out drops those twins from the build as well.
 
 ## Extending
 
