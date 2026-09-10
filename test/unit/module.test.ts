@@ -104,6 +104,53 @@ describe('module setup: notAcceptable', () => {
   })
 })
 
+describe('module setup: skills', () => {
+  const dir = '../basic/skills'
+
+  async function prerendered(llms?: { prerender?: boolean }): Promise<string[]> {
+    const nuxt = await runModule({ skills: { dir } }, {}, undefined, (nuxt) => {
+      if (llms) {
+        (nuxt.options as { llms?: unknown }).llms = llms
+      }
+    })
+    const routes = new Set<string>()
+    await nuxt.hooks.callHook('prerender:routes' as never, { routes } as never)
+    return [...routes].filter(route => route.startsWith('/.well-known/skills'))
+  }
+
+  it('prerenders the index and every skill file by default', async () => {
+    expect(await prerendered()).toEqual([
+      '/.well-known/skills/index.json',
+      '/.well-known/skills/basic-site/SKILL.md',
+      '/.well-known/skills/basic-site/references/conventions.md'
+    ])
+  })
+
+  it('queues nothing when `llms.prerender` is off', async () => {
+    expect(await prerendered({ prerender: false })).toEqual([])
+  })
+
+  it('prerenders when `llms` is configured without `prerender`', async () => {
+    expect(await prerendered({})).toHaveLength(3)
+  })
+
+  it('still serves and advertises the skills when prerendering is off', async () => {
+    const nuxt = await runModule({ skills: { dir } }, {}, undefined, (nuxt) => {
+      (nuxt.options as { llms?: unknown }).llms = { prerender: false }
+    })
+    const config = nuxt.options.runtimeConfig.agentDiscovery as NegotiationConfig
+
+    expect(nuxt.options.serverHandlers.map(handler => handler.route)).toEqual(
+      expect.arrayContaining(['/.well-known/skills/index.json', '/.well-known/skills/**'])
+    )
+    expect((nuxt.options.runtimeConfig.agentDiscoverySkills as { skills: { name: string }[] }).skills.map(skill => skill.name))
+      .toEqual(['basic-site'])
+    expect(config.links.map(link => link.href)).toEqual(
+      expect.arrayContaining(['/.well-known/skills/index.json', '/.well-known/skills/basic-site/SKILL.md'])
+    )
+  })
+})
+
 describe('module setup: shared defaults', () => {
   it('never mutates the module-level defaults, however many instances run', async () => {
     const first = await setupModule()

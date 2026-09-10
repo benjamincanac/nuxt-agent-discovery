@@ -571,10 +571,14 @@ export {}
 
       addServerHandler({ route: SKILLS_INDEX, handler: resolve('./runtime/server/routes/skills-index') })
       addServerHandler({ route: `${SKILLS_PREFIX}**`, handler: resolve('./runtime/server/routes/skills-files') })
-      addPrerenderRoutes([
-        SKILLS_INDEX,
-        ...skills.flatMap(skill => skill.files.map(file => `${SKILLS_PREFIX}${skill.name}/${file}`))
-      ])
+
+      const llmsOptions = (nuxt.options as { llms?: { prerender?: boolean } }).llms
+      if (llmsOptions?.prerender !== false) {
+        addPrerenderRoutes([
+          SKILLS_INDEX,
+          ...skills.flatMap(skill => skill.files.map(file => `${SKILLS_PREFIX}${skill.name}/${file}`))
+        ])
+      }
     }
 
     /* ---------------------------- nuxt-llms bridge ------------------------- */

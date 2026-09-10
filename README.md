@@ -206,7 +206,17 @@ export default defineNuxtConfig({
 
 A single string works too. The blocks are joined with a blank line and rendered after the blockquote, so they need `llms.description` set, which is what they follow. Headings are not allowed there: one would open a section and pull every link list under it, and the module warns at build when it finds one.
 
-`nuxt-llms` prerenders both documents unconditionally, so on a backend resolving content per request they go stale without a redeploy ([nuxt-llms#24](https://github.com/nuxtlabs/nuxt-llms/issues/24)). Until that lands, opt the two routes out yourself:
+On a backend resolving content per request, prerendered agent documents go stale without a redeploy. `llms.prerender` turns them off ([nuxt-llms#53](https://github.com/nuxt-content/nuxt-llms/pull/53)), and this module's skill files follow the same switch:
+
+```ts
+export default defineNuxtConfig({
+  llms: {
+    prerender: false
+  }
+})
+```
+
+That option is merged but unreleased, so on `nuxt-llms` 0.2.0 and earlier it governs the skill files only and `llms.txt` keeps prerendering. Until it ships, opt those two routes out directly:
 
 ```ts
 export default defineNuxtConfig({
