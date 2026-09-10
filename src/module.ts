@@ -175,6 +175,28 @@ function hasActiveNuxtModule(nuxt: Nuxt, name: string, configKey: string): boole
   return moduleOptions !== false && moduleOptions?.enabled !== false
 }
 
+/** What this module reads off the `nuxt-llms` options, a subset of them. */
+interface LlmsOptions {
+  domain?: string
+  description?: string
+  full?: unknown
+  prerender?: boolean
+}
+
+/**
+ * The `nuxt-llms` options the way that module resolves them, which is
+ * `defu(inlineOptions, nuxt.options.llms)`. Nuxt merges inline module options
+ * back into the config key only for a module another module extended, so a site
+ * writing `modules: [['nuxt-llms', { ... }]]` leaves `nuxt.options.llms` unset
+ * and the key alone answers for a configuration nobody wrote. Call at
+ * `modules:done`: a module installed after this one may set the key.
+ */
+function llmsOptions(nuxt: Nuxt): LlmsOptions {
+  const entry = nuxt.options.modules?.find(module => Array.isArray(module) && module[0] === 'nuxt-llms')
+  const inline = Array.isArray(entry) ? entry[1] as LlmsOptions | undefined : undefined
+  return defu(inline || {}, (nuxt.options as { llms?: LlmsOptions }).llms || {})
+}
+
 /** What this module reads off `nuxt.options.i18n`, a subset of the `@nuxtjs/i18n` options. */
 interface I18nOptions {
   locales?: (string | { code?: string })[]
@@ -572,13 +594,21 @@ export {}
       addServerHandler({ route: SKILLS_INDEX, handler: resolve('./runtime/server/routes/skills-index') })
       addServerHandler({ route: `${SKILLS_PREFIX}**`, handler: resolve('./runtime/server/routes/skills-files') })
 
-      const llmsOptions = (nuxt.options as { llms?: { prerender?: boolean } }).llms
-      if (llmsOptions?.prerender !== false) {
+      // The skill files follow `llms.prerender`, so one switch governs every
+      // agent document a site publishes. A static build has no server to answer
+      // them per request, so there everything advertised is prerendered
+      // whatever the option says, the same invariant the raw twins hold below.
+      // At `modules:done`, since the option is only settled once every module
+      // has installed.
+      nuxt.hook('modules:done', () => {
+        if (llmsOptions(nuxt).prerender === false && !staticBuild) {
+          return
+        }
         addPrerenderRoutes([
           SKILLS_INDEX,
           ...skills.flatMap(skill => skill.files.map(file => `${SKILLS_PREFIX}${skill.name}/${file}`))
         ])
-      }
+      })
     }
 
     /* ---------------------------- nuxt-llms bridge ------------------------- */
@@ -659,12 +689,14 @@ export {}
     }
 
     nuxt.hook('modules:done', async () => {
+      const llms = llmsOptions(nuxt)
+
       // Prerendered documents bake the site URL in, so resolve it from the
       // site config or the llms domain. Request-time responses still fall
       // back to the incoming host.
-      const siteOptions = nuxt.options as { site?: { url?: string, name?: string }, llms?: { domain?: string } }
+      const siteOptions = nuxt.options as { site?: { url?: string, name?: string } }
       if (!config.siteUrl) {
-        config.siteUrl = (siteOptions.site?.url || siteOptions.llms?.domain || '').replace(/\/$/, '')
+        config.siteUrl = (siteOptions.site?.url || llms.domain || '').replace(/\/$/, '')
       }
       if (!config.siteName) {
         config.siteName = siteOptions.site?.name || ''
@@ -700,7 +732,7 @@ export {}
         if (llmsDetails.length) {
           // The details follow the blockquote, so without one there is nothing
           // for them to follow and `nuxt-llms` renders neither.
-          if ((nuxt.options as { llms?: { description?: string } }).llms?.description) {
+          if (llms.description) {
             config.llmsDetails = llmsDetails
           } else {
             logger.warn('`llms.details` needs `llms.description`, which is the blockquote the details section follows. Set it, or move the prose into a `llms.sections` entry.')
@@ -754,12 +786,11 @@ export {}
         }
       }
       if (hasLlms) {
-        const llms = (nuxt.options as { llms?: { full?: unknown } }).llms
         links.push(
           { href: '/llms.txt', rel: 'describedby', type: 'text/plain', title: 'llms.txt: index of the documentation for LLMs' },
           { href: '/llms.txt', rel: 'service-desc', type: 'text/plain', anchor: '/', header: false }
         )
-        if (llms?.full) {
+        if (llms.full) {
           links.push(
             { href: '/llms-full.txt', rel: 'describedby', type: 'text/plain', title: 'llms-full.txt: the full documentation as a single file' },
             { href: '/llms-full.txt', rel: 'service-desc', type: 'text/plain', anchor: '/', header: false }
