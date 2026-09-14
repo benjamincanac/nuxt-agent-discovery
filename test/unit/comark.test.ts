@@ -32,7 +32,7 @@ const contentDir = fileURLToPath(new URL('../fixtures/comark/content', import.me
 // the accessor ignores it, but `get()` requires one to be passed.
 const event = {} as never
 
-const content = comarkContent({ sources: { content: fs(contentDir) } })
+const content = comarkContent({ source: fs(contentDir) })
 const source = createComarkSource(() => content as never)
 
 /** A one-document content instance, for trees the fixture cannot express. */

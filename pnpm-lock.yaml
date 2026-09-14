@@ -162,8 +162,8 @@ importers:
         specifier: ^0.6.2
         version: 0.6.2(shiki@4.4.3)
       comark-content:
-        specifier: ^0.3.0
-        version: 0.3.0(db0@0.3.4(better-sqlite3@13.0.3))(ioredis@5.11.1(supports-color@10.2.2))(shiki@4.4.3)
+        specifier: ^0.4.0
+        version: 0.4.0(db0@0.3.4(better-sqlite3@13.0.3))(ioredis@5.11.1(supports-color@10.2.2))(shiki@4.4.3)
       eslint:
         specifier: ^10.10.0
         version: 10.10.0(jiti@2.7.0)(supports-color@10.2.2)
@@ -2701,8 +2701,8 @@ packages:
   color-name@1.1.4:
     resolution: {integrity: sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==}
 
-  comark-content@0.3.0:
-    resolution: {integrity: sha512-t+gq902R8AorpCqAAa3TgDpFc+cimeNt4z41KcKWTReY7IU4ezkPeUaeGHRzS9f0jmBTtQOPSbhx0CzcddjfIQ==}
+  comark-content@0.4.0:
+    resolution: {integrity: sha512-wUCFpDdEl9tNXcAFVMkqpQL+Aa5hcg1YL5X8r+5oAohQkofRp+We4puz6QP4XR33MPbasA41pPfIVf4j+WrT4Q==}
     hasBin: true
 
   comark@0.6.2:
@@ -4204,9 +4204,6 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
-
-  magic-string@1.2.2:
-    resolution: {integrity: sha512-veT/+7iXrXzT39XnEN4lOxtNl72dMgJ8Lp+5Bd6YcMSWpb0n0MjBM8Uuooi6jgJr8dhUW2swQgBmoZVMni5SVg==}
 
   magic-string@1.2.3:
     resolution: {integrity: sha512-Bpb0W2TbLKOZ7vJnOUnVRGq3WL2p+ISV29M6hYPL1AFCpyKZpdr5ytiXoTSSxRVhg8YW7f65+6gbG8WG6PCa/g==}
@@ -9343,7 +9340,7 @@ snapshots:
 
   color-name@1.1.4: {}
 
-  comark-content@0.3.0(db0@0.3.4(better-sqlite3@13.0.3))(ioredis@5.11.1(supports-color@10.2.2))(shiki@4.4.3):
+  comark-content@0.4.0(db0@0.3.4(better-sqlite3@13.0.3))(ioredis@5.11.1(supports-color@10.2.2))(shiki@4.4.3):
     dependencies:
       citty: 0.2.2
       comark: 0.6.2(shiki@4.4.3)
@@ -11040,10 +11037,6 @@ snapshots:
       magic-string: 0.30.21
 
   magic-string@0.30.21:
-    dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
-
-  magic-string@1.2.2:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 

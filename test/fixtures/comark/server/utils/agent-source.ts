@@ -18,7 +18,7 @@ let content: ComarkContent | undefined
 
 export default createComarkSource(() => {
   content ??= comarkContent({
-    sources: { content: fs(useRuntimeConfig().contentDir as string) }
+    source: fs(useRuntimeConfig().contentDir as string)
   })
   return content
 })
