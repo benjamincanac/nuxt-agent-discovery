@@ -45,21 +45,21 @@
     "defu": "^6.1.7",
     "pathe": "^2.0.3",
     "ufo": "^1.6.4",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@nuxt/content": "^3.16.0",
     "@nuxt/eslint-config": "^1.17.0",
     "@nuxt/module-builder": "^1.0.3",
     "@nuxt/schema": "^4.5.2",
-    "@nuxt/test-utils": "^4.2.0",
-    "@nuxtjs/mcp-toolkit": "^0.19.0",
-    "@nuxtjs/robots": "^6.2.0",
-    "@nuxtjs/sitemap": "^8.5.0",
+    "@nuxt/test-utils": "^4.3.2",
+    "@nuxtjs/mcp-toolkit": "^0.21.0",
+    "@nuxtjs/robots": "^6.2.2",
+    "@nuxtjs/sitemap": "^8.5.1",
     "@release-it/conventional-changelog": "^12.0.0",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.5.1",
     "better-sqlite3": "^13.0.3",
-    "comark": "^0.6.2",
+    "comark": "^0.7.0",
     "comark-content": "^0.4.0",
     "eslint": "^10.10.0",
     "h3": "^1.15.11",
@@ -71,9 +71,9 @@
     "typescript": "~5.9.3",
     "vitest": "^5.0.0",
     "vue-tsc": "^3.3.11",
-    "zod": "^4.5.4"
+    "zod": "^4.6.4"
   },
-  "packageManager": "pnpm@12.3.4",
+  "packageManager": "pnpm@12.4.1",
   "peerDependencies": {
     "@nuxt/content": "^3.0.0",
     "@nuxtjs/mcp-toolkit": ">=0.19.0",
