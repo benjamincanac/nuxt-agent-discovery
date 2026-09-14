@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.5.1...v0.6.0) (2026-09-14)
+
+### Features
+
+* **skills:** follow `llms.prerender` for the skills routes ([#35](https://github.com/benjamincanac/nuxt-agent-discovery/issues/35)) ([b85cb66](https://github.com/benjamincanac/nuxt-agent-discovery/commit/b85cb664c1bf3ff24c369d8a8d896b22fc0ad7d3))
+
 ## [0.5.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.5.0...v0.5.1) (2026-09-09)
 
 ### Bug Fixes
