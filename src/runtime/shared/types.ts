@@ -137,6 +137,9 @@ export interface AgentContentSource {
 }
 
 /** Normalized module state shared by build-time presets and the Nitro runtime. */
+/** Component syntax of the markdown an adapter returns. */
+export type AgentMarkdownFormat = 'markdown/comark' | 'markdown/html'
+
 export interface NegotiationConfig {
   /** Canonical site URL. Empty string means: resolve per-request. */
   siteUrl: string
@@ -152,6 +155,12 @@ export interface NegotiationConfig {
    * the deploy presets emit that header themselves and only see this config.
    */
   linkHeader: boolean
+  /**
+   * Syntax the content adapters serialize MDC components with.
+   * `markdown/comark` is the `::component` block form the source files use,
+   * `markdown/html` the HTML-style tags shipped before 0.7.
+   */
+  markdownFormat?: AgentMarkdownFormat
   /** How `sitemap.md` groups pages into sections. */
   sitemapSections: SitemapSections
   /**

@@ -77,6 +77,7 @@ export default defineNuxtConfig({
     },
     errors: true,
     notAcceptable: false,
+    markdownFormat: 'markdown/comark',  // or 'markdown/html'
     sitemap: { markdown: true },
     robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes', disallow: [] },
     skills: { dir: 'skills' }
@@ -98,6 +99,7 @@ export default defineNuxtConfig({
 - **`discovery.links`** Site-specific discovery links. Rels are validated against the IANA registry, an invented one fails the build.
 - **`errors`** Answer errors with a markdown body carrying recovery links when the request prefers it.
 - **`notAcceptable`** See [Strict content negotiation](#strict-content-negotiation).
+- **`markdownFormat`** How MDC components are written in the raw markdown. `'markdown/comark'` emits the `::component` block syntax the source files use, `'markdown/html'` restores the HTML-style tags of earlier releases.
 - **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings.
 - **`llms.details`** Markdown blocks for the details section of `llms.txt`, the space llmstxt.org reserves between the blockquote and the first `##`. See [llms.txt sections](#llmstxt-sections).
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable. The index and the files are prerendered unless `llms.prerender` is off, see [Prerendering](#prerendering).
