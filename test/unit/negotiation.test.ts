@@ -907,9 +907,9 @@ describe('absolutizeMarkdownLinks', () => {
   })
 
   it('leaves raw HTML alone: a closing tag is not an autolink', () => {
-    // `</div>` is indistinguishable from `</path>` by shape, and the
-    // `@nuxt/content` adapter stringifies with `format: 'markdown/html'`, so
-    // getting this wrong corrupts the markup of every document.
+    // `</div>` is indistinguishable from `</path>` by shape, and a site on
+    // `markdownFormat: 'markdown/html'` serializes every component as a tag,
+    // so getting this wrong corrupts the markup of every document.
     const untouched = ['<div class="x">hi</div>', '<Callout>text</Callout>', '</p>', '<br />']
     for (const markdown of untouched) {
       expect(run(markdown)).toBe(markdown)

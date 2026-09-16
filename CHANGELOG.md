@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### ⚠ BREAKING CHANGES
+
+* Raw markdown now serializes MDC components in the `::component` block syntax of the source files instead of HTML-style tags. `/raw/*.md`, `llms-full.txt` and the MCP `get-page` tool all change bytes on pages carrying components. Set `agentDiscovery.markdownFormat: 'markdown/html'` to keep the previous output.
+
+### Features
+
+* `markdownFormat` module option, `'markdown/comark'` by default
+
 ## [0.6.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.5.1...v0.6.0) (2026-09-14)
 
 ### Features

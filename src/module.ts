@@ -24,9 +24,9 @@ import { setupVercelPreset } from './presets/vercel'
 import { createFenceTracker, formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
-import type { AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+import type { AgentMarkdownFormat, AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
-export type { AgentContentSource, AgentIndex, AgentListEntry, AgentPage, AgentResource, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
+export type { AgentContentSource, AgentIndex, AgentListEntry, AgentMarkdownFormat, AgentPage, AgentResource, AgentRoute, AgentSectionSelector, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
 
 export interface McpServerCardOptions {
   /** MCP endpoint the card describes, e.g. `/mcp`. */
@@ -95,6 +95,12 @@ export interface ModuleOptions {
    * `Accept` it did not mean would get an error instead of a page.
    */
   notAcceptable?: boolean
+  /**
+   * How MDC components come out in the raw markdown. `markdown/comark` writes
+   * the `::component` block syntax the source files use, `markdown/html`
+   * restores the HTML-style tags of earlier releases.
+   */
+  markdownFormat?: AgentMarkdownFormat
   sitemap?: {
     /** Serve `/sitemap.md`. Pass an object to control how pages are grouped into sections. */
     markdown?: boolean | Partial<SitemapSections>
@@ -260,6 +266,7 @@ export default defineNuxtModule<ModuleOptions>({
     },
     errors: true,
     notAcceptable: false,
+    markdownFormat: 'markdown/comark',
     sitemap: { markdown: true },
     robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes' },
     skills: { dir: 'skills' }
@@ -307,6 +314,7 @@ export default defineNuxtModule<ModuleOptions>({
       links: [],
       linkHeader: options.discovery?.link !== false,
       notAcceptable: options.notAcceptable === true,
+      markdownFormat: options.markdownFormat === 'markdown/html' ? 'markdown/html' : 'markdown/comark',
       cachedRoutes: [],
       sitemapSections: {
         expand: (typeof options.sitemap?.markdown === 'object' && options.sitemap.markdown.expand) || [],

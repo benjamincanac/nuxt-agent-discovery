@@ -3,7 +3,7 @@ import { useNitroApp } from 'nitropack/runtime'
 import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
 import { prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
-import { getAgentSiteUrl } from '../utils/agent-discovery'
+import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
 
 interface ComarkNavigationItem {
   title?: string
@@ -157,10 +157,11 @@ export function createComarkSource(getContent: (event: H3Event) => Promise<Comar
 
       // `render`, not `renderMarkdown`: the latter re-emits `data` as a YAML
       // block the raw route already writes and trims the trailing newline.
-      // `markdown/html` is the format the minimark stringifier uses. Imported
-      // dynamically to resolve the site's own comark rather than a copy of ours.
+      // The format is the configured `markdownFormat`, which comark names as
+      // is. Imported dynamically to resolve the site's own comark rather than
+      // a copy of ours.
       const { render } = await import('comark/render')
-      const markdown = await render({ nodes: nodes as never }, { format: 'markdown/html' })
+      const markdown = await render({ nodes: nodes as never }, { format: getAgentMarkdownFormat(event) })
 
       // No body is the structured-page case the other adapter 404s, unless the
       // lead above gives it one.

@@ -5,7 +5,7 @@ import type { Collections, PageCollectionItemBase } from '@nuxt/content'
 import type { H3Event } from 'h3'
 import collections from '#content/manifest'
 import { useNitroApp } from 'nitropack/runtime'
-import { getAgentSiteUrl } from '../utils/agent-discovery'
+import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
 import { prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
 import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
@@ -139,8 +139,13 @@ const source: AgentContentSource = {
       siteUrl: getAgentSiteUrl(event)
     })
 
+    // minimark calls the `::component` syntax `markdown/mdc`, where comark
+    // says `markdown/comark`. Mapped here so both adapters stay byte-identical
+    // on the one option, which `test/e2e/expected.ts` holds them to.
+    const format = getAgentMarkdownFormat(event) === 'markdown/html' ? 'markdown/html' : 'markdown/mdc'
+
     return {
-      markdown: stringify({ ...page.body, type: 'minimark' }, { format: 'markdown/html' }),
+      markdown: stringify({ ...page.body, type: 'minimark' }, { format }),
       title: page.title,
       description: page.description
     }

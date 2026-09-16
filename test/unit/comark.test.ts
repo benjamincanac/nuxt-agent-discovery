@@ -19,7 +19,8 @@ import type { AgentContentSource } from '../../src/runtime/shared/types'
  * document hook needs a Nitro app; neither is what this file is testing.
  */
 vi.mock('../../src/runtime/server/utils/agent-discovery', () => ({
-  getAgentSiteUrl: () => SITE_URL
+  getAgentSiteUrl: () => SITE_URL,
+  getAgentMarkdownFormat: () => 'markdown/comark'
 }))
 
 vi.mock('nitropack/runtime', () => ({
@@ -157,18 +158,19 @@ describe('comark listing', () => {
 })
 
 /**
- * Where the two backends stop agreeing.
+ * Where the two backends agree, and where they stop.
  *
  * The rest of this file, and `test/e2e/shared.ts`, assert that comark and
- * `@nuxt/content` serve the same bytes. That holds for prose and stops holding
- * at component blocks: the two stringifiers put different blank lines around a
- * component's children. Both parse back to the same document and no adopter is
- * affected yet, since the sites running this module use `@nuxt/content` or a
- * custom source, so the divergence is pinned here rather than papered over.
+ * `@nuxt/content` serve the same bytes. On the default `markdown/comark`
+ * format that holds for prose and for component blocks alike, which is what
+ * lets a comark site full of MDC swap backend without a diff. On
+ * `markdown/html` it holds for prose only: the two stringifiers put different
+ * blank lines around a component's children. Both parse back to the same
+ * document, so the divergence is pinned here rather than papered over.
  *
  * Pinned, not asserted as correct. If either stringifier changes its spacing
  * this fails, which is the point: it should surface here and not halfway
- * through migrating a comark site full of MDC.
+ * through migrating a site.
  */
 describe('comark vs minimark: the known divergence', () => {
   const nodes = [['callout', { type: 'warning' }, ['p', {}, 'Careful.']]] as never[]
@@ -178,11 +180,22 @@ describe('comark vs minimark: the known divergence', () => {
     const { stringify } = await import('minimark/stringify')
     const prose = [['p', {}, 'Just prose.']] as never[]
 
+    expect(await render({ nodes: prose }, { format: 'markdown/comark' }))
+      .toBe(stringify({ type: 'minimark', value: prose }, { format: 'markdown/mdc' }))
     expect(await render({ nodes: prose }, { format: 'markdown/html' }))
       .toBe(stringify({ type: 'minimark', value: prose }, { format: 'markdown/html' }))
   })
 
-  it('differs on the blank lines inside a component block', async () => {
+  it('agrees on a component block in the default `::` syntax', async () => {
+    const { render } = await import('comark/render')
+    const { stringify } = await import('minimark/stringify')
+    const expected = '::callout{type="warning"}\nCareful.\n::\n'
+
+    expect(await render({ nodes }, { format: 'markdown/comark' })).toBe(expected)
+    expect(stringify({ type: 'minimark', value: nodes }, { format: 'markdown/mdc' })).toBe(expected)
+  })
+
+  it('differs on the blank lines inside a component block as html', async () => {
     const { render } = await import('comark/render')
     const { stringify } = await import('minimark/stringify')
 

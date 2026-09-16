@@ -2,13 +2,18 @@ import type { H3Event } from 'h3'
 import { getRequestURL } from 'h3'
 import { useRuntimeConfig } from '#imports'
 import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
-import type { AgentContentSource, NegotiationConfig } from '../../shared/types'
+import type { AgentContentSource, AgentMarkdownFormat, NegotiationConfig } from '../../shared/types'
 import { absolutizeHref, encodeAgentRoute, hasFileExtension, matchRoute, normalizeAgentRoute, rawDestination } from '../../shared/negotiation'
 
 export function useAgentDiscoveryConfig(event?: H3Event): NegotiationConfig {
   // Through `unknown`: a site's generated `runtimeConfig` type narrows these
   // records to that site's own literal keys.
   return useRuntimeConfig(event).agentDiscovery as unknown as NegotiationConfig
+}
+
+/** Component syntax the content adapters serialize with, `markdown/comark` unless configured. */
+export function getAgentMarkdownFormat(event: H3Event): AgentMarkdownFormat {
+  return useAgentDiscoveryConfig(event).markdownFormat || 'markdown/comark'
 }
 
 /** Configured canonical site URL, falling back to the request origin. */
