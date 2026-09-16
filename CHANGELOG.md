@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.6.0...v0.7.0) (2026-09-16)
+
+### ⚠ BREAKING CHANGES
+
+* serialize MDC components in `::` syntax, `markdownFormat` option ([#39](https://github.com/benjamincanac/nuxt-agent-discovery/issues/39))
+
+### Features
+
+* serialize MDC components in `::` syntax, `markdownFormat` option ([#39](https://github.com/benjamincanac/nuxt-agent-discovery/issues/39)) ([f9d378d](https://github.com/benjamincanac/nuxt-agent-discovery/commit/f9d378d02e3014d33924676746e2481526da8368))
+
 ## Unreleased
 
 ### ⚠ BREAKING CHANGES
