@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.7.0...v0.7.1) (2026-10-06)
+
+### Bug Fixes
+
+* remove content llms plugin on Nuxt 4.6 ([#44](https://github.com/benjamincanac/nuxt-agent-discovery/issues/44)) ([64ff542](https://github.com/benjamincanac/nuxt-agent-discovery/commit/64ff5420e4aebdd8e3b4f597412a285c255801a4))
+
 ## [0.7.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.6.0...v0.7.0) (2026-09-16)
 
 ### ⚠ BREAKING CHANGES
