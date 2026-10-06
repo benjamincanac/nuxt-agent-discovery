@@ -63,10 +63,24 @@ export function dropContentLlmsFeature(nuxt: Nuxt): void {
   // `installModule`, so the plugin lands on a floating promise with no ordering
   // guarantee against `modules:done`.
   nuxt.hook('nitro:config', (nitroConfig) => {
+    // Nuxt 4.6 gathers kit registrations on `_serverPlugins` and only writes
+    // them into `nitroConfig.plugins` after this hook, so both lists are checked.
+    const registered = (nuxt.options as unknown as { _serverPlugins?: { plugin: string }[] })._serverPlugins || []
     const plugins = nitroConfig.plugins || []
-    const index = plugins.findIndex(plugin => CONTENT_LLMS_PLUGIN.test(String(plugin)))
-    if (index !== -1) {
-      plugins.splice(index, 1)
+    let found = false
+    for (let i = registered.length - 1; i >= 0; i--) {
+      if (CONTENT_LLMS_PLUGIN.test(String(registered[i]!.plugin))) {
+        registered.splice(i, 1)
+        found = true
+      }
+    }
+    for (let i = plugins.length - 1; i >= 0; i--) {
+      if (CONTENT_LLMS_PLUGIN.test(String(plugins[i]))) {
+        plugins.splice(i, 1)
+        found = true
+      }
+    }
+    if (found) {
       return
     }
 
