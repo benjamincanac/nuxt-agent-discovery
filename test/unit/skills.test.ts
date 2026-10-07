@@ -3,12 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'pathe'
 import { describe, expect, it } from 'vitest'
 import { scanSkills } from '../../src/skills'
-import type { ConsolaInstance } from 'consola'
 
 /** Collects the warnings, which are the whole point of a skipped skill. */
 function createLogger() {
   const warnings: string[] = []
-  return { warnings, logger: { warn: (message: string) => warnings.push(message) } as unknown as ConsolaInstance }
+  return { warnings, logger: { warn: (message: string) => warnings.push(message) } }
 }
 
 async function withSkill(name: string, content: string, files: Record<string, string> = {}) {
