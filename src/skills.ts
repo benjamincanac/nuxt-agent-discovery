@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs'
 import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join } from 'pathe'
 import { parse as parseYaml } from 'yaml'
-import type { ConsolaInstance } from 'consola'
 import type { SkillEntry } from './runtime/shared/types'
 
 /**
@@ -44,7 +43,10 @@ function parseFrontmatter(content: string): { data: Frontmatter } | { error: str
   return { data: data as Frontmatter }
 }
 
-function isValidSkillName(name: string, dirName: string, logger: ConsolaInstance): boolean {
+/** All the scan needs from a logger, so it takes consola's as well as Nuxt's. */
+type Logger = { warn: (message: string) => void }
+
+function isValidSkillName(name: string, dirName: string, logger: Logger): boolean {
   if (name.length > MAX_NAME_LENGTH) {
     logger.warn(`Skill "${name}" exceeds the ${MAX_NAME_LENGTH} character limit.`)
     return false
@@ -79,7 +81,7 @@ async function listFiles(dir: string, base = ''): Promise<string[]> {
 }
 
 /** Every skill in `dir`, with its files listed from disk. `SKILL.md` first. */
-export async function scanSkills(dir: string, logger: ConsolaInstance): Promise<SkillEntry[]> {
+export async function scanSkills(dir: string, logger: Logger): Promise<SkillEntry[]> {
   if (!existsSync(dir)) {
     return []
   }
