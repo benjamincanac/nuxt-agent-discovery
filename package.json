@@ -41,7 +41,7 @@
     "release": "release-it"
   },
   "dependencies": {
-    "@nuxt/kit": "^4.5.2",
+    "@nuxt/kit": "^4.6.0",
     "defu": "^6.1.7",
     "pathe": "^2.0.3",
     "ufo": "^1.6.4",
@@ -51,7 +51,7 @@
     "@nuxt/content": "^3.16.1",
     "@nuxt/eslint-config": "^1.17.0",
     "@nuxt/module-builder": "^1.0.3",
-    "@nuxt/schema": "^4.5.2",
+    "@nuxt/schema": "^4.6.0",
     "@nuxt/test-utils": "^4.3.3",
     "@nuxtjs/mcp-toolkit": "^0.22.0",
     "@nuxtjs/robots": "^6.2.4",
@@ -65,7 +65,7 @@
     "h3": "^1.15.11",
     "minimark": "^1.0.0",
     "nitropack": "^2.13.4",
-    "nuxt": "^4.5.2",
+    "nuxt": "^4.6.0",
     "nuxt-llms": "^0.2.0",
     "release-it": "^21.1.0",
     "typescript": "~5.9.3",
