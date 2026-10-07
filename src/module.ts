@@ -359,7 +359,7 @@ export default defineNuxtModule<ModuleOptions>({
     const links: DiscoveryLink[] = []
     const hookLinks: DiscoveryLink[] = []
     let extended: Promise<void> | undefined
-    const extendRegistry = () => extended ??= nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents })
+    const extendRegistry = () => extended ??= Promise.resolve(nuxt.callHook('agent-discovery:extend', { links: hookLinks, userAgents }))
 
     /* ------------------------------- source ------------------------------- */
 
