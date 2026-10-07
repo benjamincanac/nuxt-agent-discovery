@@ -96,6 +96,19 @@ describe('agentDiscoveryOpenApi: the operation namespace', () => {
 // `claim()` deduped within the fragments and had no idea what the caller was
 // adding afterwards, while the caller had no idea what `claim()` had taken.
 // Only a linter caught the result.
+describe('agentDiscoveryOpenApi: the event is optional', () => {
+  it('reads the options from either position', () => {
+    state.config = createConfig()
+    setRuntimeConfig({ agentDiscoveryMcp: { endpoint: '/mcp' } })
+    const options = { reserved: ['getSitemapMarkdown'] }
+    const h3Event = { __is_event__: true } as unknown as H3Event
+
+    expect(agentDiscoveryOpenApi(options)).toEqual(agentDiscoveryOpenApi(h3Event, options))
+    expect(agentDiscoveryOpenApi(options)).not.toEqual(agentDiscoveryOpenApi())
+    expect(agentDiscoveryOpenApi(h3Event)).toEqual(agentDiscoveryOpenApi())
+  })
+})
+
 describe('agentDiscoveryOpenApi: dedupes against the caller', () => {
   it('steps aside for an `operationId` in the paths it is merged into', () => {
     const paths = {

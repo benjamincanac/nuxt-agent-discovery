@@ -256,7 +256,7 @@ export default defineNitroPlugin((nitroApp) => {
 **`agentDiscoveryOpenApi()`** returns the discovery layer as OpenAPI fragments for sites publishing an `openapi.json`: the negotiated page patterns, their raw twins, and every discovery document the site serves, each with a stable `operationId`. Pass the `paths` you are merging into so your own operation ids are claimed first:
 
 ```ts
-const discovery = agentDiscoveryOpenApi(event, { paths: myPaths })
+const discovery = agentDiscoveryOpenApi({ paths: myPaths })
 
 return {
   openapi: '3.1.0',
