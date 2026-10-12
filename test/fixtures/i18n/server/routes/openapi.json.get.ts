@@ -1,7 +1,7 @@
 import { agentDiscoveryOpenApi } from '#agent-discovery'
 
-export default defineEventHandler((event) => {
-  const discovery = agentDiscoveryOpenApi(event)
+export default defineEventHandler(() => {
+  const discovery = agentDiscoveryOpenApi()
 
   return {
     openapi: '3.1.0',

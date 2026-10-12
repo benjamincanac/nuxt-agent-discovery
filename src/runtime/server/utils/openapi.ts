@@ -13,7 +13,7 @@ import type { AgentRoute, NegotiationConfig } from '../../shared/types'
  * spreading its own values last so it can replace any path here:
  *
  * ```ts
- * const discovery = agentDiscoveryOpenApi(event, { paths: myPaths })
+ * const discovery = agentDiscoveryOpenApi({ paths: myPaths })
  * return {
  *   openapi: '3.1.0',
  *   info: { ... },
@@ -292,7 +292,27 @@ if (MCP_SPLIT === -1) {
   throw new Error('nuxt-agent-discovery: no `/.well-known/mcp/server-card.json` row in the OpenAPI document table, so the MCP endpoint has nowhere to sit. Restore the row, or split the table on whatever replaced it.')
 }
 
-export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptions = {}): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
+/** The fragments {@link agentDiscoveryOpenApi} returns. */
+export interface AgentOpenApiFragments {
+  tags: Json[]
+  paths: Json
+  components: { headers: Json, responses: Json, schemas: Json }
+}
+
+/** An h3 event, v1 or v2, as opposed to the options object that can sit in the same position. */
+function isEvent(value: unknown): value is H3Event {
+  return typeof value === 'object' && value !== null && ('__is_event__' in value || 'req' in value)
+}
+
+export function agentDiscoveryOpenApi(options?: AgentOpenApiOptions): AgentOpenApiFragments
+/**
+ * Nothing here is read from the request, so the event is optional. This
+ * signature stays for the handlers that already pass it.
+ */
+export function agentDiscoveryOpenApi(event: H3Event, options?: AgentOpenApiOptions): AgentOpenApiFragments
+export function agentDiscoveryOpenApi(eventOrOptions?: H3Event | AgentOpenApiOptions, eventOptions?: AgentOpenApiOptions): AgentOpenApiFragments {
+  const event = isEvent(eventOrOptions) ? eventOrOptions : undefined
+  const options = eventOptions || (event ? undefined : eventOrOptions as AgentOpenApiOptions | undefined) || {}
   const config = useAgentDiscoveryConfig(event)
   const has = (href: string) => config.links.some(link => link.href === href)
 

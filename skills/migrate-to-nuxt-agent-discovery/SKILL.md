@@ -125,7 +125,7 @@ export default defineNitroPlugin((nitroApp) => {
 Three helpers replace hand-written equivalents:
 
 - `renderAgentResources(event)` renders the discovery registry as a markdown block, for a page the site renders by hand. The module appends it to the `/` document and to each locale landing document itself, and leaves a body that already carries the heading alone, so those documents have no reason to render it.
-- `agentDiscoveryOpenApi(event)` returns the discovery layer as OpenAPI fragments. Spread the site's own paths last so they win.
+- `agentDiscoveryOpenApi()` returns the discovery layer as OpenAPI fragments. Spread the site's own paths last so they win.
 - `rawUrl(event, href)` resolves a page URL to its markdown twin from the same route config, for links the site builds itself inside `llms:generate` hooks.
 
 A site that rewrote its own `llms.txt` links to raw twins can delete that code: the module rewrites every same-origin link. What stays is ordering, prose, and sections.
