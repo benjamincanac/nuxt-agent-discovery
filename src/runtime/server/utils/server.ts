@@ -19,6 +19,20 @@ export function getRequestOrigin(event: AgentRequestEvent): string {
 }
 
 /**
+ * Path and query of the request below `app.baseURL`, as Nitro 2's `event.path`
+ * reads. Nitro 3 keeps a build-time base on the request URL; a base set at
+ * runtime is already gone, since Nuxt dispatches those requests again without it.
+ */
+export function getRequestPath(event: AgentRequestEvent): string {
+  const { pathname, search } = getRequestURL(event as RequestEvent)
+  const base = (useRuntimeConfig().app?.baseURL || '/').replace(/\/+$/, '')
+  if (base && !base.startsWith('.') && (pathname === base || pathname.startsWith(`${base}/`))) {
+    return (pathname.slice(base.length) || '/') + search
+  }
+  return pathname + search
+}
+
+/**
  * Calls a server runtime hook, the `agent-discovery:*` ones a site registers
  * through `useServerHooks()` or a Nitro plugin, which share one hookable.
  */

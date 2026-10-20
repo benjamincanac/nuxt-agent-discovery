@@ -1,6 +1,7 @@
 import { defineErrorHandler } from 'nitro'
 import { getRequestHeader } from 'nuxt/server'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from './utils/agent-discovery'
+import { getRequestPath } from './utils/server'
 import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
 
 /**
@@ -15,7 +16,7 @@ import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/ne
  */
 export default defineErrorHandler(async (error, event, { defaultHandler }) => {
   const config = useAgentDiscoveryConfig(event)
-  const path = event.url.pathname + event.url.search
+  const path = getRequestPath(event)
 
   if (!prefersMarkdownError(config, {
     method: event.req.method,

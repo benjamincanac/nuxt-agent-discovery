@@ -1,5 +1,6 @@
 import { createError, defineEventHandler, getRequestHeader, sendRedirect, serverFetch, setResponseStatus } from 'nuxt/server'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { getRequestPath } from '../utils/server'
 import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
@@ -12,7 +13,7 @@ import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, 
  * server only `.md` URLs and never-prerendered pages reach here.
  */
 export default defineEventHandler(async (event) => {
-  const path = event.url.pathname + event.url.search
+  const path = getRequestPath(event)
 
   if (import.meta.prerender) {
     // The crawler cannot find a page's twin on its own: `.md` links are not

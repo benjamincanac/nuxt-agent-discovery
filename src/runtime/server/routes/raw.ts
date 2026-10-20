@@ -2,6 +2,7 @@ import { createError, defineEventHandler, sendRedirect } from 'nuxt/server'
 import source from '#agent-discovery/source'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
+import { getRequestPath } from '../utils/server'
 import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
@@ -14,7 +15,7 @@ import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } 
  */
 export default defineEventHandler(async (event) => {
   const config = useAgentDiscoveryConfig(event)
-  const path = event.url.pathname + event.url.search
+  const path = getRequestPath(event)
   const pathname = normalizePathname(path)
   const slug = pathname.slice(config.rawPrefix.length)
 

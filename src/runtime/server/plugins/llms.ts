@@ -1,5 +1,6 @@
 import { definePlugin } from 'nitro'
 import { createLlmsBridge, emitsPrerenderHints } from '../utils/llms'
+import { getRequestPath } from '../utils/server'
 import type { LlmsOptions } from '../utils/llms'
 import type { AgentRequestEvent } from '../../shared/types'
 
@@ -26,8 +27,8 @@ export default definePlugin((nitroApp) => {
   // splits the header on commas and decodes each part. Nitro 3 has no
   // `beforeResponse`; `response` gets the built response instead.
   if (emitsPrerenderHints(import.meta.preset)) {
-    hooks.hook('response', (response: Response, event: { req: Request }) => {
-      if (new URL(event.req.url).pathname === '/' && bridge.prerenderPaths.size) {
+    hooks.hook('response', (response: Response, event: AgentRequestEvent) => {
+      if (getRequestPath(event) === '/' && bridge.prerenderPaths.size) {
         for (const path of bridge.prerenderPaths) {
           response.headers.append('x-nitro-prerender', encodeURIComponent(path))
         }

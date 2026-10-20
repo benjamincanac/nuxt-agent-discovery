@@ -1,37 +1,33 @@
 import { describe, it, expect } from 'vitest'
-import type { H3Event } from 'h3'
 
 /**
- * The server layer the shared helpers call through `#agent-discovery/server`,
- * one file per server API. The helpers are tested against the Nitro 2 one, so
- * this pins the `nuxt/server` one to the same answers.
+ * The request path the `nuxt/server` variants read. Nitro 3 keeps a build-time
+ * `app.baseURL` on the request URL where Nitro 2's `event.path` had it
+ * stripped, so a page under the base would otherwise miss every route pattern.
  */
-const legacy = await import('../../src/runtime/server/utils/server.legacy')
-const portable = await import('../../src/runtime/server/utils/server')
+const { getRequestPath } = await import('../../src/runtime/server/utils/server')
 const { setRuntimeConfig } = await import('./nitro.stub')
 
-const h3Event = {
-  method: 'GET',
-  path: '/docs',
-  node: { req: { url: '/docs', headers: { host: 'example.com' } }, res: {} },
-  context: {}
-} as unknown as H3Event
-
-const requestEvent = {
-  req: new Request('https://example.com/docs'),
-  url: new URL('https://example.com/docs'),
-  res: { headers: new Headers() },
-  context: {}
+function path(url: string, baseURL?: string): string {
+  setRuntimeConfig({ app: { baseURL } })
+  return getRequestPath({ req: new Request(url), url: new URL(url), res: { headers: new Headers() }, context: {} })
 }
 
-describe('server layer', () => {
-  it('reads the same runtime config', () => {
-    setRuntimeConfig({ agentDiscovery: { siteUrl: 'https://example.com' } })
-    expect(portable.useServerConfig(requestEvent)).toEqual(legacy.useServerConfig(h3Event))
+describe('getRequestPath', () => {
+  it('strips the base and keeps the query', () => {
+    expect(path('https://example.com/docs/guide?x=1', '/docs/')).toBe('/guide?x=1')
+    expect(path('https://example.com/docs', '/docs/')).toBe('/')
+    expect(path('https://example.com/docs/', '/docs/')).toBe('/')
   })
 
-  it('resolves the request origin', () => {
-    expect(legacy.getRequestOrigin(h3Event)).toBe('http://example.com')
-    expect(portable.getRequestOrigin(requestEvent)).toBe('https://example.com')
+  it('leaves a path outside the base, or one only sharing its prefix, alone', () => {
+    expect(path('https://example.com/docsearch', '/docs/')).toBe('/docsearch')
+    expect(path('https://example.com/other', '/docs/')).toBe('/other')
+  })
+
+  it('reads the path as is without a base, or with a relative one', () => {
+    expect(path('https://example.com/guide.md', '/')).toBe('/guide.md')
+    expect(path('https://example.com/guide.md')).toBe('/guide.md')
+    expect(path('https://example.com/guide.md', './')).toBe('/guide.md')
   })
 })
