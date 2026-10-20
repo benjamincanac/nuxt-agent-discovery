@@ -951,7 +951,9 @@ export {}
     const siteRawRoutes = (): string[] => {
       const patterns = new Set<string>()
       for (const handler of nuxt.options.serverHandlers) {
-        const answersGet = !handler.method || handler.method === 'get' || handler.method === 'head'
+        // Kit records the method uppercase on Nitro 3.
+        const method = handler.method?.toLowerCase()
+        const answersGet = !method || method === 'get' || method === 'head'
         if (handler.handler !== rawHandler && handler.route && answersGet && coversRawPrefix(handler.route)) {
           patterns.add(handler.route)
         }
