@@ -46,8 +46,6 @@ export async function listAgentPages(event: AgentRequestEvent, options: AgentPag
     return []
   }
 
-  // The adapter contract is still typed with Nitro 2's event. On Nuxt 5 it
-  // gets the h3 v2 one.
   const entries = (await source.list?.(undefined, event as H3Event)) ?? []
 
   const config = useAgentDiscoveryConfig(event)

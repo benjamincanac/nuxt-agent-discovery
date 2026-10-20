@@ -66,8 +66,8 @@ async function generatedIndex(event: AgentRequestEvent, siteUrl: string): Promis
  * cannot silently emit relative links.
  */
 export async function getSourcePage(route: string, event: AgentRequestEvent): Promise<AgentPage | null> {
-  // The adapter contract is still typed with Nitro 2's event. On Nuxt 5 it
-  // gets the h3 v2 one.
+  // `AgentContentSource` is still typed with Nitro 2's event, so every call
+  // into an adapter casts. On Nuxt 5 it gets the h3 v2 one.
   const page = await source?.get(route, event as H3Event)
   if (!page) {
     return null

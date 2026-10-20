@@ -73,8 +73,6 @@ async function mapLimit<T, R>(items: T[], task: (item: T) => R | Promise<R>): Pr
  * landing-page checks key on. `llms.txt` and `llms-full.txt` share this one call.
  */
 async function listPages(adapter: NonNullable<typeof source>, selector: Record<string, unknown> | undefined, event: AgentRequestEvent): Promise<AgentListEntry[]> {
-  // The adapter contract is still typed with Nitro 2's event. On Nuxt 5 it
-  // gets the h3 v2 one.
   return ((await adapter.list?.(selector, event as H3Event)) || []).map(entry => ({ ...entry, route: normalizeAgentRoute(entry.route) }))
 }
 
