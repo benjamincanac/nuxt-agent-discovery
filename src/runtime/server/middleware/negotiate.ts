@@ -16,11 +16,15 @@ export default defineEventHandler(async (event) => {
 
   if (import.meta.prerender) {
     // The crawler cannot find a page's twin on its own: `.md` links are not
-    // followed. Encoded the way `prerenderRoutes()` does, since Nitro splits
-    // the header on commas and decodes each part.
+    // followed. Queued the way Nuxt's `prerenderRoutes()` does, on the context
+    // the renderer turns into its `x-nitro-prerender` header. A header set
+    // here would replace the renderer's own hints, `_payload.json` among them.
     const twin = prerenderTwin(useAgentDiscoveryConfig(event), path)
     if (twin) {
-      event.res.headers.append('x-nitro-prerender', encodeURIComponent(twin))
+      const context = event.context as { nuxt?: { prerenderRoutes?: string[] } }
+      const nuxt = context.nuxt ||= {}
+      nuxt.prerenderRoutes ||= []
+      nuxt.prerenderRoutes.push(twin)
     }
     return
   }
