@@ -2,6 +2,7 @@ import type { H3Event } from 'h3'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
+import type { AgentRequestEvent } from '../../shared/types'
 
 /** One page in a listing. */
 export interface AgentPageListing {
@@ -40,12 +41,14 @@ export interface AgentPageListOptions {
  * comes back empty. There is no fallback: rebuilding it out of `get()` would
  * cost a full render per page.
  */
-export async function listAgentPages(event: H3Event, options: AgentPageListOptions = {}): Promise<AgentPageListing[]> {
+export async function listAgentPages(event: AgentRequestEvent, options: AgentPageListOptions = {}): Promise<AgentPageListing[]> {
   if (!source) {
     return []
   }
 
-  const entries = (await source.list?.(undefined, event)) ?? []
+  // The adapter contract is still typed with Nitro 2's event. On Nuxt 5 it
+  // gets the h3 v2 one.
+  const entries = (await source.list?.(undefined, event as H3Event)) ?? []
 
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)

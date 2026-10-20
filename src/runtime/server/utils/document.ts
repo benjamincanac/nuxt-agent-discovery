@@ -1,11 +1,11 @@
 import type { H3Event } from 'h3'
-import { useNitroApp } from 'nitropack/runtime'
+import { callServerHook } from '#agent-discovery/server'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
 import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
 import { extractSections } from '../../shared/sections'
 import { absolutizeMarkdownLinks, encodeAgentRoute, isExcluded, isHomepage, normalizeAgentRoute } from '../../shared/negotiation'
-import type { AgentIndex, AgentPage } from '../../shared/types'
+import type { AgentIndex, AgentPage, AgentRequestEvent } from '../../shared/types'
 
 /** A resolved markdown document, or where to go instead. */
 export interface AgentDocument {
@@ -33,14 +33,14 @@ export interface AgentDocumentOptions {
  * content document. The hook gets the whole document, not just its body: there is
  * no page to read a title and description off, and `siteName` is only a fallback.
  */
-async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentIndex & { markdown: string }> {
+async function generatedIndex(event: AgentRequestEvent, siteUrl: string): Promise<AgentIndex & { markdown: string }> {
   const config = useAgentDiscoveryConfig(event)
 
   const index: AgentIndex = {
     title: config.siteName || siteUrl.replace(/^https?:\/\//, ''),
     body: []
   }
-  await useNitroApp().hooks.callHook('agent-discovery:index', event, index)
+  await callServerHook('agent-discovery:index', event, index)
 
   const resources = renderAgentResources(event)
   return {
@@ -65,8 +65,10 @@ async function generatedIndex(event: H3Event, siteUrl: string): Promise<AgentInd
  * starting with a single slash. Here rather than per adapter, so a custom source
  * cannot silently emit relative links.
  */
-export async function getSourcePage(route: string, event: H3Event): Promise<AgentPage | null> {
-  const page = await source?.get(route, event)
+export async function getSourcePage(route: string, event: AgentRequestEvent): Promise<AgentPage | null> {
+  // The adapter contract is still typed with Nitro 2's event. On Nuxt 5 it
+  // gets the h3 v2 one.
+  const page = await source?.get(route, event as H3Event)
   if (!page) {
     return null
   }
@@ -74,7 +76,7 @@ export async function getSourcePage(route: string, event: H3Event): Promise<Agen
 }
 
 /** The generated landing page in the shape `getSourcePage` returns, for an adapter with no `/` entry. */
-export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
+export async function generatedIndexPage(event: AgentRequestEvent): Promise<AgentPage> {
   const index = await generatedIndex(event, getAgentSiteUrl(event))
   return { title: index.title, description: index.description, markdown: index.markdown }
 }
@@ -86,7 +88,7 @@ export async function generatedIndexPage(event: H3Event): Promise<AgentPage> {
  * body already carrying the heading is left alone: a homepage rendering the
  * registry by hand is not listed twice.
  */
-export function appendAgentResources(event: H3Event, markdown: string): string {
+export function appendAgentResources(event: AgentRequestEvent, markdown: string): string {
   if (!markdown.trim() || hasAgentResourcesHeading(markdown)) {
     return markdown
   }
@@ -134,7 +136,7 @@ function hasAgentResourcesHeading(markdown: string): boolean {
  * Returns `null` for a route with no markdown representation. `redirect` names a
  * section rather than a page, where the section's first document is the answer.
  */
-export async function getAgentDocument(event: H3Event, route: string, options: AgentDocumentOptions = {}): Promise<AgentDocument | { redirect: string } | null> {
+export async function getAgentDocument(event: AgentRequestEvent, route: string, options: AgentDocumentOptions = {}): Promise<AgentDocument | { redirect: string } | null> {
   const config = useAgentDiscoveryConfig(event)
 
   const path = normalizeAgentRoute(route)
@@ -155,7 +157,7 @@ export async function getAgentDocument(event: H3Event, route: string, options: A
   if (!page) {
     // A path naming a section rather than a page resolves to its first document,
     // the same as the HTML page does. `/` falls through to the generated index.
-    const leaf = path === '/' ? null : await source?.firstLeaf?.(path, event)
+    const leaf = path === '/' ? null : await source?.firstLeaf?.(path, event as H3Event)
     if (leaf && leaf !== path) {
       return { redirect: leaf }
     }

@@ -9,17 +9,30 @@ import type { H3Event } from 'h3'
  * for that one line.
  */
 
-const { default: handler } = await import('../../src/runtime/server/routes/robots.txt')
+const { default: legacyHandler } = await import('../../src/runtime/server/routes/robots.txt.legacy')
+const { default: nuxtHandler } = await import('../../src/runtime/server/routes/robots.txt')
 const { setRuntimeConfig } = await import('./nitro.stub')
 
-function createEvent(): H3Event {
-  const headers: Record<string, unknown> = {}
-  return {
-    path: '/robots.txt',
-    node: { res: { setHeader: (name: string, value: unknown) => { headers[name] = value } } },
+type Handler = (event: unknown) => Promise<string> | string
+
+// The Nitro 2 route and the `nuxt/server` one share the document, so both run
+// every case against their own event shape.
+const variants: [string, Handler, () => unknown][] = [
+  ['Nitro 2', legacyHandler as unknown as Handler, () => {
+    const headers: Record<string, unknown> = {}
+    return {
+      path: '/robots.txt',
+      node: { res: { setHeader: (name: string, value: unknown) => { headers[name] = value } } },
+      context: {}
+    } as unknown as H3Event
+  }],
+  ['nuxt/server', nuxtHandler as unknown as Handler, () => ({
+    req: new Request('https://example.com/robots.txt'),
+    url: new URL('https://example.com/robots.txt'),
+    res: { headers: new Headers() },
     context: {}
-  } as unknown as H3Event
-}
+  })]
+]
 
 function configure(robots: Record<string, unknown>) {
   setRuntimeConfig({
@@ -35,11 +48,11 @@ function configure(robots: Record<string, unknown>) {
   })
 }
 
-describe('generated robots.txt', () => {
+describe.each(variants)('generated robots.txt (%s)', (_name, handler, createEvent) => {
   beforeEach(() => configure({ contentSignal: 'search=yes, ai-train=yes', disallow: [] }))
 
   it('emits the wildcard group, the agent groups and the sitemap line', async () => {
-    const body = await (handler as unknown as (event: H3Event) => Promise<string>)(createEvent())
+    const body = await handler(createEvent())
 
     expect(body).toContain('User-agent: *\nContent-Signal: search=yes, ai-train=yes\nAllow: /\n')
     expect(body).toContain('User-agent: ClaudeBot\nAllow: /\n')
@@ -48,7 +61,7 @@ describe('generated robots.txt', () => {
 
   it('carries the configured `Disallow` lines on the wildcard group only', async () => {
     configure({ contentSignal: 'search=yes', disallow: ['/docs/5.x/', '/admin/'] })
-    const body = await (handler as unknown as (event: H3Event) => Promise<string>)(createEvent())
+    const body = await handler(createEvent())
 
     expect(body).toContain('User-agent: *\nContent-Signal: search=yes\nDisallow: /docs/5.x/\nDisallow: /admin/\nAllow: /\n')
     // The named agents keep their allow-only groups: a specific group exempts

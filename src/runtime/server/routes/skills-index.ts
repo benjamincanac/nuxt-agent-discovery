@@ -1,13 +1,11 @@
-import { defineEventHandler, setResponseHeader } from 'h3'
-import { useRuntimeConfig } from 'nitropack/runtime'
-import type { SkillEntry } from '../../shared/types'
+import { defineEventHandler } from 'nuxt/server'
+import { skillsIndex } from '../utils/skills'
 
-/** The Agent Skills catalog, generated from the skills directory at build time. */
+/** The Agent Skills catalog, on `nuxt/server`. */
 export default defineEventHandler((event) => {
-  const { skills } = useRuntimeConfig(event).agentDiscoverySkills as { skills: SkillEntry[] }
-
-  setResponseHeader(event, 'Content-Type', 'application/json; charset=utf-8')
-  setResponseHeader(event, 'Cache-Control', 'public, max-age=3600')
-
-  return { skills }
+  const { body, headers } = skillsIndex(event)
+  for (const [name, value] of Object.entries(headers)) {
+    event.res.headers.set(name, value)
+  }
+  return body
 })

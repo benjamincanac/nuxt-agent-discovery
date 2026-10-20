@@ -3,12 +3,13 @@ import {
   addImports,
   addTypeTemplate,
   addPrerenderRoutes,
+  addNitroPlugin,
   addServerHandler,
-  addServerPlugin,
   createResolver,
   defineNuxtModule,
   hasNuxtModule,
   resolvePath,
+  resolveServerVariant,
   useLogger
 } from '@nuxt/kit'
 import { defu } from 'defu'
@@ -275,6 +276,14 @@ export default defineNuxtModule<ModuleOptions>({
     const logger = useLogger('nuxt-agent-discovery')
     const { resolve } = createResolver(import.meta.url)
 
+    // A file the server runs directly ships twice: `<name>.ts` on `nuxt/server`,
+    // or on Nitro 3 where `nuxt/server` has no surface for it, and
+    // `<name>.legacy.ts` on Nitro 2. The host runs the one it prefers.
+    const serverVariant = <Api extends 'nuxt' | 'nitro3' = 'nuxt'>(path: string, api = 'nuxt' as Api) => ({
+      [api]: resolve(`./runtime/server/${path}`),
+      nitro2: resolve(`./runtime/server/${path}.legacy`)
+    }) as Record<Api | 'nitro2', string>
+
     // Nuxt derives the `runtimeConfig` type from the site's resolved config,
     // which narrows `Record<string, string>` fields to that site's literal
     // keys. Assign through the module's own shape instead.
@@ -383,6 +392,9 @@ export default defineNuxtModule<ModuleOptions>({
       '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
       '#agent-discovery/mcp': resolve('./runtime/server/mcp/none'),
+      // The server API the shared helpers call, so only this layer is duplicated.
+      // Every host runs one of the two.
+      '#agent-discovery/server': resolveServerVariant(serverVariant('utils/server'))!,
       '#agent-discovery': resolve('./runtime/server/utils/agent-discovery')
     }
     nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
@@ -415,22 +427,22 @@ export default defineNuxtModule<ModuleOptions>({
     /* ------------------------------- handlers ----------------------------- */
 
     // Kept so `siteRawRoutes` can tell this handler from a site-registered one.
-    const rawHandler = resolve('./runtime/server/routes/raw')
+    const rawHandler = resolveServerVariant(serverVariant('routes/raw'))
     if (sourcePath) {
-      addServerHandler({ route: `${rawPrefix}/**`, handler: rawHandler })
+      addServerHandler({ route: `${rawPrefix}/**`, handler: serverVariant('routes/raw') })
       if (options.sitemap?.markdown) {
-        addServerHandler({ route: '/sitemap.md', handler: resolve('./runtime/server/routes/sitemap.md') })
+        addServerHandler({ route: '/sitemap.md', handler: serverVariant('routes/sitemap.md') })
       }
     }
     if (options.discovery?.apiCatalog) {
-      addServerHandler({ route: '/.well-known/api-catalog', handler: resolve('./runtime/server/routes/api-catalog') })
+      addServerHandler({ route: '/.well-known/api-catalog', handler: serverVariant('routes/api-catalog') })
     }
     if (options.discovery?.mcpServerCard) {
       runtimeConfig.agentDiscoveryMcp = {
         ...options.discovery.mcpServerCard,
         excludeGroups: [...mcpExcludedGroups(options.discovery.mcpServerCard.excludeGroups)]
       }
-      addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: resolve('./runtime/server/routes/mcp-server-card') })
+      addServerHandler({ route: '/.well-known/mcp/server-card.json', handler: serverVariant('routes/mcp-server-card') })
     }
 
     // `source: false` means something else serves the raw markdown. `'auto'`
@@ -442,11 +454,12 @@ export default defineNuxtModule<ModuleOptions>({
     }
 
     if (negotiates) {
-      addServerHandler({ middleware: true, handler: resolve('./runtime/server/middleware/negotiate') })
+      addServerHandler({ middleware: true, handler: serverVariant('middleware/negotiate') })
     }
 
-    if (options.errors) {
-      const errorHandler = resolve('./runtime/server/error')
+    // A Nitro error handler, so there is no `nuxt/server` variant to fall back on.
+    const errorHandler = options.errors ? resolveServerVariant(serverVariant('error', 'nitro3')) : undefined
+    if (errorHandler) {
       nuxt.hook('nitro:config', (nitroConfig) => {
         const handlers = nitroConfig.errorHandler
           ? (Array.isArray(nitroConfig.errorHandler) ? nitroConfig.errorHandler : [nitroConfig.errorHandler])
@@ -474,15 +487,21 @@ export default defineNuxtModule<ModuleOptions>({
       { name: 'useAgentResources', from: resolve('./runtime/app/composables/useAgentResources') }
     ])
 
-    // Declares the Nitro runtime hooks so a site's server code needs no cast.
+    // Declares the server runtime hooks so a site's server code needs no cast:
+    // on Nitro's hook table for Nitro 2, on the one `useServerHooks()` reads
+    // for `nuxt/server`.
+    const hookDeclaration = resolveServerVariant({
+      nuxt: { event: `import type { NuxtRequestEvent as H3Event } from 'nuxt/schema'`, module: 'nuxt/schema', name: 'NuxtServerHooks' },
+      nitro2: { event: `import type { H3Event } from 'h3'`, module: 'nitropack/types', name: 'NitroRuntimeHooks' }
+    })!
     const hookTypes = addTypeTemplate({
       filename: 'agent-discovery/hooks.d.ts',
       getContents: () => `
-import type { H3Event } from 'h3'
+${hookDeclaration.event}
 import type { AgentIndex } from ${JSON.stringify(resolve('./runtime/shared/types'))}
 
-declare module 'nitropack/types' {
-  interface NitroRuntimeHooks {
+declare module '${hookDeclaration.module}' {
+  interface ${hookDeclaration.name} {
     /**
      * Transforms a page before the content adapter stringifies it. The page is
      * whatever the adapter works on, a minimark tree for \`@nuxt/content\`.
@@ -569,7 +588,7 @@ export {}
           return
         }
         runtimeConfig.agentDiscoveryRobots = { contentSignal: contentSignal || '', disallow }
-        addServerHandler({ route: '/robots.txt', handler: resolve('./runtime/server/routes/robots.txt') })
+        addServerHandler({ route: '/robots.txt', handler: serverVariant('routes/robots.txt') })
       })
     }
 
@@ -581,7 +600,7 @@ export {}
     // during its own setup.
     nuxt.hook('modules:done', () => {
       if (hasActiveNuxtModule(nuxt, '@nuxtjs/sitemap', 'sitemap')) {
-        addServerPlugin(resolve('./runtime/server/plugins/sitemap'))
+        addNitroPlugin(serverVariant('plugins/sitemap', 'nitro3'))
       }
     })
 
@@ -599,8 +618,9 @@ export {}
         nitroConfig.serverAssets.push({ baseName: 'agentSkills', dir: skillsDir })
       })
 
-      addServerHandler({ route: SKILLS_INDEX, handler: resolve('./runtime/server/routes/skills-index') })
-      addServerHandler({ route: `${SKILLS_PREFIX}**`, handler: resolve('./runtime/server/routes/skills-files') })
+      addServerHandler({ route: SKILLS_INDEX, handler: serverVariant('routes/skills-index') })
+      // Server assets are Nitro's, so this one is written against Nitro 3.
+      addServerHandler({ route: `${SKILLS_PREFIX}**`, handler: serverVariant('routes/skills-files', 'nitro3') })
 
       // The skill files follow `llms.prerender`, so one switch covers them and
       // `llms.txt` together. The raw twins and `/sitemap.md` keep their own rule
@@ -736,7 +756,7 @@ export {}
       // feature of `@nuxt/content`.
       if (hasLlms && sourcePath) {
         dropContentLlmsFeature(nuxt)
-        addServerPlugin(resolve('./runtime/server/plugins/llms'))
+        addNitroPlugin(serverVariant('plugins/llms', 'nitro3'))
 
         if (llmsDetails.length) {
           // The details follow the blockquote, so without one there is nothing
@@ -1025,7 +1045,9 @@ export {}
             return
           }
           if (route.error) {
-            if (route.error.statusCode === 404 && !queuedRawRoutes.has(route.route)) {
+            // Nitro 3 names it `status`.
+            const status = route.error.statusCode ?? (route.error as { status?: number }).status
+            if (status === 404 && !queuedRawRoutes.has(route.route)) {
               route.skip = true
               route.error = undefined
             }

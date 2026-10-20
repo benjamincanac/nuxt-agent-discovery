@@ -4,7 +4,7 @@ import { queryCollection } from '@nuxt/content/server'
 import type { Collections, PageCollectionItemBase } from '@nuxt/content'
 import type { H3Event } from 'h3'
 import collections from '#content/manifest'
-import { useNitroApp } from 'nitropack/runtime'
+import { callServerHook } from '#agent-discovery/server'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
 import { prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
@@ -128,7 +128,7 @@ const source: AgentContentSource = {
     page = { ...page, body: { ...page.body, value: structuredClone(page.body.value) } }
 
     // Lets sites transform the tree without replacing the whole source.
-    await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
+    await callServerHook('agent-discovery:document', event, page)
 
     // Mutated in place: `page.body` below stringifies this same array. `links`
     // sits at the root or under `meta`, depending on the collection schema.

@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { useNitroApp } from 'nitropack/runtime'
+import { callServerHook } from '#agent-discovery/server'
 import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
 import { prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
@@ -141,7 +141,7 @@ export function createComarkSource(getContent: (event: H3Event) => Promise<Comar
       const page = { ...item, nodes: structuredClone(item.nodes) }
 
       // Called before the nodes are read, so a transformer can swap them wholesale.
-      await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
+      await callServerHook('agent-discovery:document', event, page)
 
       const nodes = page.nodes as DocNode[]
       const frontmatter = (page.data || {}) as { title?: string, description?: string, links?: unknown }

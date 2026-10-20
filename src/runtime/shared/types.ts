@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import type { RequestEvent } from 'nuxt/schema'
 
 // Mirrored by the `agent-discovery/hooks.d.ts` template in `module.ts`, which is
 // what a consuming site sees. Keep the two in step.
@@ -24,6 +25,12 @@ declare module 'nitropack/types' {
     'agent-discovery:sitemap': (event: H3Event, sections: Map<string, { title: string, href: string }[]>) => void | Promise<void>
   }
 }
+
+/**
+ * The request a server helper is called with: h3 v1's event on Nitro 2, the
+ * web-standard one `nuxt/server` hands a handler on Nuxt 5.
+ */
+export type AgentRequestEvent = H3Event | RequestEvent
 
 /**
  * A page pattern the module negotiates markdown for. `path` accepts `*` (one
