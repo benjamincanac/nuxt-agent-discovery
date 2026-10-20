@@ -1,5 +1,6 @@
 import { parseURL } from 'ufo'
 import { definePlugin } from 'nitro'
+import { useNitroHooks } from 'nitro/app'
 import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { isRawPath } from '../../shared/negotiation'
 import type { SitemapInputCtx } from '@nuxtjs/sitemap'
@@ -13,16 +14,17 @@ import type { SitemapInputCtx } from '@nuxtjs/sitemap'
  * this module first, and never when `@nuxtjs/seo` installs the sitemap through
  * `moduleDependencies`.
  */
-export default definePlugin((nitroApp) => {
+export default definePlugin(() => {
   const { rawPrefix } = useAgentDiscoveryConfig()
 
   // Typed with the context `@nuxtjs/sitemap` exports, so a shape change fails
   // this build. The cast is only for the hook name, which it does not augment.
-  const hooks = nitroApp.hooks as unknown as {
+  // `useNitroHooks()` creates the table when no plugin has yet.
+  const hooks = useNitroHooks() as unknown as {
     hook: (name: 'sitemap:input', cb: (ctx: SitemapInputCtx) => void) => void
-  } | undefined
+  }
 
-  hooks?.hook('sitemap:input', (ctx) => {
+  hooks.hook('sitemap:input', (ctx) => {
     ctx.urls = ctx.urls.filter((url) => {
       const loc = typeof url === 'string' ? url : url?.loc
       // Sources may hand over absolute URLs, so compare on the pathname.

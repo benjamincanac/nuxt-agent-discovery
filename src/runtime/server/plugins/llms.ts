@@ -1,4 +1,5 @@
 import { definePlugin } from 'nitro'
+import { useNitroHooks } from 'nitro/app'
 import { createLlmsBridge, emitsPrerenderHints } from '../utils/llms'
 import { getRequestPath } from '../utils/server'
 import type { LlmsOptions } from '../utils/llms'
@@ -8,14 +9,12 @@ import type { AgentRequestEvent } from '../../shared/types'
  * The `nuxt-llms` bridge on Nitro 3. `llms.legacy.ts` is the Nitro 2 twin,
  * `createLlmsBridge()` builds both documents.
  */
-export default definePlugin((nitroApp) => {
-  const hooks = nitroApp.hooks as unknown as {
+export default definePlugin(() => {
+  // `nuxt-llms` declares neither hook on Nitro 3's table, hence the cast.
+  // `useNitroHooks()` creates the table when no plugin has yet.
+  const hooks = useNitroHooks() as unknown as {
     hook: (name: string, cb: (...args: never[]) => unknown) => void
-  } | undefined
-  if (!hooks) {
-    return
   }
-
   const bridge = createLlmsBridge()
 
   hooks.hook('llms:generate', (event: AgentRequestEvent, options: LlmsOptions) => bridge.generate(event, options))
