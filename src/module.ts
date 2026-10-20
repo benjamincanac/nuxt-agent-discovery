@@ -489,7 +489,8 @@ export default defineNuxtModule<ModuleOptions>({
 
     // Declares the server runtime hooks so a site's server code needs no cast:
     // on Nitro's hook table for Nitro 2, on the one `useServerHooks()` reads
-    // for `nuxt/server`.
+    // for `nuxt/server`. `nitro` adds it to the server type program, which
+    // Nuxt 5 checks apart from the Nitro `tsConfig` below.
     const hookDeclaration = resolveServerVariant({
       nuxt: { event: `import type { NuxtRequestEvent as H3Event } from 'nuxt/schema'`, module: 'nuxt/schema', name: 'NuxtServerHooks' },
       nitro2: { event: `import type { H3Event } from 'h3'`, module: 'nitropack/types', name: 'NitroRuntimeHooks' }
@@ -527,7 +528,7 @@ declare module '${hookDeclaration.module}' {
 export {}
 `,
       write: true
-    }, { node: true }).dst
+    }, { node: true, nitro: true }).dst
 
     nuxt.options.nitro.typescript = defu(nuxt.options.nitro.typescript, { tsConfig: { include: [hookTypes] } })
 
