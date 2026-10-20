@@ -1,6 +1,5 @@
 import { createError, defineEventHandler, getRequestURL, setResponseHeader } from 'h3'
-import { useStorage } from 'nitropack/runtime'
-import { useRuntimeConfig } from '#imports'
+import { useRuntimeConfig, useStorage } from 'nitropack/runtime'
 import type { SkillEntry } from '../../shared/types'
 import { SKILLS_PREFIX } from '../../shared/paths'
 

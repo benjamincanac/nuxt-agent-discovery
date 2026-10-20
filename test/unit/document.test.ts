@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { H3Event } from 'h3'
 
 /**
@@ -8,11 +8,9 @@ import type { H3Event } from 'h3'
  * llms bridge all dropped excluded prefixes while the raw route kept serving
  * them, and a site migrating took the listings as the contract.
  */
-vi.mock('nitropack/runtime', () => ({ useNitroApp: () => ({ hooks: { callHook: async () => {} } }) }))
-
 const { getAgentDocument } = await import('../../src/runtime/server/utils/document')
 const { setAgentContentSource } = await import('./source.stub')
-const { setRuntimeConfig } = await import('./imports.stub')
+const { setRuntimeConfig } = await import('./nitro.stub')
 
 const event = {} as H3Event
 
