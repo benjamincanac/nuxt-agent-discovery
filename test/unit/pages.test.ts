@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { H3Event } from 'h3'
 
 /**
@@ -7,16 +7,13 @@ import type { H3Event } from 'h3'
  * of this file is that it comes out empty rather than throwing, which is what
  * every caller of `listAgentPages()` would have seen.
  *
- * The config accessor is the real one, through the aliased `#imports`, so the
- * raw URLs come out of the same route matching a site would get. Nitro's
- * runtime only has to import: it is reached through the barrel, which
- * re-exports the document helpers, and nothing here calls into it.
+ * The config accessor is the real one, through the aliased `nitropack/runtime`,
+ * so the raw URLs come out of the same route matching a site would get.
  */
-vi.mock('nitropack/runtime', () => ({ useNitroApp: () => ({ hooks: { callHook: async () => {} } }) }))
 
 const { listAgentPages } = await import('../../src/runtime/server/utils/pages')
 const { setAgentContentSource } = await import('./source.stub')
-const { setRuntimeConfig } = await import('./imports.stub')
+const { setRuntimeConfig } = await import('./nitro.stub')
 
 const event = {} as H3Event
 

@@ -11,8 +11,8 @@ import type { DiscoveryLink, NegotiationConfig } from '../../src/runtime/shared/
  * The config accessor is stubbed rather than booted. It lives in a barrel that
  * re-exports the page and document helpers, which reach into Nitro internals
  * that only exist inside a build, and none of that is what this file tests.
- * The MCP endpoint still comes through the aliased `#imports`, since that is
- * read here directly.
+ * The MCP endpoint still comes through the aliased `nitropack/runtime`, since
+ * that is read here directly.
  */
 const state = vi.hoisted(() => ({ config: undefined as NegotiationConfig | undefined }))
 
@@ -21,7 +21,7 @@ vi.mock('../../src/runtime/server/utils/agent-discovery', () => ({
 }))
 
 const { agentDiscoveryOpenApi } = await import('../../src/runtime/server/utils/openapi')
-const { setRuntimeConfig } = await import('./imports.stub')
+const { setRuntimeConfig } = await import('./nitro.stub')
 
 const LINKS: DiscoveryLink[] = [
   { href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown' },

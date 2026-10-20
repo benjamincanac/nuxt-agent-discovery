@@ -1,6 +1,6 @@
 import type { H3Event } from 'h3'
 import { getRequestURL } from 'h3'
-import { useRuntimeConfig } from '#imports'
+import { useRuntimeConfig } from 'nitropack/runtime'
 import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
 import type { AgentContentSource, AgentMarkdownFormat, NegotiationConfig } from '../../shared/types'
 import { absolutizeHref, encodeAgentRoute, hasFileExtension, matchRoute, normalizeAgentRoute, rawDestination } from '../../shared/negotiation'

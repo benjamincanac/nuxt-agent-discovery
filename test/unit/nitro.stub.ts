@@ -1,5 +1,5 @@
 /**
- * Stands in for Nitro's `#imports`, which only exists inside a build.
+ * Stands in for `nitropack/runtime`, which only resolves inside a build.
  *
  * The server utils read their config through it, so without this they can only
  * be exercised from an e2e fixture, twenty seconds of build away from the
@@ -15,4 +15,9 @@ export function useRuntimeConfig(): Record<string, unknown> {
 /** Replaces the stubbed config wholesale, so a test cannot inherit another's. */
 export function setRuntimeConfig(next: Record<string, unknown>): void {
   values = next
+}
+
+/** The document hooks are called on every resolve; nothing here listens. */
+export function useNitroApp() {
+  return { hooks: { callHook: async () => {} } }
 }

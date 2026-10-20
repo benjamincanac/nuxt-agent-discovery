@@ -1,6 +1,5 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
-import { useNitroApp } from 'nitropack/runtime'
-import { useRuntimeConfig } from '#imports'
+import { useNitroApp, useRuntimeConfig } from 'nitropack/runtime'
 import { listMcpDefinitions } from '#agent-discovery/mcp'
 import { getAgentSiteUrl } from '../utils/agent-discovery'
 import { absolutizeHref } from '../../shared/negotiation'

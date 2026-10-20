@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import type { H3Event } from 'h3'
 
 /**
@@ -8,12 +8,9 @@ import type { H3Event } from 'h3'
  * static `public/robots.txt` (and its build warning) or adopt `@nuxtjs/robots`
  * for that one line.
  */
-// The route reaches `nitropack/runtime` through the utils barrel, which only
-// resolves inside a build; nothing here calls into it.
-vi.mock('nitropack/runtime', () => ({ useNitroApp: () => ({ hooks: { callHook: async () => {} } }) }))
 
 const { default: handler } = await import('../../src/runtime/server/routes/robots.txt')
-const { setRuntimeConfig } = await import('./imports.stub')
+const { setRuntimeConfig } = await import('./nitro.stub')
 
 function createEvent(): H3Event {
   const headers: Record<string, unknown> = {}

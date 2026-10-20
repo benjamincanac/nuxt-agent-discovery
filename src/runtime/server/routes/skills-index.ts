@@ -1,5 +1,5 @@
 import { defineEventHandler, setResponseHeader } from 'h3'
-import { useRuntimeConfig } from '#imports'
+import { useRuntimeConfig } from 'nitropack/runtime'
 import type { SkillEntry } from '../../shared/types'
 
 /** The Agent Skills catalog, generated from the skills directory at build time. */

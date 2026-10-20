@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { useRuntimeConfig } from '#imports'
+import { useRuntimeConfig } from 'nitropack/runtime'
 import { useAgentDiscoveryConfig } from './agent-discovery'
 import { SKILLS_INDEX } from '../../shared/paths'
 import type { AgentRoute, NegotiationConfig } from '../../shared/types'
