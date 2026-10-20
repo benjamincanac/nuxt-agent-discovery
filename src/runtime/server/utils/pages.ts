@@ -1,4 +1,3 @@
-import type { H3Event } from 'h3'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
@@ -46,7 +45,7 @@ export async function listAgentPages(event: AgentRequestEvent, options: AgentPag
     return []
   }
 
-  const entries = (await source.list?.(undefined, event as H3Event)) ?? []
+  const entries = (await source.list?.(undefined, event)) ?? []
 
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)

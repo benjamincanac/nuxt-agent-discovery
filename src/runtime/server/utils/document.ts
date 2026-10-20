@@ -1,4 +1,3 @@
-import type { H3Event } from 'h3'
 import { callServerHook } from '#agent-discovery/server'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, renderAgentResources, useAgentDiscoveryConfig } from './agent-discovery'
@@ -66,9 +65,7 @@ async function generatedIndex(event: AgentRequestEvent, siteUrl: string): Promis
  * cannot silently emit relative links.
  */
 export async function getSourcePage(route: string, event: AgentRequestEvent): Promise<AgentPage | null> {
-  // `AgentContentSource` is still typed with Nitro 2's event, so every call
-  // into an adapter casts. On Nuxt 5 it gets the h3 v2 one.
-  const page = await source?.get(route, event as H3Event)
+  const page = await source?.get(route, event)
   if (!page) {
     return null
   }
@@ -157,7 +154,7 @@ export async function getAgentDocument(event: AgentRequestEvent, route: string, 
   if (!page) {
     // A path naming a section rather than a page resolves to its first document,
     // the same as the HTML page does. `/` falls through to the generated index.
-    const leaf = path === '/' ? null : await source?.firstLeaf?.(path, event as H3Event)
+    const leaf = path === '/' ? null : await source?.firstLeaf?.(path, event)
     if (leaf && leaf !== path) {
       return { redirect: leaf }
     }

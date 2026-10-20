@@ -1,6 +1,5 @@
-import type { H3Event } from 'h3'
 import { callServerHook } from '#agent-discovery/server'
-import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
+import type { AgentContentSource, AgentListEntry, AgentRequestEvent, AgentSectionSelector } from '../../shared/types'
 import { prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
@@ -67,13 +66,13 @@ function findNode(items: ComarkNavigationItem[], path: string): ComarkNavigation
  * export default createComarkSource(() => getProdContent())
  * ```
  */
-export function createComarkSource(getContent: (event: H3Event) => Promise<ComarkLikeContent> | ComarkLikeContent): AgentContentSource {
+export function createComarkSource(getContent: (event: AgentRequestEvent) => Promise<ComarkLikeContent> | ComarkLikeContent): AgentContentSource {
   return {
     /**
      * With no selector, every page grouped by its top-level navigation node.
      * With `{ navigation: '/path' }`, that subtree only.
      */
-    async list(selector: AgentSectionSelector | undefined, event: H3Event) {
+    async list(selector: AgentSectionSelector | undefined, event: AgentRequestEvent) {
       const { navigation } = (selector || {}) as ComarkSelector
       if (selector && !navigation) {
         return null
@@ -100,7 +99,7 @@ export function createComarkSource(getContent: (event: H3Event) => Promise<Comar
      * A directory node's first page, so `/raw/getting-started.md` redirects to
      * the section's first document the way the HTML page does.
      */
-    async firstLeaf(route: string, event: H3Event) {
+    async firstLeaf(route: string, event: AgentRequestEvent) {
       const content = await getContent(event)
       const node = findNode(await content.navigation(), route)
       if (!node) {
@@ -128,7 +127,7 @@ export function createComarkSource(getContent: (event: H3Event) => Promise<Comar
      * render around it. Both adapters come out byte-identical, which
      * `test/e2e/expected.ts` holds them to.
      */
-    async get(route: string, event: H3Event) {
+    async get(route: string, event: AgentRequestEvent) {
       const content = await getContent(event)
       const path = route === '/index' ? '/' : route
       const item = await content.get(path)

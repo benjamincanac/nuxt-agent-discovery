@@ -140,18 +140,25 @@ export interface AgentListEntry extends Partial<AgentPage> {
  */
 export type AgentSectionSelector = Record<string, unknown>
 
-/** The content adapter seam. The module never serves raw markdown itself, it routes to whatever implements this. */
+/**
+ * The content adapter seam. The module never serves raw markdown itself, it
+ * routes to whatever implements this.
+ *
+ * The event is whichever the server runs, so an adapter shared between Nuxt 4
+ * and 5 reads only what both carry. Declared as methods, so one typed with
+ * `H3Event` still satisfies it.
+ */
 export interface AgentContentSource {
   /**
    * Every markdown-representable page. With a `selector`, a `llms.sections` entry
    * handed over verbatim, return only the pages it names, or `null` when it is not
    * one this adapter understands. Left out, every listing comes out empty.
    */
-  list?: (selector: AgentSectionSelector | undefined, event: H3Event) => Promise<AgentListEntry[] | null>
+  list?(selector: AgentSectionSelector | undefined, event: AgentRequestEvent): Promise<AgentListEntry[] | null>
   /** Resolve one route to its markdown representation, `null` when unknown. */
-  get: (route: string, event: H3Event) => Promise<AgentPage | null>
+  get(route: string, event: AgentRequestEvent): Promise<AgentPage | null>
   /** The first page under a section path, for a URL naming a directory. The raw route redirects to that page's twin. */
-  firstLeaf?: (route: string, event: H3Event) => Promise<string | null>
+  firstLeaf?(route: string, event: AgentRequestEvent): Promise<string | null>
 }
 
 /** Normalized module state shared by build-time presets and the Nitro runtime. */
