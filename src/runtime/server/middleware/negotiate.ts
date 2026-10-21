@@ -94,8 +94,9 @@ export default defineEventHandler(async (event) => {
   }
 
   // The query rides along, since a source's pages can depend on it. Nothing
-  // else is forwarded, as with Nitro 2's `localFetch`.
-  const response: Response = await serverFetch(event, `${rawPath}${event.url.search}` as never, { headers, forwardHeaders: false })
+  // else is forwarded, as with Nitro 2's `localFetch`. Nitro registers its
+  // routes under `app.baseURL`, and `serverFetch` goes through them.
+  const response: Response = await serverFetch(event, `${getAgentBase(event)}${rawPath}${event.url.search}` as never, { headers, forwardHeaders: false })
 
   // Rethrown so the status lands on the path the client asked for, keeping the
   // `Cache-Control: no-cache` that goes with it.
