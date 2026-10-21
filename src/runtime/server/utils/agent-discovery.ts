@@ -1,25 +1,23 @@
-import type { H3Event } from 'h3'
-import { getRequestURL } from 'h3'
-import { useRuntimeConfig } from 'nitropack/runtime'
+import { getRequestOrigin, useServerConfig } from '#agent-discovery/server'
 import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
-import type { AgentContentSource, AgentMarkdownFormat, NegotiationConfig } from '../../shared/types'
+import type { AgentContentSource, AgentMarkdownFormat, AgentRequestEvent, NegotiationConfig } from '../../shared/types'
 import { absolutizeHref, encodeAgentRoute, hasFileExtension, matchRoute, normalizeAgentRoute, rawDestination } from '../../shared/negotiation'
 
-export function useAgentDiscoveryConfig(event?: H3Event): NegotiationConfig {
+export function useAgentDiscoveryConfig(event?: AgentRequestEvent): NegotiationConfig {
   // Through `unknown`: a site's generated `runtimeConfig` type narrows these
   // records to that site's own literal keys.
-  return useRuntimeConfig(event).agentDiscovery as unknown as NegotiationConfig
+  return useServerConfig(event).agentDiscovery as unknown as NegotiationConfig
 }
 
 /** Component syntax the content adapters serialize with, `markdown/comark` unless configured. */
-export function getAgentMarkdownFormat(event: H3Event): AgentMarkdownFormat {
+export function getAgentMarkdownFormat(event: AgentRequestEvent): AgentMarkdownFormat {
   return useAgentDiscoveryConfig(event).markdownFormat || 'markdown/comark'
 }
 
 /** Configured canonical site URL, falling back to the request origin. */
-export function getAgentSiteUrl(event: H3Event): string {
+export function getAgentSiteUrl(event: AgentRequestEvent): string {
   const config = useAgentDiscoveryConfig(event)
-  return config.siteUrl || getRequestURL(event).origin
+  return config.siteUrl || getRequestOrigin(event)
 }
 
 /**
@@ -27,7 +25,7 @@ export function getAgentSiteUrl(event: H3Event): string {
  * negotiation and the CDN rewrites use. Paths that don't negotiate, and
  * anything already pointing at a file, come back absolute and untouched.
  */
-export function rawUrl(event: H3Event, path: string): string {
+export function rawUrl(event: AgentRequestEvent, path: string): string {
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
 
@@ -61,7 +59,7 @@ export function rawUrl(event: H3Event, path: string): string {
  * header and the api-catalog are built from. The module already appends it to
  * the `/` document, so a site only calls this for a page it renders by hand.
  */
-export function renderAgentResources(event: H3Event, options: { heading?: string } = {}): string {
+export function renderAgentResources(event: AgentRequestEvent, options: { heading?: string } = {}): string {
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
   const heading = options.heading ?? AGENT_RESOURCES_HEADING

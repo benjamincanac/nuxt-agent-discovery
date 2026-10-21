@@ -1,7 +1,7 @@
-import type { H3Event } from 'h3'
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
+import type { AgentRequestEvent } from '../../shared/types'
 
 /** One page in a listing. */
 export interface AgentPageListing {
@@ -40,7 +40,7 @@ export interface AgentPageListOptions {
  * comes back empty. There is no fallback: rebuilding it out of `get()` would
  * cost a full render per page.
  */
-export async function listAgentPages(event: H3Event, options: AgentPageListOptions = {}): Promise<AgentPageListing[]> {
+export async function listAgentPages(event: AgentRequestEvent, options: AgentPageListOptions = {}): Promise<AgentPageListing[]> {
   if (!source) {
     return []
   }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 /**
  * The bridge collects every raw twin `llms.txt` links into one
@@ -8,12 +8,7 @@ import { describe, it, expect, vi } from 'vitest'
  * `/llms.txt` response, and the Nuxt dev proxy never relayed those responses
  * at all. The server logged a 200 while the client hung.
  */
-vi.mock('nitropack/runtime', () => ({
-  defineNitroPlugin: (plugin: unknown) => plugin,
-  useNitroApp: () => ({ hooks: { callHook: async () => {} } })
-}))
-
-const { emitsPrerenderHints } = await import('../../src/runtime/server/plugins/llms')
+const { emitsPrerenderHints } = await import('../../src/runtime/server/utils/llms')
 
 describe('llms bridge: prerender hint header', () => {
   it('emits it for the prerender crawler', () => {

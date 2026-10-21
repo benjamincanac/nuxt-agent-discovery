@@ -335,3 +335,20 @@ See the full [sitemap](https://example.com/sitemap.md) for all pages.
     expect(document.markdown).not.toContain('Resources for Agents')
   })
 })
+
+describe('getAgentDocument: adapter event', () => {
+  it('hands the adapter the event it was called with, which an adapter typed for Nitro 2 still accepts', async () => {
+    // Typed with `H3Event` on purpose: the contract takes either server's
+    // event, and `pnpm typecheck` fails if it stops accepting this one.
+    let received: H3Event | undefined
+    setAgentContentSource({
+      async get(_route: string, event: H3Event) {
+        received = event
+        return { markdown: '# Page\n' }
+      }
+    })
+
+    await getAgentDocument(event, '/page')
+    expect(received).toBe(event)
+  })
+})

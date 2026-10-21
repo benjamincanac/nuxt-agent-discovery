@@ -240,6 +240,8 @@ Worth knowing before you set it: the crawler is handed the twins of pages that n
 
 ## Extending
 
+The hook examples in this README target Nitro 2, the server of Nuxt 3 and 4. On Nuxt 5, register the same hooks with `useServerHooks().hook()` from `nuxt/server`, which carries their types.
+
 **`agent-discovery:mcp-server-card`** adds to the served card. With `@nuxtjs/mcp-toolkit` installed the module already lists the server's tools, resources and prompts, so this is for what the toolkit can't know. Tools in the `admin` group are left out, and `discovery.mcpServerCard.excludeGroups` extends that default:
 
 ```ts

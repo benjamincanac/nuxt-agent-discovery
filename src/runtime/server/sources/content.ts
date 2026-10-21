@@ -4,11 +4,11 @@ import { queryCollection } from '@nuxt/content/server'
 import type { Collections, PageCollectionItemBase } from '@nuxt/content'
 import type { H3Event } from 'h3'
 import collections from '#content/manifest'
-import { useNitroApp } from 'nitropack/runtime'
+import { callServerHook } from '#agent-discovery/server'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
 import { prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
-import type { AgentContentSource, AgentListEntry, AgentSectionSelector } from '../../shared/types'
+import type { AgentContentSource, AgentListEntry, AgentRequestEvent, AgentSectionSelector } from '../../shared/types'
 
 /** What `@nuxt/content`'s own llms feature reads off a `llms.sections` entry. */
 interface ContentSelector {
@@ -41,7 +41,7 @@ const source: AgentContentSource = {
    * `@nuxt/content`'s llms feature declared, so an existing `llms.sections`
    * config keeps working. A selector naming anything else is not ours.
    */
-  async list(selector: AgentSectionSelector | undefined, event: H3Event) {
+  async list(selector: AgentSectionSelector | undefined, event: AgentRequestEvent) {
     const { contentCollection, contentFilters } = (selector || {}) as ContentSelector
     if (selector && !contentCollection) {
       return null
@@ -55,7 +55,9 @@ const source: AgentContentSource = {
 
     // `Promise.all` keeps the collection declaration order the listing needs.
     const results = await Promise.all(names.map(async (collection) => {
-      const query = queryCollection(event, collection)
+      // `@nuxt/content` types its queries with Nitro 2's event, and on Nuxt 5
+      // runs on the compat layer, which gives the event that shape.
+      const query = queryCollection(event as H3Event, collection)
         .select('path', 'title', 'description')
         .where('path', 'NOT LIKE', '%/.navigation')
       for (const filter of contentFilters || []) {
@@ -78,7 +80,7 @@ const source: AgentContentSource = {
    * the `1.`/`2.` filename prefixes the path has dropped, so this lands where
    * the site's own navigation does.
    */
-  async firstLeaf(route: string, event: H3Event) {
+  async firstLeaf(route: string, event: AgentRequestEvent) {
     const prefix = `${withLeadingSlash(route).replace(/\/$/, '')}/`
     // `%` is a `LIKE` wildcard and the prefix comes from the URL, so `/raw/%.md`
     // would materialize every page in every collection.
@@ -88,7 +90,7 @@ const source: AgentContentSource = {
     // Sequential, unlike `list()`: a `Promise.all` would reject the whole
     // lookup over a collection the answer never depended on.
     for (const collection of pageCollections()) {
-      const pages = await queryCollection(event, collection)
+      const pages = await queryCollection(event as H3Event, collection)
         .select('path', 'stem')
         .where('path', 'LIKE', `${prefix}%`)
         .where('path', 'NOT LIKE', '%/.navigation')
@@ -104,7 +106,7 @@ const source: AgentContentSource = {
     return null
   },
 
-  async get(route: string, event: H3Event) {
+  async get(route: string, event: AgentRequestEvent) {
     let path = withLeadingSlash(route)
     if (path.endsWith('/index')) {
       path = path.slice(0, -6) || '/'
@@ -112,7 +114,7 @@ const source: AgentContentSource = {
 
     let page: PageCollectionItemBase | null = null
     for (const collection of pageCollections()) {
-      page = await queryCollection(event, collection).path(path).first() as PageCollectionItemBase | null
+      page = await queryCollection(event as H3Event, collection).path(path).first() as PageCollectionItemBase | null
       if (page) {
         break
       }
@@ -128,7 +130,7 @@ const source: AgentContentSource = {
     page = { ...page, body: { ...page.body, value: structuredClone(page.body.value) } }
 
     // Lets sites transform the tree without replacing the whole source.
-    await useNitroApp().hooks.callHook('agent-discovery:document', event, page)
+    await callServerHook('agent-discovery:document', event, page)
 
     // Mutated in place: `page.body` below stringifies this same array. `links`
     // sits at the root or under `meta`, depending on the collection schema.

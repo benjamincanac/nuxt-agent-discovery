@@ -1,8 +1,7 @@
-import type { H3Event } from 'h3'
-import { useRuntimeConfig } from 'nitropack/runtime'
+import { useServerConfig } from '#agent-discovery/server'
 import { useAgentDiscoveryConfig } from './agent-discovery'
 import { SKILLS_INDEX } from '../../shared/paths'
-import type { AgentRoute, NegotiationConfig } from '../../shared/types'
+import type { AgentRequestEvent, AgentRoute, NegotiationConfig } from '../../shared/types'
 
 /**
  * The discovery layer as OpenAPI fragments, for sites that publish an
@@ -292,12 +291,12 @@ if (MCP_SPLIT === -1) {
   throw new Error('nuxt-agent-discovery: no `/.well-known/mcp/server-card.json` row in the OpenAPI document table, so the MCP endpoint has nowhere to sit. Restore the row, or split the table on whatever replaced it.')
 }
 
-export function agentDiscoveryOpenApi(event: H3Event, options: AgentOpenApiOptions = {}): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
+export function agentDiscoveryOpenApi(event: AgentRequestEvent, options: AgentOpenApiOptions = {}): { tags: Json[], paths: Json, components: { headers: Json, responses: Json, schemas: Json } } {
   const config = useAgentDiscoveryConfig(event)
   const has = (href: string) => config.links.some(link => link.href === href)
 
   // Only a same-origin path, since `paths` is relative to `servers`.
-  const mcp = useRuntimeConfig(event).agentDiscoveryMcp as { endpoint?: string } | undefined
+  const mcp = useServerConfig(event).agentDiscoveryMcp as { endpoint?: string } | undefined
   const mcpEndpoint = mcp?.endpoint?.startsWith('/') ? mcp.endpoint : undefined
 
   // The caller's names first, then the discovery documents, whose ids are the
