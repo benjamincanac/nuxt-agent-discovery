@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.7.1...v0.8.0) (2026-10-21)
+
+### Features
+
+* support Nuxt 5 ([#56](https://github.com/benjamincanac/nuxt-agent-discovery/issues/56)) ([f706e51](https://github.com/benjamincanac/nuxt-agent-discovery/commit/f706e519f31cc5896dc85068d2cd66d20616bd3c))
+
+### Bug Fixes
+
+* import `useRuntimeConfig` from `nitropack/runtime` on the server ([#55](https://github.com/benjamincanac/nuxt-agent-discovery/issues/55)) ([c1a5310](https://github.com/benjamincanac/nuxt-agent-discovery/commit/c1a5310a2da614a970e92a8e2b952d61646b7966))
+* **module:** support sites served under `app.baseURL` ([#58](https://github.com/benjamincanac/nuxt-agent-discovery/issues/58)) ([0371b57](https://github.com/benjamincanac/nuxt-agent-discovery/commit/0371b5702431dfaf133ca182ba2a0dd231bf851b))
+* **sitemap:** list a route once in `sitemap.md` and `llms.txt` ([#57](https://github.com/benjamincanac/nuxt-agent-discovery/issues/57)) ([fc025c9](https://github.com/benjamincanac/nuxt-agent-discovery/commit/fc025c97c4749190257a6f320c14d14483834553))
+
 ## [0.7.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.7.0...v0.7.1) (2026-10-06)
 
 ### Bug Fixes
