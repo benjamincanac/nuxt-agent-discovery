@@ -1,5 +1,6 @@
 import { getRequestURL, useRuntimeConfig, useServerHooks } from 'nuxt/server'
 import type { RequestEvent } from 'nuxt/server'
+import { withoutAppBase } from '../../shared/paths'
 import type { AgentRequestEvent } from '../../shared/types'
 
 /**
@@ -25,11 +26,7 @@ export function getRequestOrigin(event: AgentRequestEvent): string {
  */
 export function getRequestPath(event: AgentRequestEvent): string {
   const { pathname, search } = getRequestURL(event as RequestEvent)
-  const base = (useRuntimeConfig().app?.baseURL || '/').replace(/\/+$/, '')
-  if (base && !base.startsWith('.') && (pathname === base || pathname.startsWith(`${base}/`))) {
-    return (pathname.slice(base.length) || '/') + search
-  }
-  return pathname + search
+  return withoutAppBase(pathname, useRuntimeConfig().app?.baseURL) + search
 }
 
 /**

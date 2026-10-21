@@ -17,7 +17,7 @@ import { join } from 'pathe'
 import { withLeadingSlash, withoutTrailingSlash } from 'ufo'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { mcpExcludedGroups } from './runtime/shared/defaults'
-import { SKILLS_INDEX, SKILLS_PREFIX } from './runtime/shared/paths'
+import { SKILLS_INDEX, SKILLS_PREFIX, appBase, withAppBase } from './runtime/shared/paths'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
@@ -48,7 +48,7 @@ export interface McpServerCardOptions {
 }
 
 export interface ModuleOptions {
-  /** Canonical site URL. Resolved from the request host when empty. */
+  /** Canonical site URL, `app.baseURL` included or not. Resolved from the request host when empty. */
   siteUrl?: string
   /** Site name, used in `sitemap.md` and markdown error bodies. */
   siteName?: string
@@ -406,6 +406,7 @@ export default defineNuxtModule<ModuleOptions>({
     nuxt.options.alias = defu(nuxt.options.alias, aliases)
 
     const staticBuild = Boolean(nuxt.options.nitro?.static) || (nuxt.options as { _generate?: boolean })._generate === true
+    const base = appBase(nuxt.options.app?.baseURL)
 
     // Every companion module is detected at `modules:done`: one pulled in
     // through `moduleDependencies` (as `@nuxtjs/seo` does) installs after
@@ -732,9 +733,10 @@ export {}
         config.siteName = siteOptions.site?.name || ''
       }
 
-      // `siteUrl` is used as an origin everywhere, so a path in it would
-      // corrupt every link. `site.url` is commonly written without a scheme,
-      // and `new URL()` then throws a bare `Invalid URL`.
+      // `siteUrl` is the URL of the app root, which a route appends to, so
+      // under a base path it carries `app.baseURL`. Either spelling is accepted,
+      // since `site.url` is written both ways. `site.url` is also commonly
+      // written without a scheme, and `new URL()` then throws a bare `Invalid URL`.
       if (config.siteUrl) {
         let parsed: URL
         try {
@@ -742,8 +744,13 @@ export {}
         } catch {
           throw new Error(`[nuxt-agent-discovery] \`siteUrl\` is not a valid URL (${config.siteUrl}). Give it a scheme, as in \`https://example.com\`.`)
         }
-        if (parsed.pathname !== '/') {
-          throw new Error(`[nuxt-agent-discovery] \`siteUrl\` must be an origin, but it carries a path (${config.siteUrl}). Serving the site under a base path is not supported yet.`)
+        const path = parsed.pathname.replace(/\/+$/, '')
+        if (!path) {
+          config.siteUrl = `${config.siteUrl.replace(/\/+$/, '')}${base}`
+        } else if (path !== base) {
+          // Kept as written: it may be the public URL of a site a proxy serves
+          // from a prefix. Only the absolute URLs follow it.
+          logger.warn(`\`siteUrl\` carries a path (${config.siteUrl}) that is not \`app.baseURL\` (${nuxt.options.app?.baseURL || '/'}). Absolute URLs are built under the \`siteUrl\` path, while the \`Link\` header and the redirects stay under \`app.baseURL\`.`)
         }
       }
 
@@ -875,7 +882,7 @@ export {}
       // an exclusion, so `Vary` comes from the middleware.
       if (config.linkHeader && config.links.length) {
         nuxt.options.routeRules = defu(nuxt.options.routeRules, {
-          '/': { headers: { Vary: MARKDOWN_VARY, Link: formatLinkHeader(config.links) } }
+          '/': { headers: { Vary: MARKDOWN_VARY, Link: formatLinkHeader(config.links.map(link => ({ ...link, href: withAppBase(link.href, base) }))) } }
         })
       }
 

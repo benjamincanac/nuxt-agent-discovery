@@ -1,8 +1,9 @@
 import { parseURL } from 'ufo'
 import { definePlugin } from 'nitro'
 import { useNitroHooks } from 'nitro/app'
-import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { isRawPath } from '../../shared/negotiation'
+import { withoutAppBase } from '../../shared/paths'
 import type { SitemapInputCtx } from '@nuxtjs/sitemap'
 
 /**
@@ -16,6 +17,7 @@ import type { SitemapInputCtx } from '@nuxtjs/sitemap'
  */
 export default definePlugin(() => {
   const { rawPrefix } = useAgentDiscoveryConfig()
+  const base = getAgentBase()
 
   // Typed with the context `@nuxtjs/sitemap` exports, so a shape change fails
   // this build. The cast is only for the hook name, which it does not augment.
@@ -27,8 +29,9 @@ export default definePlugin(() => {
   hooks.hook('sitemap:input', (ctx) => {
     ctx.urls = ctx.urls.filter((url) => {
       const loc = typeof url === 'string' ? url : url?.loc
-      // Sources may hand over absolute URLs, so compare on the pathname.
-      return !loc || !isRawPath({ rawPrefix }, parseURL(loc).pathname || loc)
+      // Sources may hand over absolute URLs, so compare on the pathname, which
+      // then carries the base path.
+      return !loc || !isRawPath({ rawPrefix }, withoutAppBase(parseURL(loc).pathname || loc, base))
     })
   })
 })

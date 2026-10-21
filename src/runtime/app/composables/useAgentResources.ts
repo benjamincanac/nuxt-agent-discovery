@@ -1,4 +1,5 @@
 import { useRuntimeConfig } from '#imports'
+import { appBase, withAppBase } from '../../shared/paths'
 import type { AgentResource } from '../../shared/types'
 
 /**
@@ -18,8 +19,12 @@ import type { AgentResource } from '../../shared/types'
  * ```
  */
 export function useAgentResources(): readonly AgentResource[] {
+  const runtimeConfig = useRuntimeConfig()
   // Through `unknown`: a site's generated `runtimeConfig` type narrows this to
   // whatever literal shape it resolved, as `useCanonical` does.
-  const publicConfig = useRuntimeConfig().public.agentDiscovery as unknown as { resources?: AgentResource[] } | undefined
-  return publicConfig?.resources || []
+  const publicConfig = runtimeConfig.public.agentDiscovery as unknown as { resources?: AgentResource[] } | undefined
+  const resources = publicConfig?.resources || []
+  // Registered from the app root, so a site under a base path links below it.
+  const base = appBase(runtimeConfig.app.baseURL)
+  return base ? resources.map(resource => ({ ...resource, href: withAppBase(resource.href, base) })) : resources
 }

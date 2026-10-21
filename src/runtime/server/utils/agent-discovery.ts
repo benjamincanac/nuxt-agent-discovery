@@ -1,5 +1,6 @@
 import { getRequestOrigin, useServerConfig } from '#agent-discovery/server'
 import { AGENT_RESOURCES_HEADING } from '../../shared/defaults'
+import { appBase } from '../../shared/paths'
 import type { AgentContentSource, AgentMarkdownFormat, AgentRequestEvent, NegotiationConfig } from '../../shared/types'
 import { absolutizeHref, encodeAgentRoute, hasFileExtension, matchRoute, normalizeAgentRoute, rawDestination } from '../../shared/negotiation'
 
@@ -14,10 +15,18 @@ export function getAgentMarkdownFormat(event: AgentRequestEvent): AgentMarkdownF
   return useAgentDiscoveryConfig(event).markdownFormat || 'markdown/comark'
 }
 
-/** Configured canonical site URL, falling back to the request origin. */
+/** `app.baseURL` as a prefix, empty at the root. Redirects and `Link` hrefs leave from it. */
+export function getAgentBase(event?: AgentRequestEvent): string {
+  return appBase((useServerConfig(event).app as { baseURL?: string } | undefined)?.baseURL)
+}
+
+/**
+ * Configured canonical site URL, falling back to the request origin. Either way
+ * it is the URL of the app root, `app.baseURL` included, so a route appends to it.
+ */
 export function getAgentSiteUrl(event: AgentRequestEvent): string {
   const config = useAgentDiscoveryConfig(event)
-  return config.siteUrl || getRequestOrigin(event)
+  return config.siteUrl || `${getRequestOrigin(event)}${getAgentBase(event)}`
 }
 
 /**
@@ -33,10 +42,13 @@ export function rawUrl(event: AgentRequestEvent, path: string): string {
   let suffix = ''
   if (/^https?:\/\//.test(path)) {
     const url = new URL(path)
-    if (url.origin !== new URL(siteUrl).origin) {
+    const site = new URL(siteUrl)
+    // Under a base path an absolute URL carries it and a route does not.
+    const root = site.pathname.replace(/\/+$/, '')
+    if (url.origin !== site.origin || (root && url.pathname !== root && !url.pathname.startsWith(`${root}/`))) {
       return path
     }
-    pathname = url.pathname
+    pathname = url.pathname.slice(root.length) || '/'
     suffix = url.search + url.hash
   } else {
     const separator = path.search(/[?#]/)

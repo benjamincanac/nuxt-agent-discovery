@@ -1081,6 +1081,33 @@ describe('module setup: api-catalog', () => {
   })
 })
 
+describe('module setup: base path', () => {
+  const resolve = async (siteUrl: string, baseURL = '/project/') => {
+    const nuxt = await runModule({ siteUrl }, {}, undefined, undefined, { app: { baseURL } })
+    return nuxt.options
+  }
+
+  // `siteUrl` is the URL a route appends to, so it carries the base whichever
+  // way it was written: GitLab's `CI_PAGES_URL` includes the project path.
+  it('takes the site URL with or without the base', async () => {
+    expect((await resolve('https://example.com')).runtimeConfig.agentDiscovery).toMatchObject({ siteUrl: 'https://example.com/project' })
+    expect((await resolve('https://example.com/project/')).runtimeConfig.agentDiscovery).toMatchObject({ siteUrl: 'https://example.com/project' })
+  })
+
+  it('keeps a site URL whose path is not the base rather than failing the build', async () => {
+    expect((await resolve('https://example.com/docs')).runtimeConfig.agentDiscovery).toMatchObject({ siteUrl: 'https://example.com/docs' })
+    expect((await resolve('https://example.com/docs', '/')).runtimeConfig.agentDiscovery).toMatchObject({ siteUrl: 'https://example.com/docs' })
+  })
+
+  it('puts the base on the `Link` header hrefs of `/`', async () => {
+    const { routeRules } = await resolve('https://example.com')
+    const link = (routeRules as Record<string, { headers: { Link: string } }>)['/']!.headers.Link
+
+    expect(link).toContain('</project/sitemap.md>; rel="sitemap"')
+    expect(link).not.toMatch(/<\/(?!project\/)/)
+  })
+})
+
 describe('module setup: app-side resources', () => {
   const publicResources = async (options: Partial<ModuleOptions> = {}) => {
     const nuxt = await runModule(options)

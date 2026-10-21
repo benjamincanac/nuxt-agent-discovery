@@ -12,6 +12,7 @@ import type { H3Event } from 'h3'
  */
 
 const { listAgentPages } = await import('../../src/runtime/server/utils/pages')
+const { rawUrl } = await import('../../src/runtime/server/utils/agent-discovery')
 const { setAgentContentSource } = await import('./source.stub')
 const { setRuntimeConfig } = await import('./nitro.stub')
 
@@ -197,5 +198,30 @@ describe('listAgentPages: excluded prefixes', () => {
     const listed = await listAgentPages(event, { includeExcluded: true, prefix: '/api/' })
 
     expect(listed.map(entry => entry.route)).toEqual(['/api/internal'])
+  })
+})
+
+describe('rawUrl: under a base path', () => {
+  beforeEach(() => {
+    setRuntimeConfig({
+      app: { baseURL: '/project/' },
+      agentDiscovery: {
+        siteUrl: 'https://example.com/project',
+        rawPrefix: '/raw',
+        routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+        excludePrefixes: []
+      }
+    })
+  })
+
+  it('resolves a route and an absolute URL carrying the base to the same twin', () => {
+    expect(rawUrl(event, '/docs/alpha')).toBe('https://example.com/project/raw/docs/alpha.md')
+    expect(rawUrl(event, 'https://example.com/project/docs/alpha?x=1')).toBe('https://example.com/project/raw/docs/alpha.md?x=1')
+    expect(rawUrl(event, 'https://example.com/project')).toBe('https://example.com/project/raw/index.md')
+  })
+
+  it('leaves a same-origin URL outside the base alone', () => {
+    expect(rawUrl(event, 'https://example.com/other/page')).toBe('https://example.com/other/page')
+    expect(rawUrl(event, 'https://example.com/projects/page')).toBe('https://example.com/projects/page')
   })
 })

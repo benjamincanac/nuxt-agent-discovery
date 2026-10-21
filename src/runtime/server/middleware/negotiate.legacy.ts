@@ -1,6 +1,6 @@
 import { appendResponseHeader, createError, defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader, setResponseStatus } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
-import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
@@ -74,7 +74,8 @@ export default defineEventHandler(async (event) => {
     // preview, 2026-09-09). The Build Output routes are what keep a cached page
     // off this branch, see `vercelMarkdownRoutes`.
     setResponseHeader(event, 'Cache-Control', 'private, no-store')
-    return sendRedirect(event, index === -1 ? rawPath : `${rawPath}${event.path.slice(index)}`, 307)
+    const location = `${getAgentBase(event)}${rawPath}`
+    return sendRedirect(event, index === -1 ? location : `${location}${event.path.slice(index)}`, 307)
   }
 
   // Host headers forwarded so the raw handler resolves the same site URL.
@@ -86,10 +87,12 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // The query rides along, since a source's pages can depend on it.
+  // The query rides along, since a source's pages can depend on it. Nitro
+  // mounts its routes under `app.baseURL`, and `localFetch` goes through it.
   const queryIndex = event.path.indexOf('?')
+  const target = `${getAgentBase(event)}${rawPath}`
   const response = await useNitroApp().localFetch(
-    queryIndex === -1 ? rawPath : `${rawPath}${event.path.slice(queryIndex)}`,
+    queryIndex === -1 ? target : `${target}${event.path.slice(queryIndex)}`,
     { headers }
   )
 
