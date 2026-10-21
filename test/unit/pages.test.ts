@@ -91,7 +91,8 @@ describe('listAgentPages: duplicate routes', () => {
     setAgentContentSource({
       async list() {
         return [
-          { route: '/examples', title: 'Examples', section: 'Examples' },
+          // A blank description counts as none, so the child's fills it in.
+          { route: '/examples', title: 'Examples', description: '', section: 'Examples' },
           { route: '/examples', title: 'Examples', description: 'Every example.', section: 'Examples' },
           { route: '/examples/basic', title: 'Basic', section: 'Examples' }
         ]

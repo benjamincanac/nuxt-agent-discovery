@@ -43,9 +43,9 @@ export function normalizeAgentEntries(entries: AgentListEntry[]): AgentListEntry
     const route = normalizeAgentRoute(entry.route)
     const seen = byRoute.get(route)
     if (seen) {
-      seen.title ??= entry.title
-      seen.description ??= entry.description
-      seen.section ??= entry.section
+      seen.title ||= entry.title
+      seen.description ||= entry.description
+      seen.section ||= entry.section
     } else {
       byRoute.set(route, { ...entry, route })
     }
