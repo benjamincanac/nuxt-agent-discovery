@@ -85,7 +85,7 @@ export default defineNuxtConfig({
 })
 ```
 
-- **`siteUrl`** Canonical site URL. Left empty it resolves from `site.url`, then `llms.domain`, then per request from the incoming host.
+- **`siteUrl`** Canonical site URL. Left empty it resolves from `site.url`, then `llms.domain`, then per request from the incoming host. Under `app.baseURL` it may be written with or without the base path, and the module adds it when missing.
 - **`siteName`** Used in `sitemap.md` and the generated `/raw/index.md`. Falls back to `site.name`.
 - **`rawPrefix`** Where raw markdown representations live.
 - **`source`** `'auto'` detects `@nuxt/content`, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
@@ -371,6 +371,10 @@ Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so on
 ### Other hosts
 
 The Nitro middleware runs everywhere, dev included. Caveat: Nitro serves prerendered files ahead of user handlers, so on a built server an already-prerendered page bypasses the middleware and stays HTML. For prerendered pages behind a generic CDN, negotiate at the edge with the Vercel preset instead, render those routes on demand, and add the `Vary` header for the raw prefix and `/sitemap.md` in that host's own configuration.
+
+### Base path
+
+A site under `app.baseURL`, like a GitLab Pages project site, works everywhere except at the Vercel edge. Routes, `rawPrefix` and the discovery links are still written from the app root, and the module puts the base back on every URL it sends out. The Vercel routes are not emitted under a base path, so there only the pages the server renders negotiate.
 
 ### ISR and cached routes
 

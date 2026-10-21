@@ -1,7 +1,7 @@
 import { withBase } from 'ufo'
 import source from '#agent-discovery/source'
 import type { AgentListEntry, AgentRequestEvent, NegotiationConfig } from '../../shared/types'
-import { getAgentSiteUrl, useAgentDiscoveryConfig } from './agent-discovery'
+import { getAgentBase, getAgentSiteUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { appendAgentResources, generatedIndexPage, getSourcePage } from './document'
 import { hasFileExtension, isExcluded, isHomepage, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
 
@@ -18,13 +18,42 @@ export interface LlmsOptions {
   sections: LlmsSection[]
 }
 
+/**
+ * The URL `llms.txt` links resolve against. `llms.domain` is usually the bare
+ * origin, while the pages of a site under a base path live below it.
+ */
+function llmsDomain(event: AgentRequestEvent, options: LlmsOptions): string {
+  if (!options.domain) {
+    return getAgentSiteUrl(event)
+  }
+  const domain = options.domain.replace(/\/+$/, '')
+  try {
+    return new URL(domain).pathname === '/' ? `${domain}${getAgentBase(event)}` : domain
+  } catch {
+    return domain
+  }
+}
+
 function toLocalUrl(href: string, domain: string): { pathname: string, suffix: string } | undefined {
   try {
-    const url = new URL(href, domain)
-    if (url.origin !== new URL(domain).origin) {
+    // Against the root with its trailing slash, so a path-relative href lands
+    // below the base path rather than beside it.
+    const url = new URL(href, `${domain.replace(/\/+$/, '')}/`)
+    const site = new URL(domain)
+    if (url.origin !== site.origin) {
       return undefined
     }
-    return { pathname: normalizePathname(url.pathname), suffix: url.search + url.hash }
+    // A root-relative href is a route, while an absolute one carries the base
+    // path and points outside the site without it.
+    let pathname = url.pathname
+    const root = site.pathname.replace(/\/+$/, '')
+    if (root && !/^\/(?!\/)/.test(href)) {
+      if (pathname !== root && !pathname.startsWith(`${root}/`)) {
+        return undefined
+      }
+      pathname = pathname.slice(root.length) || '/'
+    }
+    return { pathname: normalizePathname(pathname), suffix: url.search + url.hash }
   } catch {
     return undefined
   }
@@ -112,7 +141,7 @@ export function createLlmsBridge() {
 
   async function generate(event: AgentRequestEvent, options: LlmsOptions): Promise<void> {
     const config = useAgentDiscoveryConfig(event)
-    const domain = options.domain || getAgentSiteUrl(event)
+    const domain = llmsDomain(event, options)
 
     // The details section llmstxt.org reserves between the blockquote and the
     // first `##`. `nuxt-llms` has no field for it, and the description is the
@@ -215,7 +244,7 @@ export function createLlmsBridge() {
     }
     const adapter = source
     const config = useAgentDiscoveryConfig(event)
-    const domain = options.domain || getAgentSiteUrl(event)
+    const domain = llmsDomain(event, options)
 
     // The full document follows the sections the site declared. Rendering every
     // route instead pulls in a showcase, a template gallery, a landing page.

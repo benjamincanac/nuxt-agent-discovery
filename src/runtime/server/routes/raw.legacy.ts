@@ -1,6 +1,6 @@
 import { createError, defineEventHandler, sendRedirect, setResponseHeader } from 'h3'
 import source from '#agent-discovery/source'
-import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
 import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
@@ -38,7 +38,7 @@ export default defineEventHandler(async (event) => {
   }
 
   if ('redirect' in document) {
-    return sendRedirect(event, `${config.rawPrefix}${encodeAgentRoute(document.redirect)}.md`, 302)
+    return sendRedirect(event, `${getAgentBase(event)}${config.rawPrefix}${encodeAgentRoute(document.redirect)}.md`, 302)
   }
 
   setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')

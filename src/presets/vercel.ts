@@ -1,7 +1,9 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
+import { useLogger } from '@nuxt/kit'
 import type { Nitro } from 'nitropack'
 import { compilePattern, encodeAgentRoute, formatLinkHeader, isNegotiablePath, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { appBase } from '../runtime/shared/paths'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
 export interface VercelRoute {
@@ -441,6 +443,11 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, colle
   // `nuxt generate` resolves the `vercel-static` preset, whose name contains
   // "vercel" but which emits no function routes to fall through to.
   if (nitro.options.dev || nitro.options.static || !nitro.options.preset.includes('vercel')) {
+    return
+  }
+  // Every source and destination below is written from the domain root.
+  if (appBase(nitro.options.baseURL)) {
+    useLogger('nuxt-agent-discovery').warn(`The Vercel routes are not emitted under a base path (\`${nitro.options.baseURL}\`), so a prerendered page does not negotiate. Pages rendered by the server still do.`)
     return
   }
   nitro.hooks.hook('compiled', async () => {

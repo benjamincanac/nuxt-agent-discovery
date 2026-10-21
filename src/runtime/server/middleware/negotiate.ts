@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, getRequestHeader, sendRedirect, serverFetch, setResponseStatus } from 'nuxt/server'
-import { useAgentDiscoveryConfig } from '../utils/agent-discovery'
+import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getRequestPath } from '../utils/server'
 import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
@@ -81,7 +81,7 @@ export default defineEventHandler(async (event) => {
     // preview, 2026-09-09). The Build Output routes are what keep a cached page
     // off this branch, see `vercelMarkdownRoutes`.
     event.res.headers.set('Cache-Control', 'private, no-store')
-    return sendRedirect(event, `${rawPath}${event.url.search}`, 307)
+    return sendRedirect(event, `${getAgentBase(event)}${rawPath}${event.url.search}`, 307)
   }
 
   // Host headers forwarded so the raw handler resolves the same site URL.
