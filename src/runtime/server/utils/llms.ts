@@ -3,6 +3,7 @@ import source from '#agent-discovery/source'
 import type { AgentListEntry, AgentRequestEvent, NegotiationConfig } from '../../shared/types'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { appendAgentResources, generatedIndexPage, getSourcePage } from './document'
+import { normalizeAgentEntries } from './pages'
 import { hasFileExtension, isExcluded, isHomepage, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
 
 type LlmsSection = {
@@ -67,12 +68,12 @@ async function mapLimit<T, R>(items: T[], task: (item: T) => R | Promise<R>): Pr
 }
 
 /**
- * The adapter's listing with every route normalized the way `listAgentPages` does,
+ * The adapter's listing normalized and deduped the way `listAgentPages` does,
  * so an adapter listing its homepage as `/index` lands on the same `/` the
  * landing-page checks key on. `llms.txt` and `llms-full.txt` share this one call.
  */
 async function listPages(adapter: NonNullable<typeof source>, selector: Record<string, unknown> | undefined, event: AgentRequestEvent): Promise<AgentListEntry[]> {
-  return ((await adapter.list?.(selector, event)) || []).map(entry => ({ ...entry, route: normalizeAgentRoute(entry.route) }))
+  return normalizeAgentEntries((await adapter.list?.(selector, event)) || [])
 }
 
 function toLink(entry: AgentListEntry, domain: string) {

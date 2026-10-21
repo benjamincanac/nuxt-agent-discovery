@@ -1,7 +1,7 @@
 import source from '#agent-discovery/source'
 import { getAgentSiteUrl, rawUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { encodeAgentRoute, isExcluded, normalizeAgentRoute } from '../../shared/negotiation'
-import type { AgentRequestEvent } from '../../shared/types'
+import type { AgentListEntry, AgentRequestEvent } from '../../shared/types'
 
 /** One page in a listing. */
 export interface AgentPageListing {
@@ -32,6 +32,28 @@ export interface AgentPageListOptions {
 }
 
 /**
+ * An adapter's entries with every route normalized and listed once. comark
+ * emits a directory `index.md` both as the section node and as its first
+ * child, and `/index` normalizes onto `/`, so one page can arrive twice. The
+ * first one keeps its place and takes the fields it lacks from the others.
+ */
+export function normalizeAgentEntries(entries: AgentListEntry[]): AgentListEntry[] {
+  const byRoute = new Map<string, AgentListEntry>()
+  for (const entry of entries) {
+    const route = normalizeAgentRoute(entry.route)
+    const seen = byRoute.get(route)
+    if (seen) {
+      seen.title ||= entry.title
+      seen.description ||= entry.description
+      seen.section ||= entry.section
+    } else {
+      byRoute.set(route, { ...entry, route })
+    }
+  }
+  return [...byRoute.values()]
+}
+
+/**
  * Every markdown-representable page, from whichever adapter is installed. Both
  * URLs come from the same `rawUrl()` the negotiation and the `llms.txt` bridge
  * resolve.
@@ -45,16 +67,15 @@ export async function listAgentPages(event: AgentRequestEvent, options: AgentPag
     return []
   }
 
-  const entries = (await source.list?.(undefined, event)) ?? []
+  // Normalized to the spelling `getAgentDocument` resolves and the exclusion
+  // list is written in. An encoded route would otherwise slip past the filters.
+  const entries = normalizeAgentEntries((await source.list?.(undefined, event)) ?? [])
 
   const config = useAgentDiscoveryConfig(event)
   const siteUrl = getAgentSiteUrl(event)
   const terms = options.search?.toLowerCase().split(/\s+/).filter(Boolean) || []
 
   return entries
-    // To the spelling `getAgentDocument` resolves and the exclusion list is
-    // written in. An encoded route would otherwise slip past the filters below.
-    .map(entry => ({ ...entry, route: normalizeAgentRoute(entry.route) }))
     // A path the module refuses to negotiate has no markdown twin, so listing it
     // would advertise one that does not exist.
     .filter(entry => options.includeExcluded || !isExcluded(entry.route, config))

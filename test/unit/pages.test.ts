@@ -84,6 +84,47 @@ describe('listAgentPages: an adapter without `list()`', () => {
   })
 })
 
+describe('listAgentPages: duplicate routes', () => {
+  it('lists a route once, keeping the description a later entry carries', async () => {
+    // comark-content emits a directory `index.md` as the section node and
+    // again as its first child, so `sitemap.md` printed it twice.
+    setAgentContentSource({
+      async list() {
+        return [
+          // A blank description counts as none, so the child's fills it in.
+          { route: '/examples', title: 'Examples', description: '', section: 'Examples' },
+          { route: '/examples', title: 'Examples', description: 'Every example.', section: 'Examples' },
+          { route: '/examples/basic', title: 'Basic', section: 'Examples' }
+        ]
+      },
+      async get() {
+        return { markdown: '# x\n' }
+      }
+    })
+
+    const listed = await listAgentPages(event)
+
+    expect(listed.map(entry => entry.route)).toEqual(['/examples', '/examples/basic'])
+    expect(listed[0]?.description).toBe('Every example.')
+  })
+
+  it('folds spellings that normalize onto the same route', async () => {
+    setAgentContentSource({
+      async list() {
+        return [{ route: '/', title: 'Home' }, { route: '/index', title: 'Index' }]
+      },
+      async get() {
+        return { markdown: '# x\n' }
+      }
+    })
+
+    const listed = await listAgentPages(event)
+
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({ route: '/', title: 'Home' })
+  })
+})
+
 describe('listAgentPages: excluded prefixes', () => {
   beforeEach(() => {
     setAgentContentSource({
