@@ -54,7 +54,7 @@
     "@nuxt/schema": "^4.6.2",
     "@nuxt/test-utils": "^4.3.4",
     "@nuxtjs/mcp-toolkit": "^0.24.2",
-    "@nuxtjs/robots": "^6.2.4",
+    "@nuxtjs/robots": "^7.0.2",
     "@nuxtjs/sitemap": "^8.6.2",
     "@release-it/conventional-changelog": "^12.0.2",
     "@types/node": "^26.6.5",
