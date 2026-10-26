@@ -14,7 +14,7 @@ import {
 } from '@nuxt/kit'
 import { defu } from 'defu'
 import { join } from 'pathe'
-import { withLeadingSlash, withoutTrailingSlash } from 'ufo'
+import { decodePath, withLeadingSlash, withoutTrailingSlash } from 'ufo'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { mcpExcludedGroups } from './runtime/shared/defaults'
 import { SKILLS_INDEX, SKILLS_PREFIX, appBase, withAppBase } from './runtime/shared/paths'
@@ -22,7 +22,7 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
-import { createFenceTracker, formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
+import { createFenceTracker, formatLinkHeader, hasFileExtension, isNegotiablePath, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
 import type { AgentMarkdownFormat, AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -456,6 +456,39 @@ export default defineNuxtModule<ModuleOptions>({
 
     if (negotiates) {
       addServerHandler({ middleware: true, handler: serverVariant('middleware/negotiate') })
+
+      // Nitro puts its static handler ahead of every handler a module can
+      // register, so on a host serving the prerendered files itself the
+      // middleware above never sees those pages. The plugin runs it ahead of
+      // that handler, for the pages written at prerender only: everything else
+      // keeps its place behind the site's own middleware.
+      addNitroPlugin(serverVariant('plugins/prerendered', 'nitro3'))
+      const prerenderedPages = new Set<string>()
+      let serveStatic = false
+      // On the config rather than on the instance, which the prerenderer is
+      // not: it is created from the config. A function, so the server build
+      // after prerender reads the set filled in by then. Empty where a CDN
+      // serves the files, not Nitro.
+      nuxt.hook('nitro:config', (nitroConfig) => {
+        nitroConfig.virtual ||= {}
+        nitroConfig.virtual['#agent-discovery-virtual/prerendered'] = () => {
+          return `export default new Set(${JSON.stringify(serveStatic && !nuxt.options.dev ? [...prerenderedPages] : [])})`
+        }
+      })
+      nuxt.hook('nitro:init', (nitro) => {
+        serveStatic = Boolean(nitro.options.serveStatic)
+        nitro.hooks.hook('prerender:route', (route) => {
+          // Written to `fileName`, the path below `app.baseURL` the static
+          // handler resolves the request to.
+          if (route.skip || route.error || !route.contentType?.includes('text/html') || !route.fileName?.endsWith('.html')) {
+            return
+          }
+          const page = route.fileName.replace(/(?:\/index)?\.html$/, '') || '/'
+          if (isNegotiablePath(config, page)) {
+            prerenderedPages.add(normalizePathname(decodePath(page)))
+          }
+        })
+      })
     }
 
     // A Nitro error handler, so there is no `nuxt/server` variant to fall back on.
@@ -877,12 +910,12 @@ export {}
 
       /* ----------------------------- route rules ---------------------------- */
 
-      // Only the `Link` header, and only on `/`. A `Vary` route rule under
-      // `/**` would hit every path on the site and a route rule cannot express
-      // an exclusion, so `Vary` comes from the middleware.
+      // Only the `Link` header, and only on `/`. `Vary` comes from whatever
+      // negotiated the response, the middleware or the Vercel routes: a route
+      // rule would also label a prerendered `/` that a CDN host serves as is.
       if (config.linkHeader && config.links.length) {
         nuxt.options.routeRules = defu(nuxt.options.routeRules, {
-          '/': { headers: { Vary: MARKDOWN_VARY, Link: formatLinkHeader(config.links.map(link => ({ ...link, href: withAppBase(link.href, base) }))) } }
+          '/': { headers: { Link: formatLinkHeader(config.links.map(link => ({ ...link, href: withAppBase(link.href, base) }))) } }
         })
       }
 
