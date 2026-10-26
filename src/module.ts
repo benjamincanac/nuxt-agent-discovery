@@ -247,7 +247,7 @@ export default defineNuxtModule<ModuleOptions>({
   // `#content/manifest`, `minimark/stringify`) that a major bump would break
   // silently. Keep in step with `peerDependencies`.
   moduleDependencies: {
-    '@nuxt/content': { version: '^3.0.0', optional: true }
+    '@nuxt/content': { version: '^3.7.0', optional: true }
   },
   defaults: {
     siteUrl: '',
