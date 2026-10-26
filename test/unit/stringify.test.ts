@@ -87,6 +87,12 @@ describe('content stringify: markdown minimark 0.2 loses', () => {
     expect(await parse(render(structuredClone(tree)))).toEqual(tree)
   })
 
+  it('keeps the language of highlighted inline code but not the highlighter\'s classes', () => {
+    const markdown = render([['p', {}, ['code', { className: ['language-ts-type', 'shiki', 'shiki-themes', 'material-theme'], language: 'ts-type', style: '' }, 'string[]']]])
+
+    expect(markdown).toBe('`string[]`{lang="ts-type"}\n')
+  })
+
   it('keeps an ordered list\'s start and nests a list under its marker', async () => {
     const markdown = render(await parse('3. Step\n   - detail\n4. Next\n'))
 

@@ -62,17 +62,18 @@ const strong: MinimarkHandler = (node, state) => `**${phrasing(node, state)}**`
 const em: MinimarkHandler = (node, state) => `*${phrasing(node, state)}*`
 const del: MinimarkHandler = (node, state) => `~~${phrasing(node, state)}~~`
 
-/** Inline code, keeping the `{lang="ts"}` highlighting hint and any other attribute minimark drops. */
+/**
+ * Inline code, keeping the `{lang="ts"}` highlighting hint minimark drops. The
+ * class and style are the highlighter's output (`shiki`, theme names, CSS
+ * variables), not something the source wrote, so they stay out.
+ */
 const code: MinimarkHandler = (node) => {
-  const { className, language, ...rest } = node[1] || {}
+  const { className: _className, style: _style, language, ...rest } = node[1] || {}
   const text = textContent(node)
   const longest = Math.max(0, ...(text.match(/`+/g) || []).map(run => run.length))
   const fence = '`'.repeat(longest + 1)
   const padded = longest || /^ .* $/.test(text) ? ` ${text} ` : text
-  // `lang` puts the `language-*` class back, so only the others are written.
-  const classes = ([] as unknown[]).concat(className || []).filter(name => !language || name !== `language-${language}`)
-  const props = { ...(language ? { lang: language } : {}), ...(classes.length ? { className: classes } : {}), ...rest }
-  return `${fence}${padded}${fence}${inlineAttributes(attributes(props))}`
+  return `${fence}${padded}${fence}${inlineAttributes(attributes(language ? { lang: language, ...rest } : rest))}`
 }
 
 /** minimark numbers every ordered list from 1. Renumbered from `start`, nested lists aside. */
