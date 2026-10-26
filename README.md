@@ -10,7 +10,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 ## Features
 
 - `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110)
-- Vercel Build Output routes so prerendered pages negotiate at the edge, and a Nitro middleware for dev and every other host
+- Vercel Build Output routes so prerendered pages negotiate at the edge, and a Nitro middleware for dev and every host where Nitro serves the pages itself
 - Correct `Vary` and `Link` headers on both halves of a negotiated page, CDN-served files included
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, comark through a factory, or your own
 - A `nuxt-llms` bridge: adapter-backed sections and the full document come from the content adapter, hand-written links stay yours, plus the details section `nuxt-llms` has no field for
@@ -370,7 +370,9 @@ Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so on
 
 ### Other hosts
 
-The Nitro middleware runs everywhere, dev included. Caveat: Nitro serves prerendered files ahead of user handlers, so on a built server an already-prerendered page bypasses the middleware and stays HTML. For prerendered pages behind a generic CDN, negotiate at the edge with the Vercel preset instead, render those routes on demand, and add the `Vary` header for the raw prefix and `/sitemap.md` in that host's own configuration.
+The Nitro middleware runs everywhere, dev included. Nitro serves prerendered files ahead of every server handler, so on a preset where it serves them itself, like `node-server` or `bun`, a Nitro plugin runs the middleware ahead of the static handler for the pages written at prerender. Every other page keeps the middleware where it was, behind the site's own middleware.
+
+On a host whose CDN serves the prerendered files, like Netlify or Cloudflare, those requests never reach Nitro, so the pages stay HTML and carry no `Vary`. Render them on demand there, or negotiate at the edge with the Vercel preset, and add the `Vary` header for the raw prefix and `/sitemap.md` in that host's own configuration.
 
 ### Base path
 
