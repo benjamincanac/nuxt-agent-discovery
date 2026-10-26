@@ -159,6 +159,12 @@ export interface AgentContentSource {
   get(route: string, event: AgentRequestEvent): Promise<AgentPage | null>
   /** The first page under a section path, for a URL naming a directory. The raw route redirects to that page's twin. */
   firstLeaf?(route: string, event: AgentRequestEvent): Promise<string | null>
+  /**
+   * Titles of the directories pages are grouped under, keyed by route
+   * (`/getting-started` → `Getting Started`). `sitemap.md` heads its sections
+   * with them instead of the bare path segment.
+   */
+  sectionTitles?(event: AgentRequestEvent): Promise<Record<string, string>>
 }
 
 /** Normalized module state shared by build-time presets and the Nitro runtime. */

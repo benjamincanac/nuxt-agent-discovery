@@ -40,3 +40,25 @@ describe('prepareDocumentTree: related links', () => {
     expect(nodes.some(node => node[0] === 'ul' || node[0] === 'hr')).toBe(false)
   })
 })
+
+describe('prepareDocumentTree: links', () => {
+  it('absolutizes site-relative links inside a JSON prop', () => {
+    // `@nuxt/content` stores an array or object prop as a `:`-prefixed JSON
+    // string, so a `to` inside it is not a prop of its own.
+    const links = [{ label: 'Start', to: '/getting-started' }, { label: 'GitHub', to: 'https://github.com/nuxt/ui' }]
+    const nodes: DocNode[] = [['u-page-cta', { ':links': JSON.stringify(links), 'to': '/docs' }]]
+    prepareDocumentTree(nodes, { siteUrl: 'https://example.com' })
+
+    expect(nodes[0]![1]).toEqual({
+      ':links': JSON.stringify([{ label: 'Start', to: 'https://example.com/getting-started' }, { label: 'GitHub', to: 'https://github.com/nuxt/ui' }]),
+      'to': 'https://example.com/docs'
+    })
+  })
+
+  it('leaves a `:` prop that is not JSON alone', () => {
+    const nodes: DocNode[] = [['u-button', { ':disabled': 'true', ':label': '[not json' }]]
+    prepareDocumentTree(nodes, { siteUrl: 'https://example.com' })
+
+    expect(nodes[0]![1]).toEqual({ ':disabled': 'true', ':label': '[not json' })
+  })
+})

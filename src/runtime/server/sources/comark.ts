@@ -43,6 +43,18 @@ function collect(items: ComarkNavigationItem[], entries: AgentListEntry[], secti
   }
 }
 
+/** Titles of the navigation nodes that hold pages, keyed by path. */
+function collectTitles(items: ComarkNavigationItem[], titles: Record<string, string>): void {
+  for (const item of items) {
+    if (item.children?.length) {
+      if (item.path && item.title) {
+        titles[item.path] = item.title
+      }
+      collectTitles(item.children, titles)
+    }
+  }
+}
+
 function findNode(items: ComarkNavigationItem[], path: string): ComarkNavigationItem | undefined {
   for (const item of items) {
     if (item.path === path) {
@@ -93,6 +105,14 @@ export function createComarkSource(getContent: (event: AgentRequestEvent) => Pro
 
       collect(tree, entries)
       return entries
+    },
+
+    /** A navigation node with children names the directory its pages sit in. */
+    async sectionTitles(event: AgentRequestEvent) {
+      const content = await getContent(event)
+      const titles: Record<string, string> = {}
+      collectTitles(await content.navigation(), titles)
+      return titles
     },
 
     /**

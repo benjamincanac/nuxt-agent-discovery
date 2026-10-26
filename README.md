@@ -100,7 +100,7 @@ export default defineNuxtConfig({
 - **`errors`** Answer errors with a markdown body carrying recovery links when the request prefers it.
 - **`notAcceptable`** See [Strict content negotiation](#strict-content-negotiation).
 - **`markdownFormat`** How MDC components are written in the raw markdown. `'markdown/comark'` emits the `::component` block syntax the source files use, `'markdown/html'` restores the HTML-style tags of earlier releases.
-- **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings.
+- **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings. Without a label, a section is headed by the title the adapter gives its directory (`.navigation.yml` with `@nuxt/content`), then by the path segment.
 - **`llms.details`** Markdown blocks for the details section of `llms.txt`, the space llmstxt.org reserves between the blockquote and the first `##`. See [llms.txt sections](#llmstxt-sections).
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable. The index and the files are prerendered unless `llms.prerender` is off, see [Prerendering](#prerendering).
 - **`robots.aiPolicy`** Feeds the user-agent list into `@nuxtjs/robots` when installed, otherwise generates `/robots.txt` (skipped when a static one exists). **`robots.contentSignal`** adds the `Content-Signal` line, `false` to omit. **`robots.disallow`** adds `Disallow` lines to the wildcard group, in the generated file and through `@nuxtjs/robots` alike. Wildcard only: the per-agent `Allow` groups exempt their agents from these rules, so what search engines skip stays reachable for the agents the site names.
@@ -185,7 +185,7 @@ export default defineAgentContentSource({
 })
 ```
 
-`list(selector, event)` returns every markdown-representable page and feeds `sitemap.md`, `listAgentPages()` and the `nuxt-llms` bridge; with a `selector` (a `llms.sections` entry handed over verbatim) it returns only the pages the selector names, or `null` when it isn't one it understands. It is optional for a get-only source: the listings come out empty and `get()` keeps serving documents. `get(route, event)` resolves one route to its markdown. `firstLeaf(route, event)` is optional and resolves a section path to its first document. Site-relative links are absolutized for you.
+`list(selector, event)` returns every markdown-representable page and feeds `sitemap.md`, `listAgentPages()` and the `nuxt-llms` bridge; with a `selector` (a `llms.sections` entry handed over verbatim) it returns only the pages the selector names, or `null` when it isn't one it understands. It is optional for a get-only source: the listings come out empty and `get()` keeps serving documents. `get(route, event)` resolves one route to its markdown. `firstLeaf(route, event)` is optional and resolves a section path to its first document. `sectionTitles(event)` is optional and returns directory titles keyed by route (`{ '/getting-started': 'Getting Started' }`), which head the `sitemap.md` sections. Site-relative links are absolutized for you.
 
 ### llms.txt sections
 
