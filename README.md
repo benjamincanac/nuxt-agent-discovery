@@ -10,7 +10,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 ## Features
 
 - `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110)
-- Vercel Build Output routes so prerendered pages negotiate at the edge, and a Nitro middleware for dev and every host where Nitro serves the pages itself
+- Vercel Build Output routes so prerendered pages negotiate at the edge, opt-in `run_worker_first` rules for Cloudflare Workers, and a Nitro middleware for dev and every host where Nitro serves the pages itself
 - Correct `Vary` and `Link` headers on both halves of a negotiated page, CDN-served files included
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, comark through a factory, or your own
 - A `nuxt-llms` bridge: adapter-backed sections and the full document come from the content adapter, hand-written links stay yours, plus the details section `nuxt-llms` has no field for
@@ -80,7 +80,8 @@ export default defineNuxtConfig({
     markdownFormat: 'markdown/comark',  // or 'markdown/html'
     sitemap: { markdown: true },
     robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes', disallow: [] },
-    skills: { dir: 'skills' }
+    skills: { dir: 'skills' },
+    cloudflare: { runWorkerFirst: false }
   }
 })
 ```
@@ -103,6 +104,7 @@ export default defineNuxtConfig({
 - **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings. Without a label, a section is headed by the title the adapter gives its directory (`.navigation.yml` with `@nuxt/content`), then by the path segment.
 - **`llms.details`** Markdown blocks for the details section of `llms.txt`, the space llmstxt.org reserves between the blockquote and the first `##`. See [llms.txt sections](#llmstxt-sections).
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable. The index and the files are prerendered unless `llms.prerender` is off, see [Prerendering](#prerendering).
+- **`cloudflare.runWorkerFirst`** See [Cloudflare Workers](#cloudflare-workers).
 - **`robots.aiPolicy`** Feeds the user-agent list into `@nuxtjs/robots` when installed, otherwise generates `/robots.txt` (skipped when a static one exists). **`robots.contentSignal`** adds the `Content-Signal` line, `false` to omit. **`robots.disallow`** adds `Disallow` lines to the wildcard group, in the generated file and through `@nuxtjs/robots` alike. Wildcard only: the per-agent `Allow` groups exempt their agents from these rules, so what search engines skip stays reachable for the agents the site names.
 
 ## Routes
@@ -368,11 +370,17 @@ The canonical/alternate `Link` pair of the prerendered twins goes at the end of 
 
 Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so only the outright refusal `text/markdown;q=0` is covered at the edge. The known divergence: the matcher reads `Accept` by substring, so a prerendered page asked for with a low-q `text/markdown` next to a preferred `text/html` is rewritten to markdown, where the origin ranks per RFC 9110 and serves the HTML.
 
+### Cloudflare Workers
+
+On the `cloudflare-module` and `cloudflare-durable` presets, Workers Static Assets answers a prerendered page before the Worker runs, so it stays HTML for agents. `cloudflare: { runWorkerFirst: true }` sends the negotiated routes to the Worker first through `assets.run_worker_first`, written into the `wrangler.json` Nitro generates (`nitro.cloudflare.deployConfig`, on by default on Workers Builds). One rule per pattern, the default `/**` making it `/*`, with Nitro's `/_nuxt/` handed back to the assets. Rules the site's own wrangler config carries are kept, and `run_worker_first: true` is left alone. Without a generated config, the build prints the rules to add to yours.
+
+It is opt-in because Cloudflare bills every request the Worker sees, where static assets are free, and on the Free plan those requests count toward the daily limit. In the Worker, a prerendered page is negotiated like any other and its HTML half comes from the assets binding, so browsers still get the prerendered file.
+
 ### Other hosts
 
 The Nitro middleware runs everywhere, dev included. Nitro serves prerendered files ahead of every server handler, so on a preset where it serves them itself, like `node-server` or `bun`, a Nitro plugin runs the middleware ahead of the static handler for the pages written at prerender. Every other page keeps the middleware where it was, behind the site's own middleware.
 
-On a host whose CDN serves the prerendered files, like Netlify or Cloudflare, those requests never reach Nitro, so the pages stay HTML and carry no `Vary`. Render them on demand there, or negotiate at the edge with the Vercel preset, and add the `Vary` header for the raw prefix and `/sitemap.md` in that host's own configuration.
+On a host whose CDN serves the prerendered files, like Netlify or Cloudflare Pages, those requests never reach Nitro, so the pages stay HTML and carry no `Vary`. Render them on demand there, or negotiate them with the Vercel preset or on Cloudflare Workers, and add the `Vary` header for the raw prefix and `/sitemap.md` in that host's own configuration.
 
 ### Base path
 

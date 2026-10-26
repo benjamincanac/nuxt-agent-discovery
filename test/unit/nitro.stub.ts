@@ -21,3 +21,7 @@ export function setRuntimeConfig(next: Record<string, unknown>): void {
 export function useNitroApp() {
   return { hooks: { callHook: async () => {} } }
 }
+
+export function defineNitroPlugin<T>(plugin: T): T {
+  return plugin
+}

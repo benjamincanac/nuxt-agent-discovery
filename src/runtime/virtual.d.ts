@@ -13,8 +13,10 @@ declare module '#agent-discovery/source' {
 }
 
 /**
- * Pages written at prerender that the host's Nitro serves from disk, as
- * normalized paths below `app.baseURL`. Empty in dev and on CDN presets.
+ * Pages written at prerender that the host's Nitro serves from disk, or a
+ * Cloudflare Worker from its assets binding, as normalized paths below
+ * `app.baseURL`. Every page on Cloudflare, the negotiable ones elsewhere.
+ * Empty in dev and on the other CDN presets.
  */
 declare module '#agent-discovery-virtual/prerendered' {
   const pages: Set<string>
