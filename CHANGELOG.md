@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.8.0...v0.8.1) (2026-10-26)
+
+### Bug Fixes
+
+* align peer ranges with the APIs the module uses ([#63](https://github.com/benjamincanac/nuxt-agent-discovery/issues/63)) ([4685af0](https://github.com/benjamincanac/nuxt-agent-discovery/commit/4685af01d199f7f1f8118c5f3919a14e2b2df505))
+* **content:** write raw markdown the MDC parser can read back ([#62](https://github.com/benjamincanac/nuxt-agent-discovery/issues/62)) ([ea29aa0](https://github.com/benjamincanac/nuxt-agent-discovery/commit/ea29aa0ad3bfea64a6da3501fbdd9383a0f2ec8e))
+* negotiate prerendered pages where Nitro serves them ([#64](https://github.com/benjamincanac/nuxt-agent-discovery/issues/64)) ([74c81bf](https://github.com/benjamincanac/nuxt-agent-discovery/commit/74c81bff7d8dff94047e083e9d98b774d0373e1d))
+
 ## [0.8.0](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.7.1...v0.8.0) (2026-10-21)
 
 ### Features
