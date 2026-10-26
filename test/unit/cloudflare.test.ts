@@ -129,7 +129,7 @@ describe('setupCloudflarePreset', () => {
   })
 
   /** One `cloudflare-module` build: Nitro's `wrangler.json`, when given, then the module's `compiled` hook. */
-  async function compile(options: { wrangler?: Record<string, unknown>, runWorkerFirst?: boolean, prerendered?: number, preset?: string, routes?: string[] } = {}) {
+  async function compile(options: { wrangler?: Record<string, unknown>, runWorkerFirst?: boolean, prerendered?: boolean, preset?: string, routes?: string[] } = {}) {
     const serverDir = mkdtempSync(join(tmpdir(), 'agent-discovery-cloudflare-'))
     const file = join(serverDir, 'wrangler.json')
     if (options.wrangler) {
@@ -149,7 +149,7 @@ describe('setupCloudflarePreset', () => {
     }
     setupCloudflarePreset(nitro as unknown as Nitro, createConfig(options.routes), {
       runWorkerFirst: options.runWorkerFirst ?? true,
-      prerendered: () => options.prerendered ?? 1
+      prerendered: () => options.prerendered ?? true
     })
     await hooks.compiled?.()
     return { hooked: Boolean(hooks.compiled), written: existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as { assets?: { run_worker_first?: unknown } } : undefined }
@@ -157,10 +157,12 @@ describe('setupCloudflarePreset', () => {
 
   const generated = { main: 'index.mjs', assets: { binding: 'ASSETS', directory: '../public' } }
 
-  it('writes the rules into the wrangler config Nitro generated', async () => {
+  it('writes the rules into the wrangler config Nitro generated, and says what they cost', async () => {
     const { written } = await compile({ wrangler: generated })
 
     expect(written!.assets).toEqual({ binding: 'ASSETS', directory: '../public', run_worker_first: ['/*', '!/_nuxt/*'] })
+    expect(logger.info).toHaveBeenCalledOnce()
+    expect(logger.info.mock.calls[0]![0]).toContain('100,000 a day')
   })
 
   it('merges the rules a site already has, and leaves `true` alone', async () => {
@@ -186,14 +188,17 @@ describe('setupCloudflarePreset', () => {
     expect(logger.warn.mock.calls[0]![0]).toContain('would need 102 rules')
   })
 
-  it('is opt-in, and says so only when a prerendered page stays HTML', async () => {
-    expect((await compile({ wrangler: generated, runWorkerFirst: false })).written).toEqual(generated)
-    expect(logger.info).toHaveBeenCalledOnce()
+  it('leaves the assets alone when the site turns it off', async () => {
+    const { hooked, written } = await compile({ wrangler: generated, runWorkerFirst: false })
 
-    logger.info.mockClear()
-    await compile({ wrangler: generated, runWorkerFirst: false, prerendered: 0 })
-    // A site routing the Worker first on its own already negotiates them.
-    await compile({ wrangler: { assets: { ...generated.assets, run_worker_first: ['/docs/*'] } }, runWorkerFirst: false })
+    expect(hooked).toBe(false)
+    expect(written).toEqual(generated)
+  })
+
+  it('stays out of a build where no negotiable page was prerendered', async () => {
+    // Every page reaches the Worker already, and the rules would only bill
+    // the public files.
+    expect((await compile({ wrangler: generated, prerendered: false })).written).toEqual(generated)
     expect(logger.info).not.toHaveBeenCalled()
   })
 

@@ -145,9 +145,10 @@ export interface ModuleOptions {
   cloudflare?: {
     /**
      * Send the negotiated routes to the Worker ahead of Workers Static Assets
-     * (`assets.run_worker_first`), so a prerendered page negotiates too. Off by
-     * default: Cloudflare bills every request the Worker sees, where static
-     * assets are free.
+     * (`assets.run_worker_first`) once a page is prerendered, so it negotiates
+     * too. Each of those requests then runs the Worker, which Cloudflare bills
+     * and the Free plan caps at 100,000 a day. `false` leaves prerendered pages
+     * to the assets, as HTML.
      */
     runWorkerFirst?: boolean
   }
@@ -464,7 +465,7 @@ export default defineNuxtModule<ModuleOptions>({
       logger.warn('No content source resolved, so markdown negotiation is off. Install `@nuxt/content`, point `agentDiscovery.source` at a file exporting an `AgentContentSource`, or set `source: false` if another route already serves the raw markdown.')
     }
 
-    // Out here so the Cloudflare preset can tell whether any page was prerendered.
+    // Out here so the Cloudflare preset can tell whether a prerendered page negotiates.
     const prerenderedPages = new Set<string>()
 
     if (negotiates) {
@@ -1093,8 +1094,8 @@ export {}
         // to see an inline `defineRouteRules({ isr })`.
         setupVercelPreset(nitro, config, collectCachedRoutes)
         setupCloudflarePreset(nitro, config, {
-          runWorkerFirst: options.cloudflare?.runWorkerFirst === true,
-          prerendered: () => prerenderedPages.size
+          runWorkerFirst: options.cloudflare?.runWorkerFirst !== false,
+          prerendered: () => [...prerenderedPages].some(page => isNegotiablePath(config, page))
         })
 
         // Every queued twin passes here before Nitro writes it. One the site

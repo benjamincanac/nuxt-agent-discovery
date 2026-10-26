@@ -55,7 +55,7 @@ curl -sS "$PREVIEW/.well-known/api-catalog" | jq .
 
 Establish and write down:
 
-- **Host.** `x-vercel-id` means Vercel, where negotiation happens at the edge from the Build Output route table and everything in this skill applies. On Cloudflare Workers, prerendered pages negotiate only when the site sets `agentDiscovery.cloudflare.runWorkerFirst`; without it the assets layer answers them with HTML. Anything else means only the Nitro middleware runs, and Nitro serves prerendered files ahead of user handlers, so **a prerendered page keeps returning HTML to an agent**. That is a documented limitation, not a regression: expect negotiation on never-prerendered pages and on explicit `.md` URLs, and say so in the report.
+- **Host.** `x-vercel-id` means Vercel, where negotiation happens at the edge from the Build Output route table and everything in this skill applies. On Cloudflare Workers, prerendered pages negotiate unless the site sets `agentDiscovery.cloudflare.runWorkerFirst: false`, which leaves them to the assets layer as HTML. Anything else means only the Nitro middleware runs, and Nitro serves prerendered files ahead of user handlers, so **a prerendered page keeps returning HTML to an agent**. That is a documented limitation, not a regression: expect negotiation on never-prerendered pages and on explicit `.md` URLs, and say so in the report.
 - **The raw prefix.** Read it off the links in `sitemap.md`, which point at raw twins. `/raw` is the default, and every command below uses `$RAW` rather than assuming it:
 
 ```sh

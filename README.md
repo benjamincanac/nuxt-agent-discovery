@@ -10,7 +10,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 ## Features
 
 - `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110)
-- Vercel Build Output routes so prerendered pages negotiate at the edge, opt-in `run_worker_first` rules for Cloudflare Workers, and a Nitro middleware for dev and every host where Nitro serves the pages itself
+- Vercel Build Output routes so prerendered pages negotiate at the edge, `run_worker_first` rules on Cloudflare Workers, and a Nitro middleware for dev and every host where Nitro serves the pages itself
 - Correct `Vary` and `Link` headers on both halves of a negotiated page, CDN-served files included
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, comark through a factory, or your own
 - A `nuxt-llms` bridge: adapter-backed sections and the full document come from the content adapter, hand-written links stay yours, plus the details section `nuxt-llms` has no field for
@@ -81,7 +81,7 @@ export default defineNuxtConfig({
     sitemap: { markdown: true },
     robots: { aiPolicy: true, contentSignal: 'search=yes, ai-train=yes, ai-input=yes', disallow: [] },
     skills: { dir: 'skills' },
-    cloudflare: { runWorkerFirst: false }
+    cloudflare: { runWorkerFirst: true }
   }
 })
 ```
@@ -372,9 +372,9 @@ Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so on
 
 ### Cloudflare Workers
 
-On the `cloudflare-module` and `cloudflare-durable` presets, Workers Static Assets answers a prerendered page before the Worker runs, so it stays HTML for agents. `cloudflare: { runWorkerFirst: true }` sends the negotiated routes to the Worker first through `assets.run_worker_first`, written into the `wrangler.json` Nitro generates (`nitro.cloudflare.deployConfig`, on by default on Workers Builds). One rule per pattern, the default `/**` making it `/*`, with Nitro's `/_nuxt/` handed back to the assets. Rules the site's own wrangler config carries are kept, and `run_worker_first: true` is left alone. Without a generated config, the build prints the rules to add to yours.
+On the `cloudflare-module` and `cloudflare-durable` presets, Workers Static Assets answers a prerendered page before the Worker runs, so it would stay HTML for agents. Once a negotiable page is prerendered, the module sends the negotiated routes to the Worker first through `assets.run_worker_first`, written into the `wrangler.json` Nitro generates (`nitro.cloudflare.deployConfig`, on by default on Workers Builds and on Nitro 3). One rule per pattern, the default `/**` making it `/*`, with Nitro's `/_nuxt/` handed back to the assets. Rules the site's own wrangler config carries are kept, and `run_worker_first: true` is left alone. Without a generated config, the build prints the rules to add to yours. In the Worker, a prerendered page is negotiated like any other and its HTML half comes from the assets binding, so browsers still get the prerendered file.
 
-It is opt-in because Cloudflare bills every request the Worker sees, where static assets are free, and on the Free plan those requests count toward the daily limit. In the Worker, a prerendered page is negotiated like any other and its HTML half comes from the assets binding, so browsers still get the prerendered file.
+Every request a rule matches runs the Worker. Static assets are free, Worker requests are billed, and the Free plan allows 100,000 a day. Past that, Cloudflare answers those requests with a 429 instead of falling back to the assets ([billing and limitations](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)). `cloudflare: { runWorkerFirst: false }` leaves prerendered pages to the assets, as HTML.
 
 ### Other hosts
 

@@ -67,25 +67,21 @@ export function cloudflareRunWorkerFirst(config: NegotiationConfig, options: { b
  * `wrangler.json` Nitro writes after it compiles, with `cloudflare.deployConfig`
  * (the Nitro 3 default, and on under Workers Builds). It carries the site's
  * own wrangler config merged in, so a rule of theirs is kept and `true`, which
- * already runs the Worker everywhere, is left alone. Opt-in: Cloudflare bills
- * every request a rule matches, where static assets are free.
+ * already runs the Worker everywhere, is left alone. Only once a negotiable
+ * page is prerendered: before that every page reaches the Worker anyway, and
+ * the rules would bill the public files for nothing.
  */
-export function setupCloudflarePreset(nitro: Nitro, config: NegotiationConfig, options: { runWorkerFirst: boolean, prerendered: () => number }) {
-  if (nitro.options.dev || nitro.options.static || !isCloudflareWorkerPreset(nitro.options.preset)) {
+export function setupCloudflarePreset(nitro: Nitro, config: NegotiationConfig, options: { runWorkerFirst: boolean, prerendered: () => boolean }) {
+  if (nitro.options.dev || nitro.options.static || !options.runWorkerFirst || !isCloudflareWorkerPreset(nitro.options.preset)) {
     return
   }
   const logger = useLogger('nuxt-agent-discovery')
   nitro.hooks.hook('compiled', async () => {
-    const file = resolve(nitro.options.output.serverDir, 'wrangler.json')
-    const wrangler = existsSync(file) ? JSON.parse(await readFile(file, 'utf8')) as { assets?: { run_worker_first?: boolean | string[] } } : undefined
-
-    if (!options.runWorkerFirst) {
-      // A site already running the Worker first has nothing to learn here.
-      if (options.prerendered() && !wrangler?.assets?.run_worker_first) {
-        logger.info('Workers Static Assets answers the prerendered pages before the Worker runs, so they stay HTML for agents. `agentDiscovery.cloudflare.runWorkerFirst` sends the negotiated routes to the Worker first, as requests Cloudflare bills.')
-      }
+    if (!options.prerendered()) {
       return
     }
+    const file = resolve(nitro.options.output.serverDir, 'wrangler.json')
+    const wrangler = existsSync(file) ? JSON.parse(await readFile(file, 'utf8')) as { assets?: { run_worker_first?: boolean | string[] } } : undefined
 
     const assetBases = nitro.options.publicAssets
       .filter(dir => !dir.fallthrough && dir.baseURL && dir.baseURL !== '/')
@@ -112,5 +108,6 @@ export function setupCloudflarePreset(nitro: Nitro, config: NegotiationConfig, o
     }
     assets.run_worker_first = rules
     await writeFile(file, JSON.stringify(wrangler, null, 2), 'utf8')
+    logger.info(`Prerendered pages run the Worker first now (\`run_worker_first\`), so they negotiate. Cloudflare bills those requests, and on the Free plan answers 429 past 100,000 a day. \`agentDiscovery.cloudflare.runWorkerFirst: false\` leaves them to the assets.`)
   })
 }
