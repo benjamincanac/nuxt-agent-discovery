@@ -72,6 +72,36 @@ describe('content stringify: components', () => {
   })
 })
 
+describe('content stringify: markdown minimark 0.2 loses', () => {
+  // Each one used to come back as a different tree: an HTML table whose rows
+  // turned into a code block, a list renumbered from 1 with its nested list
+  // escaping it, inline code losing its highlighting hint.
+  it.each([
+    ['a table', '| Prop | Type |\n| --- | --- |\n| `size` | `string` |\n'],
+    ['inline code with a language', 'Use `string[]`{lang="ts-type"} here.\n'],
+    ['bold text around inline code', '**Set `prose`** first.\n'],
+    ['two line breaks', 'One<br><br>Two\n']
+  ])('round-trips %s', async (_name, markdown) => {
+    const tree = await parse(markdown)
+
+    expect(await parse(render(structuredClone(tree)))).toEqual(tree)
+  })
+
+  it('keeps an ordered list\'s start and nests a list under its marker', async () => {
+    const markdown = render(await parse('3. Step\n   - detail\n4. Next\n'))
+
+    expect(markdown).toBe('3. Step\n\n   - detail\n4. Next\n')
+  })
+
+  it('leaves a table with a block in a cell to minimark', async () => {
+    // GFM cells hold inline content only.
+    const markdown = render(await parse('<table><tr><td>\n\n- item\n\n</td></tr></table>\n'))
+
+    expect(markdown).toContain('<table>')
+    expect(markdown).toContain('item')
+  })
+})
+
 describe('content stringify: round trip', () => {
   it('parses back to the tree it was written from', async () => {
     const tree = await parse(fixture)

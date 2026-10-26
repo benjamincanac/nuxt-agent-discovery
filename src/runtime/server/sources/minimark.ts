@@ -75,11 +75,16 @@ const code: MinimarkHandler = (node) => {
   return `${fence}${padded}${fence}${inlineAttributes(attributes(props))}`
 }
 
-/** minimark numbers every ordered list from 1. Only the first marker counts. */
+/** minimark numbers every ordered list from 1. Renumbered from `start`, nested lists aside. */
 const ol: MinimarkHandler = (node, state, parent) => {
   const markdown = state.handlers.ol!(node, state, parent)
   const start = Number(node[1]?.start)
-  return Number.isInteger(start) && start !== 1 ? markdown.replace(/^(\s*)1\. /, `$1${start}. `) : markdown
+  const indent = markdown.match(/^\n?( *)\d+\. /)?.[1]
+  if (!Number.isInteger(start) || start === 1 || indent === undefined) {
+    return markdown
+  }
+  let number = start
+  return markdown.replace(new RegExp(`^${indent}\\d+\\. `, 'gm'), () => `${indent}${number++}. `)
 }
 
 /**
