@@ -60,7 +60,7 @@ const source: AgentContentSource = {
       // runs on the compat layer, which gives the event that shape.
       // `seo` too: a landing page often sets only `seo.title`.
       const query = queryCollection(event as H3Event, collection)
-        .select('path', 'title', 'description', 'seo')
+        .select('path', 'stem', 'title', 'description', 'seo')
         .where('path', 'NOT LIKE', '%/.navigation')
       for (const filter of contentFilters || []) {
         query.where(filter.field as never, filter.operator as never, filter.value as never)
