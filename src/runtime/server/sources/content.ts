@@ -65,7 +65,11 @@ const source: AgentContentSource = {
       for (const filter of contentFilters || []) {
         query.where(filter.field as never, filter.operator as never, filter.value as never)
       }
-      const pages = await query.order('path', 'ASC').all() as { path: string, title?: string, description?: string, seo?: { title?: string } }[]
+      // By `stem`, which keeps the `1.`/`2.` filename prefixes the path has
+      // dropped, so the listing follows the site's own navigation. The
+      // homepage's stem is `index`, so it is moved back to the top.
+      const pages = await query.order('stem', 'ASC').all() as { path: string, title?: string, description?: string, seo?: { title?: string } }[]
+      pages.sort((a, b) => Number(b.path === '/') - Number(a.path === '/'))
       return pages.map((page): AgentListEntry => ({
         route: page.path,
         title: page.title || page.seo?.title,
