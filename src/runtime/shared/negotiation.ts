@@ -593,6 +593,27 @@ export function absolutizeHref(href: string, siteUrl: string): string {
 
 const LINK_PROPS = ['href', 'src', 'to']
 
+/** Rewrites the link props of an object and of every object nested in it. Returns whether any changed. */
+function absolutizeLinkProps(value: unknown, base: string): boolean {
+  if (Array.isArray(value)) {
+    return value.reduce((changed: boolean, item) => absolutizeLinkProps(item, base) || changed, false)
+  }
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const record = value as Record<string, unknown>
+  let changed = false
+  for (const [key, prop] of Object.entries(record)) {
+    if (LINK_PROPS.includes(key) && typeof prop === 'string' && prop.startsWith('/') && !prop.startsWith('//')) {
+      record[key] = base + prop
+      changed = true
+    } else if (typeof prop === 'object') {
+      changed = absolutizeLinkProps(prop, base) || changed
+    }
+  }
+  return changed
+}
+
 /**
  * The same rewrite on the document tree, before it is stringified. Both
  * backends hand back `[tag, props, ...children]` nodes, so one walker serves
@@ -608,10 +629,20 @@ export function absolutizeTreeLinks(nodes: unknown[], siteUrl: string): void {
     }
     const props = node[1] as Record<string, unknown> | undefined
     if (props && typeof props === 'object') {
-      for (const prop of LINK_PROPS) {
-        const value = props[prop]
-        if (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')) {
-          props[prop] = base + value
+      absolutizeLinkProps(props, base)
+      // `@nuxt/content` stores an array or object prop as JSON under a
+      // `:`-prefixed key, so the links inside it are a string away.
+      for (const [key, value] of Object.entries(props)) {
+        if (!key.startsWith(':') || typeof value !== 'string' || !/^[[{]/.test(value)) {
+          continue
+        }
+        try {
+          const parsed = JSON.parse(value)
+          if (absolutizeLinkProps(parsed, base)) {
+            props[key] = JSON.stringify(parsed)
+          }
+        } catch {
+          // Not JSON after all, so not a prop this rewrite understands.
         }
       }
     }
