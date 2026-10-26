@@ -58,21 +58,40 @@ const source: AgentContentSource = {
     const results = await Promise.all(names.map(async (collection) => {
       // `@nuxt/content` types its queries with Nitro 2's event, and on Nuxt 5
       // runs on the compat layer, which gives the event that shape.
+      // `seo` too: a landing page often sets only `seo.title`.
       const query = queryCollection(event as H3Event, collection)
-        .select('path', 'title', 'description')
+        .select('path', 'title', 'description', 'seo')
         .where('path', 'NOT LIKE', '%/.navigation')
       for (const filter of contentFilters || []) {
         query.where(filter.field as never, filter.operator as never, filter.value as never)
       }
-      const pages = await query.order('path', 'ASC').all() as { path: string, title?: string, description?: string }[]
+      const pages = await query.order('path', 'ASC').all() as { path: string, title?: string, description?: string, seo?: { title?: string } }[]
       return pages.map((page): AgentListEntry => ({
         route: page.path,
-        title: page.title,
+        title: page.title || page.seo?.title,
         description: page.description,
         section: titleCase(String(collection))
       }))
     }))
     return results.flat()
+  },
+
+  /** The `title` of every `.navigation.yml`, keyed by the directory it sits in. */
+  async sectionTitles(event: AgentRequestEvent) {
+    const titles: Record<string, string> = {}
+    for (const collection of pageCollections()) {
+      const entries = await queryCollection(event as H3Event, collection)
+        .select('path', 'title')
+        .where('path', 'LIKE', '%/.navigation')
+        .all() as { path: string, title?: string }[]
+      for (const entry of entries) {
+        const directory = entry.path.slice(0, -'/.navigation'.length) || '/'
+        if (entry.title && !titles[directory]) {
+          titles[directory] = entry.title
+        }
+      }
+    }
+    return titles
   },
 
   /**
