@@ -20,7 +20,7 @@ import { mcpExcludedGroups } from './runtime/shared/defaults'
 import { SKILLS_INDEX, SKILLS_PREFIX, appBase, withAppBase } from './runtime/shared/paths'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
-import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
+import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentPackage, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
 import { createFenceTracker, formatLinkHeader, hasFileExtension, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix, MARKDOWN_VARY } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
@@ -56,8 +56,8 @@ export interface ModuleOptions {
   rawPrefix?: string
   /**
    * Content adapter feeding the raw markdown route, `sitemap.md` and the
-   * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content`, a path points at a
-   * file exporting an `AgentContentSource`, `false` disables every
+   * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content`, v3 or v4, a path
+   * points at a file exporting an `AgentContentSource`, `false` disables every
    * content-backed feature and leaves negotiation running against whatever
    * already serves the raw markdown.
    */
@@ -243,11 +243,12 @@ export default defineNuxtModule<ModuleOptions>({
     }
   },
   // Optional, so this never installs `@nuxt/content`. Declared because the
-  // built-in source reaches into v3 internals (`@nuxt/content/server`,
-  // `#content/manifest`, `minimark/stringify`) that a major bump would break
-  // silently. Keep in step with `peerDependencies`.
+  // built-in source picks its adapter by major: v3 internals
+  // (`@nuxt/content/server`, `#content/manifest`, `minimark/stringify`) on v3,
+  // the server `content` instance through the comark adapter on v4. A major
+  // neither path knows would break silently. Keep in step with `peerDependencies`.
   moduleDependencies: {
-    '@nuxt/content': { version: '^3.0.0', optional: true }
+    '@nuxt/content': { version: '^3.0.0 || ^4.0.0', optional: true }
   },
   defaults: {
     siteUrl: '',
@@ -372,13 +373,17 @@ export default defineNuxtModule<ModuleOptions>({
 
     /* ------------------------------- source ------------------------------- */
 
+    // Read whatever the source, since only v3 has an llms feature to remove.
+    const contentPackage = options.source === 'content' || hasNuxtModule('@nuxt/content') ? await resolveContentPackage(nuxt) : undefined
+    const contentV4 = (contentPackage?.major ?? 0) >= 4
+
     let sourcePath: string | undefined
     let builtinContentSource = false
-    let minimarkStringify: string | undefined
+    let sourceAlias: Record<string, string> = {}
     if (options.source === 'content' || (options.source === 'auto' && hasNuxtModule('@nuxt/content'))) {
-      const contentSource = await resolveContentSource(nuxt, resolve)
+      const contentSource = await resolveContentSource(nuxt, resolve, contentPackage)
       sourcePath = contentSource.sourcePath
-      minimarkStringify = contentSource.minimarkStringify
+      sourceAlias = contentSource.alias
       builtinContentSource = true
     } else if (options.source === 'comark') {
       throw new Error('[nuxt-agent-discovery] comark sites construct their content instance themselves, so pass a source file instead: `source: \'~~/server/utils/agent-source\'`, exporting `createComarkSource(() => getContent())` from `#agent-discovery/comark`.')
@@ -398,7 +403,7 @@ export default defineNuxtModule<ModuleOptions>({
       '#agent-discovery': resolve('./runtime/server/utils/agent-discovery')
     }
     nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
-      ...(minimarkStringify ? { 'minimark/stringify': minimarkStringify } : {}),
+      ...sourceAlias,
       ...aliases
     })
     // Also aliased app-side so a single-tsconfig site can typecheck a server
@@ -506,7 +511,8 @@ declare module '${hookDeclaration.module}' {
   interface ${hookDeclaration.name} {
     /**
      * Transforms a page before the content adapter stringifies it. The page is
-     * whatever the adapter works on, a minimark tree for \`@nuxt/content\`.
+     * whatever the adapter works on, a minimark tree for \`@nuxt/content\` v3
+     * and comark's \`ContentFile\` for v4 and \`comark-content\`.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     'agent-discovery:document': (event: H3Event, page: any) => void | Promise<void>
@@ -626,7 +632,7 @@ export {}
 
       // The skill files follow `llms.prerender`, so one switch covers them and
       // `llms.txt` together. The raw twins and `/sitemap.md` keep their own rule
-      // below, where the built-in source compiles the content into the build
+      // below, where the built-in source fixes the content at build time
       // anyway. A static build has no server to answer these per request, so
       // there everything advertised is prerendered whatever the option says,
       // the same invariant the raw twins hold. At `modules:done`, since the
@@ -763,7 +769,10 @@ export {}
       // This plugin builds `llms.txt` from the adapter, replacing the llms
       // feature of `@nuxt/content`.
       if (hasLlms && sourcePath) {
-        dropContentLlmsFeature(nuxt)
+        // v4 has no llms feature, so nothing registered a route or plugin.
+        if (!contentV4) {
+          dropContentLlmsFeature(nuxt)
+        }
         addNitroPlugin(serverVariant('plugins/llms', 'nitro3'))
 
         if (llmsDetails.length) {

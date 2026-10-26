@@ -1,6 +1,9 @@
-import { tryResolveModule, useLogger } from '@nuxt/kit'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { addTemplate, tryResolveModule, useLogger } from '@nuxt/kit'
 import type { Resolver } from '@nuxt/kit'
 import type { Nuxt } from '@nuxt/schema'
+import { dirname, join } from 'pathe'
 
 /**
  * Build-time glue for the `@nuxt/content` backend. It matches what the llms
@@ -13,24 +16,89 @@ const logger = useLogger('nuxt-agent-discovery')
 /** `@nuxt/content`'s llms nitro plugin, by the path its feature registers. */
 const CONTENT_LLMS_PLUGIN = /features[\\/]llms[\\/]runtime[\\/]server[\\/]content-llms\.plugin/
 
+export interface ContentPackage {
+  entry: string
+  major?: number
+}
+
 /**
- * The built-in content adapter: the runtime source, and the stringifier the raw
- * markdown route renders trees with. Takes the module's own `resolve`, since
- * the build packs everything outside `runtime/` into one `dist/module.mjs` and
- * a resolver anchored here would come out a directory too high.
+ * The installed `@nuxt/content` and its major. v4 exports no
+ * `./package.json`, so the manifest is read next to the entry instead.
  */
-export async function resolveContentSource(nuxt: Nuxt, resolve: Resolver['resolve']): Promise<{ sourcePath: string, minimarkStringify?: string }> {
+export async function resolveContentPackage(nuxt: Nuxt): Promise<ContentPackage | undefined> {
+  const entry = await tryResolveModule('@nuxt/content', nuxt.options.modulesDir)
+  if (!entry) {
+    return undefined
+  }
+  for (let dir = dirname(entry); dir !== dirname(dir); dir = dirname(dir)) {
+    const manifest = join(dir, 'package.json')
+    if (existsSync(manifest)) {
+      const { version } = JSON.parse(await readFile(manifest, 'utf8')) as { version?: string }
+      return { entry, major: Number.parseInt(version || '') || undefined }
+    }
+  }
+  return { entry }
+}
+
+/**
+ * The built-in content adapter: the runtime source, and the aliases pinning the
+ * renderer to the one `@nuxt/content` produced the tree with. Takes the
+ * module's own `resolve`, since the build packs everything outside `runtime/`
+ * into one `dist/module.mjs` and a resolver anchored here would come out a
+ * directory too high.
+ */
+export async function resolveContentSource(nuxt: Nuxt, resolve: Resolver['resolve'], contentPackage: ContentPackage | undefined): Promise<{ sourcePath: string, alias: Record<string, string> }> {
+  if (contentPackage?.major && contentPackage.major >= 4) {
+    return resolveComarkContentSource(nuxt, contentPackage.entry)
+  }
+
   const sourcePath = resolve('./runtime/server/sources/content')
   // The stringifier has to be the one that produced the tree: our own
   // `minimark` could pin a major that disagrees with the content backend's.
-  const contentEntry = await tryResolveModule('@nuxt/content', nuxt.options.modulesDir)
-  const minimarkStringify = contentEntry ? await tryResolveModule('minimark/stringify', [contentEntry]) : undefined
+  const minimarkStringify = contentPackage ? await tryResolveModule('minimark/stringify', [contentPackage.entry]) : undefined
   if (!minimarkStringify) {
-    logger.warn(contentEntry
+    logger.warn(contentPackage
       ? 'Could not resolve `minimark/stringify` from `@nuxt/content`, so raw markdown may differ from what it produces.'
       : 'The content source is enabled but `@nuxt/content` could not be resolved. Install it, or set `agentDiscovery.source` to a file exporting an `AgentContentSource`.')
   }
-  return { sourcePath, minimarkStringify }
+  return { sourcePath, alias: minimarkStringify ? { 'minimark/stringify': minimarkStringify } : {} }
+}
+
+/**
+ * v4 serves comark trees through `comark-content`, so its server `content`
+ * goes through the comark adapter. Which file defines `content` depends on the
+ * site (`server/content.ts`, a v3 `content.config.ts`, or neither), so it is
+ * read off the server import v4 registers rather than guessed. Nitro has it by
+ * `nitro:init`, before Nuxt writes its templates.
+ */
+async function resolveComarkContentSource(nuxt: Nuxt, contentEntry: string): Promise<{ sourcePath: string, alias: Record<string, string> }> {
+  let contentImport: string | undefined
+  nuxt.hook('nitro:init', (nitro) => {
+    const imports = nitro.options.imports ? nitro.options.imports.imports : undefined
+    contentImport = imports?.find(entry => entry.name === 'content' && (!entry.as || entry.as === 'content'))?.from
+  })
+
+  const template = addTemplate({
+    filename: 'agent-discovery/content-source.mjs',
+    write: true,
+    getContents: () => {
+      // Thrown rather than falling back to no source: negotiation is already
+      // on, and every negotiated page would answer agents a 404.
+      if (!contentImport) {
+        throw new Error('[nuxt-agent-discovery] `@nuxt/content` v4 registered no server `content` import to build the content source from. Point `agentDiscovery.source` at a file exporting `createComarkSource(() => content)` from `#agent-discovery/comark`, and please report this with the `@nuxt/content` version.')
+      }
+      return [
+        `import { content } from ${JSON.stringify(contentImport)}`,
+        `import { createComarkSource } from '#agent-discovery/comark'`,
+        `export default createComarkSource(() => content)`
+      ].join('\n') + '\n'
+    }
+  })
+
+  // The same rule as `minimark/stringify` on v3: render with the comark that
+  // parsed the tree, not whichever copy the package manager hoisted.
+  const comarkRender = await tryResolveModule('comark/render', [contentEntry])
+  return { sourcePath: template.dst, alias: comarkRender ? { 'comark/render': comarkRender } : {} }
 }
 
 /**
