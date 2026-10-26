@@ -12,6 +12,15 @@ declare module '#agent-discovery/source' {
   export default source
 }
 
+/**
+ * Pages written at prerender that the host's Nitro serves from disk, as
+ * normalized paths below `app.baseURL`. Empty in dev and on CDN presets.
+ */
+declare module '#agent-discovery-virtual/prerendered' {
+  const pages: Set<string>
+  export default pages
+}
+
 /** `@nuxtjs/mcp-toolkit`'s listing API when the site runs it, `null` otherwise. */
 declare module '#agent-discovery/mcp' {
   export const listMcpDefinitions: ((options?: { event?: import('h3').H3Event }) => Promise<{
