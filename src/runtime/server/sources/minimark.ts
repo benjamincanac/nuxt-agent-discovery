@@ -4,7 +4,7 @@ import type { DocNode } from './pipeline'
 /** The part of minimark's stringify state these handlers use. */
 interface MinimarkState {
   handlers: Record<string, MinimarkHandler | undefined>
-  context: { blockSeparator: string }
+  context: { blockSeparator: string, format: string }
   one: (node: unknown, state: MinimarkState, parent?: DocNode) => string
 }
 
@@ -67,13 +67,13 @@ const del: MinimarkHandler = (node, state) => `~~${phrasing(node, state)}~~`
  * class and style are the highlighter's output (`shiki`, theme names, CSS
  * variables), not something the source wrote, so they stay out.
  */
-const code: MinimarkHandler = (node) => {
+const code: MinimarkHandler = (node, state) => {
   const { className: _className, style: _style, language, ...rest } = node[1] || {}
   const text = textContent(node)
   const longest = Math.max(0, ...(text.match(/`+/g) || []).map(run => run.length))
   const fence = '`'.repeat(longest + 1)
   const padded = longest || /^ .* $/.test(text) ? ` ${text} ` : text
-  return `${fence}${padded}${fence}${inlineAttributes(attributes(language ? { lang: language, ...rest } : rest))}`
+  return `${fence}${padded}${fence}${mdcAttributes(state, language ? { lang: language, ...rest } : rest)}`
 }
 
 /** minimark numbers every ordered list from 1. Renumbered from `start`, nested lists aside. */
@@ -105,9 +105,9 @@ const li: MinimarkHandler = (node, state, parent) => {
 const br: MinimarkHandler = () => '<br>'
 
 /** minimark drops every attribute but `src` and `alt`. */
-const img: MinimarkHandler = (node) => {
+const img: MinimarkHandler = (node, state) => {
   const { src, alt, title, ...rest } = node[1] || {}
-  return `![${alt ?? ''}](${src}${title ? ` "${title}"` : ''})${inlineAttributes(attributes(rest))}`
+  return `![${alt ?? ''}](${src}${title ? ` "${title}"` : ''})${mdcAttributes(state, rest)}`
 }
 
 const BLOCK_TAGS = new Set(['blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'ol', 'p', 'pre', 'table', 'ul'])
@@ -151,6 +151,12 @@ function attributes(props: Record<string, unknown>): [string, string][] {
     if (value === undefined || value === null) {
       continue
     }
+    // MDC has no typed boolean attribute: the parser reads `{disabled}` and a
+    // YAML `disabled: true` as a bound `:disabled`, so that is what is written.
+    if (typeof value === 'boolean') {
+      entries.push([`:${key}`, String(value)])
+      continue
+    }
     const name = key === 'className' ? 'class' : key
     entries.push([name, Array.isArray(value) ? value.join(' ') : typeof value === 'object' ? JSON.stringify(value) : String(value)])
   }
@@ -175,6 +181,11 @@ function quote(value: string): string {
 
 function inlineAttributes(entries: [string, string][]): string {
   return entries.length ? `{${entries.map(([key, value]) => `${key}=${quote(value)}`).join(' ')}}` : ''
+}
+
+/** Attributes after an inline element, which only the MDC syntax has. */
+function mdcAttributes(state: MinimarkState, props: Record<string, unknown>): string {
+  return state.context.format === 'markdown/mdc' ? inlineAttributes(attributes(props)) : ''
 }
 
 /** A `:`-prefixed prop holding an array or an object, which `@nuxt/content` stores as JSON. */
@@ -203,6 +214,8 @@ function yamlAttributes(entries: [string, string][]): string {
     const parsed = structured(key, value)
     if (parsed !== undefined) {
       data[key.slice(1)] = parsed
+    } else if (key.startsWith(':') && (value === 'true' || value === 'false')) {
+      data[key.slice(1)] = value === 'true'
     } else {
       data[key] = value
     }

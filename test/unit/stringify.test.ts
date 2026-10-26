@@ -65,6 +65,22 @@ describe('content stringify: components', () => {
     expect(markdown).toBe('::section\n  :::button\n  One\n  :::\n\n  :::button\n  Two\n  :::\n::\n')
   })
 
+  it('writes a boolean prop the way the parser reads one back', async () => {
+    // Typed booleans only come from raw HTML or a hook; MDC reads them back bound.
+    const markdown = render([['u-button', { disabled: true, open: false }, ['p', {}, 'Go']]])
+
+    expect(markdown).toBe('::u-button{:disabled="true" :open="false"}\nGo\n::\n')
+    expect((await parse(markdown))[0]![1]).toEqual({ ':disabled': 'true', ':open': 'false' })
+  })
+
+  it('round-trips boolean props written as MDC and as YAML', async () => {
+    for (const source of ['::u-button{disabled}\nGo\n::\n', '::u-button\n---\nopen: false\nlabel: Go\n---\n::\n']) {
+      const tree = await parse(source)
+
+      expect(await parse(render(structuredClone(tree)))).toEqual(tree)
+    }
+  })
+
   it('writes slots with the `#name` shorthand', async () => {
     const markdown = render(await parse('::hero\n#title\nShip it\n::\n'))
 
@@ -105,6 +121,15 @@ describe('content stringify: markdown minimark 0.2 loses', () => {
 
     expect(markdown).toContain('<table>')
     expect(markdown).toContain('item')
+  })
+})
+
+describe('content stringify: markdown/html', () => {
+  it('writes no MDC attribute syntax', () => {
+    const nodes: DocNode[] = [['p', {}, ['code', { language: 'ts-type' }, 'string[]'], ' ', ['img', { src: '/a.png', alt: 'A', height: 150 }]]]
+    const markdown = stringify({ type: 'minimark', value: nodes }, { format: 'markdown/html', handlers: minimarkHandlers(nodes, 'markdown/html') })
+
+    expect(markdown).toBe('`string[]` ![A](/a.png)\n')
   })
 })
 
