@@ -144,11 +144,11 @@ export interface ModuleOptions {
   }
   cloudflare?: {
     /**
-     * Send the negotiated routes to the Worker ahead of Workers Static Assets
-     * (`assets.run_worker_first`) once a page is prerendered, so it negotiates
-     * too. Each of those requests then runs the Worker, which Cloudflare bills
-     * and the Free plan caps at 100,000 a day. `false` leaves prerendered pages
-     * to the assets, as HTML.
+     * Run the Worker ahead of Workers Static Assets (`assets.run_worker_first`)
+     * on every request outside `/_nuxt/` once a negotiable page is
+     * prerendered, so prerendered pages negotiate too. Cloudflare bills those
+     * requests, and the Free plan caps them at 100,000 a day. `false` leaves
+     * prerendered pages to the assets, as HTML.
      */
     runWorkerFirst?: boolean
   }
@@ -501,9 +501,9 @@ export default defineNuxtModule<ModuleOptions>({
             return
           }
           const page = route.fileName.replace(/(?:\/index)?\.html$/, '') || '/'
-          // Every page on Cloudflare: a wrangler rule is coarser than a route
-          // pattern, so the Worker also sees pages that never negotiate, and
-          // would render them again rather than serve the file.
+          // Every page on Cloudflare, where the Worker runs first on every
+          // page, negotiable or not, and would render it again rather than
+          // serve the file.
           if (cloudflare || isNegotiablePath(config, page)) {
             prerenderedPages.add(normalizePathname(decodePath(page)))
           }
@@ -1093,7 +1093,7 @@ export {}
         // The preset collects once more when it emits its table, late enough
         // to see an inline `defineRouteRules({ isr })`.
         setupVercelPreset(nitro, config, collectCachedRoutes)
-        setupCloudflarePreset(nitro, config, {
+        setupCloudflarePreset(nitro, {
           runWorkerFirst: options.cloudflare?.runWorkerFirst !== false,
           prerendered: () => [...prerenderedPages].some(page => isNegotiablePath(config, page))
         })
