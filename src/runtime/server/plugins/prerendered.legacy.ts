@@ -1,10 +1,32 @@
 import { decodePath } from 'ufo'
 import { defineEventHandler } from 'h3'
+import type { H3Event } from 'h3'
 import type { NitroApp } from 'nitropack/types'
 import { defineNitroPlugin, useRuntimeConfig } from 'nitropack/runtime'
 import prerendered from '#agent-discovery-virtual/prerendered'
 import negotiate from '../middleware/negotiate.legacy'
 import { normalizePathname } from '../../shared/negotiation'
+
+/** What Nitro 2 puts on `event.context.cloudflare` on a Cloudflare Worker. */
+interface CloudflareContext {
+  request?: Request
+  env?: { ASSETS?: { fetch: (request: Request) => Promise<Response> } }
+}
+
+/**
+ * The middleware's answer, or on a Cloudflare Worker, which has no static
+ * handler to fall through to, the HTML half from the assets binding: Nitro
+ * would render the page again otherwise. The `Vary` the middleware set stays.
+ */
+async function negotiateOrServe(event: H3Event): Promise<unknown> {
+  const negotiated = await negotiate(event)
+  const { request, env } = (event.context.cloudflare || {}) as CloudflareContext
+  if (negotiated !== undefined || event.handled || !env?.ASSETS || !request || (event.method !== 'GET' && event.method !== 'HEAD')) {
+    return negotiated
+  }
+  const response = await env.ASSETS.fetch(request)
+  return response.status === 404 ? undefined : response
+}
 
 /**
  * Negotiates the prerendered pages on Nitro 2. `prerendered.ts` is the Nitro 3
@@ -22,7 +44,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
   const base = `${useRuntimeConfig().app.baseURL}/`.replace(/\/+/g, '/')
   nitroApp.h3App.use(base, defineEventHandler((event) => {
     if (prerendered.has(normalizePathname(decodePath(event.path)))) {
-      return negotiate(event)
+      return negotiateOrServe(event)
     }
   }))
 
