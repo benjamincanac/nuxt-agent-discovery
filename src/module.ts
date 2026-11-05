@@ -21,6 +21,7 @@ import { SKILLS_INDEX, SKILLS_PREFIX, appBase, withAppBase } from './runtime/sha
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
+import { isCloudflareWorkerPreset, setupCloudflarePreset } from './presets/cloudflare'
 import { setupVercelPreset } from './presets/vercel'
 import { createFenceTracker, formatLinkHeader, hasFileExtension, isNegotiablePath, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
@@ -140,6 +141,16 @@ export interface ModuleOptions {
   skills?: false | {
     /** Directory holding one subdirectory per skill, relative to the root. */
     dir?: string
+  }
+  cloudflare?: {
+    /**
+     * Run the Worker ahead of Workers Static Assets (`assets.run_worker_first`)
+     * on every request outside `/_nuxt/` once a negotiable page is
+     * prerendered, so prerendered pages negotiate too. Cloudflare bills those
+     * requests, and the Free plan caps them at 100,000 a day. `false` leaves
+     * prerendered pages to the assets, as HTML.
+     */
+    runWorkerFirst?: boolean
   }
 }
 
@@ -454,6 +465,9 @@ export default defineNuxtModule<ModuleOptions>({
       logger.warn('No content source resolved, so markdown negotiation is off. Install `@nuxt/content`, point `agentDiscovery.source` at a file exporting an `AgentContentSource`, or set `source: false` if another route already serves the raw markdown.')
     }
 
+    // Out here so the Cloudflare preset can tell whether a prerendered page negotiates.
+    const prerenderedPages = new Set<string>()
+
     if (negotiates) {
       addServerHandler({ middleware: true, handler: serverVariant('middleware/negotiate') })
 
@@ -461,14 +475,16 @@ export default defineNuxtModule<ModuleOptions>({
       // register, so on a host serving the prerendered files itself the
       // middleware above never sees those pages. The plugin runs it ahead of
       // that handler, for the pages written at prerender only: everything else
-      // keeps its place behind the site's own middleware.
+      // keeps its place behind the site's own middleware. A Cloudflare Worker
+      // has no static handler, so there the plugin serves the HTML half from
+      // the assets binding.
       addNitroPlugin(serverVariant('plugins/prerendered', 'nitro3'))
-      const prerenderedPages = new Set<string>()
       let serveStatic = false
+      let cloudflare = false
       // On the config rather than on the instance, which the prerenderer is
       // not: it is created from the config. A function, so the server build
       // after prerender reads the set filled in by then. Empty where a CDN
-      // serves the files, not Nitro.
+      // serves the files, not Nitro or the Worker.
       nuxt.hook('nitro:config', (nitroConfig) => {
         nitroConfig.virtual ||= {}
         nitroConfig.virtual['#agent-discovery-virtual/prerendered'] = () => {
@@ -476,7 +492,8 @@ export default defineNuxtModule<ModuleOptions>({
         }
       })
       nuxt.hook('nitro:init', (nitro) => {
-        serveStatic = Boolean(nitro.options.serveStatic)
+        cloudflare = isCloudflareWorkerPreset(nitro.options.preset)
+        serveStatic = Boolean(nitro.options.serveStatic) || cloudflare
         nitro.hooks.hook('prerender:route', (route) => {
           // Written to `fileName`, the path below `app.baseURL` the static
           // handler resolves the request to.
@@ -484,7 +501,10 @@ export default defineNuxtModule<ModuleOptions>({
             return
           }
           const page = route.fileName.replace(/(?:\/index)?\.html$/, '') || '/'
-          if (isNegotiablePath(config, page)) {
+          // Every page on Cloudflare, where the Worker runs first on every
+          // page, negotiable or not, and would render it again rather than
+          // serve the file.
+          if (cloudflare || isNegotiablePath(config, page)) {
             prerenderedPages.add(normalizePathname(decodePath(page)))
           }
         })
@@ -1073,6 +1093,10 @@ export {}
         // The preset collects once more when it emits its table, late enough
         // to see an inline `defineRouteRules({ isr })`.
         setupVercelPreset(nitro, config, collectCachedRoutes)
+        setupCloudflarePreset(nitro, {
+          runWorkerFirst: options.cloudflare?.runWorkerFirst !== false,
+          prerendered: () => [...prerenderedPages].some(page => isNegotiablePath(config, page))
+        })
 
         // Every queued twin passes here before Nitro writes it. One the site
         // serves itself is never frozen. One that answered a redirect or a 404
