@@ -9,8 +9,8 @@ import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, 
  * negotiation happens at the edge, so this covers dev and the other presets,
  * where those rewrites don't exist.
  *
- * Nitro serves prerendered files ahead of user handlers, so on a built Node
- * server only `.md` URLs and never-prerendered pages reach here.
+ * Nitro serves prerendered files ahead of user handlers, so for those pages
+ * `plugins/prerendered` runs this ahead of the static handler as well.
  */
 export default defineEventHandler(async (event) => {
   const path = getRequestPath(event)

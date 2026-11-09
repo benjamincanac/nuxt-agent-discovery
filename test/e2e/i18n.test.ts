@@ -274,6 +274,41 @@ describe('prerender', () => {
 })
 
 /**
+ * Nitro's static handler runs ahead of every server handler, so a prerendered
+ * page used to answer an agent with its HTML file. The French pages above are
+ * request-time and never showed it.
+ */
+describe('prerendered pages', () => {
+  it('negotiates a prerendered page for `Accept: text/markdown` and a known agent', async () => {
+    for (const headers of [{ Accept: 'text/markdown' }, { 'User-Agent': CLAUDE_BOT }] as Record<string, string>[]) {
+      const response = await fetch('/en/docs/getting-started', { headers })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+      expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
+      expect(await response.text()).toContain(`canonical_url: "${SITE_URL}/en/docs/getting-started"`)
+    }
+  })
+
+  it('still serves the HTML file to a browser, labelled with `Vary`', async () => {
+    const response = await fetch('/en/docs/getting-started', { headers: { Accept: 'text/html' } })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    expect(response.headers.get('vary')).toBe(MARKDOWN_VARY)
+    // Off the file: only Nitro's asset layer sets an `ETag`.
+    expect(response.headers.get('etag')).not.toBe(null)
+  })
+
+  it('follows a prerendered section to its first document', async () => {
+    const response = await fetch('/en/docs/components', { headers: { Accept: 'text/markdown' }, redirect: 'manual' })
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('/raw/en/docs/components/button.md')
+  })
+})
+
+/**
  * On this shape of site `/` only redirects browsers to a locale, `llms.txt`
  * lists the locale roots, and `sitemap.md` puts them first: `/en` is the page
  * agents actually land on. So the landing documents get the resources block

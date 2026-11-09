@@ -1009,6 +1009,58 @@ describe('module setup: prerender', () => {
   })
 })
 
+describe('module setup: prerendered pages', () => {
+  type Route = { route: string, fileName?: string, contentType?: string, error?: Error, skip?: boolean }
+
+  /** The page list the plugin reads, after Nitro wrote `routes` on a preset that does or does not serve them. */
+  const prerendered = async (routes: Route[], serveStatic: boolean) => {
+    const nuxt = await runModule({ excludePrefixes: { extend: ['/admin'] } })
+    const nitroConfig: { virtual?: Record<string, () => string> } = {}
+    await nuxt.hooks.callHook('nitro:config' as never, nitroConfig as never)
+    const hooks: Record<string, (route: Route) => void> = {}
+    const nitro = {
+      options: { dev: false, static: false, preset: 'node-server', serveStatic, routeRules: {}, runtimeConfig: { agentDiscovery: {} } },
+      hooks: { hook: (name: string, callback: (route: Route) => void) => { hooks[name] = callback } }
+    }
+    await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
+    for (const route of routes) {
+      hooks['prerender:route']!(route)
+    }
+    const code = nitroConfig.virtual!['#agent-discovery-virtual/prerendered']!()
+    return JSON.parse(code.match(/new Set\((.*)\)/)![1]!) as string[]
+  }
+
+  const html = 'text/html;charset=utf-8'
+
+  it('lists the negotiable pages Nitro wrote as HTML', async () => {
+    expect(await prerendered([
+      { route: '/', fileName: '/index.html', contentType: html },
+      { route: '/docs/guide', fileName: '/docs/guide/index.html', contentType: html },
+      { route: '/docs/caf%C3%A9', fileName: '/docs/caf%C3%A9/index.html', contentType: html },
+      // Not pages, or not written.
+      { route: '/docs/guide/_payload.json', fileName: '/docs/guide/_payload.json', contentType: 'application/json' },
+      { route: '/raw/docs/guide.md', fileName: '/raw/docs/guide.md', contentType: 'text/markdown; charset=utf-8' },
+      { route: '/docs/broken', fileName: '/docs/broken/index.html', contentType: html, error: new Error('[500]') },
+      { route: '/docs/skipped', fileName: '/docs/skipped/index.html', contentType: html, skip: true },
+      // Written, but never negotiated.
+      { route: '/admin/panel', fileName: '/admin/panel/index.html', contentType: html }
+    ], true)).toEqual(['/', '/docs/guide', '/docs/café'])
+  })
+
+  it('lists nothing where the CDN serves the files', async () => {
+    expect(await prerendered([{ route: '/docs/guide', fileName: '/docs/guide/index.html', contentType: html }], false)).toEqual([])
+  })
+
+  it('leaves `Vary` on `/` to whatever negotiated the response', async () => {
+    // A route rule would also label a prerendered `/` a CDN serves as is.
+    const nuxt = await runModule()
+    const headers = (nuxt.options.routeRules as Record<string, { headers: Record<string, string> }>)['/']!.headers
+
+    expect(headers.Link).toContain('rel="sitemap"')
+    expect(headers).not.toHaveProperty('Vary')
+  })
+})
+
 describe('module setup: sitemap.md exclusion', () => {
   const link = { href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown', title: 'Sitemap' }
 

@@ -250,6 +250,18 @@ describe('sitemap.md sections', () => {
     expect(body).toContain('## Pages')
     expect(body).toContain(`[Basic](${SITE_URL}/raw/index.md)`)
   })
+
+  it('orders sections the way the navigation does, not by path', async () => {
+    const body = await (await fetch('/sitemap.md')).text()
+
+    // `1.getting-started.md` sorts before `2.components/`, though `/docs/components`
+    // sorts before `/docs/getting-started`.
+    for (const heading of ['## Pages', '## Getting started', '## UI Components']) {
+      expect(body).toContain(heading)
+    }
+    expect(body.indexOf('## Pages')).toBeLessThan(body.indexOf('## Getting started'))
+    expect(body.indexOf('## Getting started')).toBeLessThan(body.indexOf('## UI Components'))
+  })
 })
 
 describe('mcp server card', () => {

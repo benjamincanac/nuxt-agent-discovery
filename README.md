@@ -10,7 +10,7 @@ Markdown content negotiation, CDN-level rewrites, and discovery documents for AI
 ## Features
 
 - `Accept` / User-Agent content negotiation with real q-value parsing (RFC 9110)
-- Vercel Build Output routes so prerendered pages negotiate at the edge, and a Nitro middleware for dev and every other host
+- Vercel Build Output routes so prerendered pages negotiate at the edge, and a Nitro middleware for dev and every host where Nitro serves the pages itself
 - Correct `Vary` and `Link` headers on both halves of a negotiated page, CDN-served files included
 - A raw markdown route driven by a pluggable content adapter: `@nuxt/content` built in, comark through a factory, or your own
 - A `nuxt-llms` bridge: adapter-backed sections and the full document come from the content adapter, hand-written links stay yours, plus the details section `nuxt-llms` has no field for
@@ -100,7 +100,7 @@ export default defineNuxtConfig({
 - **`errors`** Answer errors with a markdown body carrying recovery links when the request prefers it.
 - **`notAcceptable`** See [Strict content negotiation](#strict-content-negotiation).
 - **`markdownFormat`** How MDC components are written in the raw markdown. `'markdown/comark'` emits the `::component` block syntax the source files use, `'markdown/html'` restores the HTML-style tags of earlier releases.
-- **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings.
+- **`sitemap.markdown`** Serve `/sitemap.md` from the content adapter. Pass an object to control grouping: `expand` lists prefixes whose children each get their own section, `labels` overrides derived headings. Without a label, a section is headed by the title the adapter gives its directory (`.navigation.yml` with `@nuxt/content`), then by the path segment.
 - **`llms.details`** Markdown blocks for the details section of `llms.txt`, the space llmstxt.org reserves between the blockquote and the first `##`. See [llms.txt sections](#llmstxt-sections).
 - **`skills`** Agent Skills served under `/.well-known/skills/`. Each subdirectory of `dir` holding a `SKILL.md` with a `description` becomes a skill, its files listed from disk into a generated index. `false` to disable. The index and the files are prerendered unless `llms.prerender` is off, see [Prerendering](#prerendering).
 - **`robots.aiPolicy`** Feeds the user-agent list into `@nuxtjs/robots` when installed, otherwise generates `/robots.txt` (skipped when a static one exists). **`robots.contentSignal`** adds the `Content-Signal` line, `false` to omit. **`robots.disallow`** adds `Disallow` lines to the wildcard group, in the generated file and through `@nuxtjs/robots` alike. Wildcard only: the per-agent `Allow` groups exempt their agents from these rules, so what search engines skip stays reachable for the agents the site names.
@@ -187,7 +187,7 @@ export default defineAgentContentSource({
 })
 ```
 
-`list(selector, event)` returns every markdown-representable page and feeds `sitemap.md`, `listAgentPages()` and the `nuxt-llms` bridge; with a `selector` (a `llms.sections` entry handed over verbatim) it returns only the pages the selector names, or `null` when it isn't one it understands. It is optional for a get-only source: the listings come out empty and `get()` keeps serving documents. `get(route, event)` resolves one route to its markdown. `firstLeaf(route, event)` is optional and resolves a section path to its first document. Site-relative links are absolutized for you.
+`list(selector, event)` returns every markdown-representable page and feeds `sitemap.md`, `listAgentPages()` and the `nuxt-llms` bridge; with a `selector` (a `llms.sections` entry handed over verbatim) it returns only the pages the selector names, or `null` when it isn't one it understands. It is optional for a get-only source: the listings come out empty and `get()` keeps serving documents. `get(route, event)` resolves one route to its markdown. `firstLeaf(route, event)` is optional and resolves a section path to its first document. `sectionTitles(event)` is optional and returns directory titles keyed by route (`{ '/getting-started': 'Getting Started' }`), which head the `sitemap.md` sections. Site-relative links are absolutized for you.
 
 ### llms.txt sections
 
@@ -372,7 +372,9 @@ Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so on
 
 ### Other hosts
 
-The Nitro middleware runs everywhere, dev included. Caveat: Nitro serves prerendered files ahead of user handlers, so on a built server an already-prerendered page bypasses the middleware and stays HTML. For prerendered pages behind a generic CDN, negotiate at the edge with the Vercel preset instead, render those routes on demand, and add the `Vary` header for the raw prefix and `/sitemap.md` in that host's own configuration.
+The Nitro middleware runs everywhere, dev included. Nitro serves prerendered files ahead of every server handler, so on a preset where it serves them itself, like `node-server` or `bun`, a Nitro plugin runs the middleware ahead of the static handler for the pages written at prerender. Every other page keeps the middleware where it was, behind the site's own middleware.
+
+On a host whose CDN serves the prerendered files, like Netlify or Cloudflare, those requests never reach Nitro, so the pages stay HTML and carry no `Vary`. Render them on demand there, or negotiate at the edge with the Vercel preset, and add the `Vary` header for the raw prefix and `/sitemap.md` in that host's own configuration.
 
 ### Base path
 

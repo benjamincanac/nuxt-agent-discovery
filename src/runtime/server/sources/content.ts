@@ -6,6 +6,7 @@ import type { H3Event } from 'h3'
 import collections from '#content/manifest'
 import { callServerHook } from '#agent-discovery/server'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
+import { minimarkHandlers } from './minimark'
 import { prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
 import type { AgentContentSource, AgentListEntry, AgentRequestEvent, AgentSectionSelector } from '../../shared/types'
@@ -57,21 +58,44 @@ const source: AgentContentSource = {
     const results = await Promise.all(names.map(async (collection) => {
       // `@nuxt/content` types its queries with Nitro 2's event, and on Nuxt 5
       // runs on the compat layer, which gives the event that shape.
+      // `seo` too: a landing page often sets only `seo.title`.
       const query = queryCollection(event as H3Event, collection)
-        .select('path', 'title', 'description')
+        .select('path', 'stem', 'title', 'description', 'seo')
         .where('path', 'NOT LIKE', '%/.navigation')
       for (const filter of contentFilters || []) {
         query.where(filter.field as never, filter.operator as never, filter.value as never)
       }
-      const pages = await query.order('path', 'ASC').all() as { path: string, title?: string, description?: string }[]
+      // By `stem`, which keeps the `1.`/`2.` filename prefixes the path has
+      // dropped, so the listing follows the site's own navigation. The
+      // homepage's stem is `index`, so it is moved back to the top.
+      const pages = await query.order('stem', 'ASC').all() as { path: string, title?: string, description?: string, seo?: { title?: string } }[]
+      pages.sort((a, b) => Number(b.path === '/') - Number(a.path === '/'))
       return pages.map((page): AgentListEntry => ({
         route: page.path,
-        title: page.title,
+        title: page.title || page.seo?.title,
         description: page.description,
         section: titleCase(String(collection))
       }))
     }))
     return results.flat()
+  },
+
+  /** The `title` of every `.navigation.yml`, keyed by the directory it sits in. */
+  async sectionTitles(event: AgentRequestEvent) {
+    const titles: Record<string, string> = {}
+    for (const collection of pageCollections()) {
+      const entries = await queryCollection(event as H3Event, collection)
+        .select('path', 'title')
+        .where('path', 'LIKE', '%/.navigation')
+        .all() as { path: string, title?: string }[]
+      for (const entry of entries) {
+        const directory = entry.path.slice(0, -'/.navigation'.length) || '/'
+        if (entry.title && !titles[directory]) {
+          titles[directory] = entry.title
+        }
+      }
+    }
+    return titles
   },
 
   /**
@@ -145,9 +169,10 @@ const source: AgentContentSource = {
     // says `markdown/comark`. Mapped here so both adapters stay byte-identical
     // on the one option, which `test/e2e/expected.ts` holds them to.
     const format = getAgentMarkdownFormat(event) === 'markdown/html' ? 'markdown/html' : 'markdown/mdc'
+    const handlers = minimarkHandlers(page.body.value as unknown as DocNode[], format)
 
     return {
-      markdown: stringify({ ...page.body, type: 'minimark' }, { format }),
+      markdown: stringify({ ...page.body, type: 'minimark' }, { format, handlers: handlers as never }),
       title: page.title,
       description: page.description
     }

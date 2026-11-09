@@ -141,6 +141,13 @@ describe('comark listing', () => {
     expect(entries?.every(entry => entry.route.startsWith('/docs'))).toBe(true)
   })
 
+  it('titles the directories `sitemap.md` groups pages under', async () => {
+    const titles = await source.sectionTitles!(event)
+
+    expect(Object.keys(titles)).toContain('/docs')
+    expect(titles['/docs']).toBeTruthy()
+  })
+
   it('returns null for a selector belonging to another adapter', async () => {
     // A site swapping backend keeps its `llms.sections` config, so the
     // `@nuxt/content` keys arrive here. Claiming them would list the wrong
