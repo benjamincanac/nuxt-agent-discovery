@@ -38,7 +38,7 @@ ls public/robots.txt vercel.json 2>/dev/null
 Record:
 
 - **Content backend**: `@nuxt/content`, comark, or something else. Decides the `source` option.
-- **Deploy target**: Vercel gets edge negotiation, everything else gets the middleware only, where a prerendered page keeps serving HTML to agents.
+- **Deploy target**: Vercel gets edge negotiation, Cloudflare Workers get it through `run_worker_first`, which runs the Worker on every request outside `/_nuxt/` (billed, and capped at 100,000 a day on the Free plan), everything else gets the middleware only, where a prerendered page keeps serving HTML to agents.
 - **Route rules carrying `isr`, `swr` or `cache`**, and which page patterns they cover. The module detects these and switches those patterns to a 307, but you need to know which pages change behaviour.
 - **i18n locales**, which become a wildcard segment in a `routes` pattern rather than one pattern per locale. With `@nuxtjs/i18n` installed the module detects the locale roots (`/en`, `/fr`) itself and wraps their twins as homepages, so they need no entry either.
 - **Companion modules**: `@nuxtjs/robots` and `@nuxtjs/sitemap` take over `robots.txt` and `sitemap.xml`, and the module hands off to them automatically.
