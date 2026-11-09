@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.8.2](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.8.1...v0.8.2) (2026-11-09)
+
 ## [0.8.1](https://github.com/benjamincanac/nuxt-agent-discovery/compare/v0.8.0...v0.8.1) (2026-10-26)
 
 ### Bug Fixes
