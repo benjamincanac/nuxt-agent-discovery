@@ -8,9 +8,9 @@ const templates = vi.hoisted(() => [] as { filename: string, getContents: () => 
 vi.mock('@nuxt/kit', async importOriginal => ({
   ...await importOriginal<typeof import('@nuxt/kit')>(),
   useLogger: () => ({ warn }),
-  addTemplate: (template: { filename: string, getContents: () => string }) => {
+  addServerTemplate: (template: { filename: string, getContents: () => string }) => {
     templates.push(template)
-    return { ...template, dst: `/.nuxt/${template.filename}` }
+    return template
   },
   tryResolveModule: async (id: string) => `/node_modules/${id}.mjs`
 }))
@@ -80,7 +80,7 @@ describe('resolveContentSource on v4', () => {
       { name: 'content', from: '/app/server/content' }
     ])
 
-    expect(source.sourcePath).toBe('/.nuxt/agent-discovery/content-source.mjs')
+    expect(source.sourcePath).toBe('#nuxt-agent-discovery/content-source')
     expect(source.alias).toEqual({ 'comark/render': '/node_modules/comark/render.mjs' })
     expect(template.getContents()).toBe([
       'import { content } from "/app/server/content"',

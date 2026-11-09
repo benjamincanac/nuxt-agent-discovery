@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { addTemplate, tryResolveModule, useLogger } from '@nuxt/kit'
+import { addServerTemplate, tryResolveModule, useLogger } from '@nuxt/kit'
 import type { Resolver } from '@nuxt/kit'
 import type { Nuxt } from '@nuxt/schema'
 import { dirname, join } from 'pathe'
@@ -69,7 +69,12 @@ export async function resolveContentSource(nuxt: Nuxt, resolve: Resolver['resolv
  * goes through the comark adapter. Which file defines `content` depends on the
  * site (`server/content.ts`, a v3 `content.config.ts`, or neither), so it is
  * read off the server import v4 registers rather than guessed. Nitro has it by
- * `nitro:init`, before Nuxt writes its templates.
+ * `nitro:init`, before it loads the template.
+ *
+ * A virtual module rather than a file in the build dir: Nitro's dev server
+ * externalizes that file, and Node then cannot load the extension-less path v4
+ * registers, nor the `#content/*` virtuals behind it. Named so it does not
+ * start with `#agent-discovery`, which that alias would capture as a prefix.
  */
 async function resolveComarkContentSource(nuxt: Nuxt, contentEntry: string): Promise<{ sourcePath: string, alias: Record<string, string> }> {
   let contentImport: string | undefined
@@ -78,9 +83,8 @@ async function resolveComarkContentSource(nuxt: Nuxt, contentEntry: string): Pro
     contentImport = imports?.find(entry => entry.name === 'content' && (!entry.as || entry.as === 'content'))?.from
   })
 
-  const template = addTemplate({
-    filename: 'agent-discovery/content-source.mjs',
-    write: true,
+  const template = addServerTemplate({
+    filename: '#nuxt-agent-discovery/content-source',
     getContents: () => {
       // Thrown rather than falling back to no source: negotiation is already
       // on, and every negotiated page would answer agents a 404.
@@ -98,7 +102,7 @@ async function resolveComarkContentSource(nuxt: Nuxt, contentEntry: string): Pro
   // The same rule as `minimark/stringify` on v3: render with the comark that
   // parsed the tree, not whichever copy the package manager hoisted.
   const comarkRender = await tryResolveModule('comark/render', [contentEntry])
-  return { sourcePath: template.dst, alias: comarkRender ? { 'comark/render': comarkRender } : {} }
+  return { sourcePath: template.filename, alias: comarkRender ? { 'comark/render': comarkRender } : {} }
 }
 
 /**
