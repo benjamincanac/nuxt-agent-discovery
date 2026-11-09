@@ -688,6 +688,24 @@ export {}
       disableContentRawMarkdown(nuxt)
     }
 
+    // The comark adapter's selector key. `@nuxt/content` v3 declares its own
+    // `contentCollection`, so only the other sources need this one.
+    if (hasLlms && sourcePath && (contentV4 || !builtinContentSource)) {
+      const sectionTypes = addTypeTemplate({
+        filename: 'agent-discovery/llms.d.ts',
+        getContents: () => `declare module 'nuxt-llms' {
+  interface LLMsSection {
+    /** Navigation path whose subtree the section lists, e.g. \`/getting-started\`. */
+    navigation?: string
+  }
+}
+
+export {}
+`
+      }, { node: true }).dst
+      nuxt.options.nitro.typescript = defu(nuxt.options.nitro.typescript, { tsConfig: { include: [sectionTypes] } })
+    }
+
     // Blocks rendered between the `llms.txt` blockquote and its first `##`.
     // Normalized here so the runtime joins a list it can trust.
     let llmsDetails = (typeof options.llms?.details === 'string' ? [options.llms.details] : options.llms?.details || [])
