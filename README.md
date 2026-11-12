@@ -88,7 +88,7 @@ export default defineNuxtConfig({
 - **`siteUrl`** Canonical site URL. Left empty it resolves from `site.url`, then `llms.domain`, then per request from the incoming host. Under `app.baseURL` it may be written with or without the base path, and the module adds it when missing.
 - **`siteName`** Used in `sitemap.md` and the generated `/raw/index.md`. Falls back to `site.name`.
 - **`rawPrefix`** Where raw markdown representations live.
-- **`source`** `'auto'` detects `@nuxt/content`, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
+- **`source`** `'auto'` detects `@nuxt/content` v3 or v4, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
 - **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one segment, `**` one or more. `raw` overrides the raw destination on exact patterns; point it under `rawPrefix` or an excluded prefix so the destination never re-enters negotiation, and the build refuses one that negotiates back to itself. Pages the content source doesn't hold answer agents a 404 by design, so on a site mixing hand-written pages with a partial content directory, narrow the patterns or use `excludePrefixes`.
 - **`excludePrefixes.extend`** Extra path prefixes on top of the defaults (`/_`, `/api/`, `/mcp`, `/.well-known/`). An excluded path is not a page anywhere: it never negotiates, no listing includes it, and the raw route answers 404 for it. Server code can still reach one through the `includeExcluded` option on `getAgentDocument()` and `listAgentPages()`. Add any standalone `.md` document the site serves itself. **`.replace`** replaces the list.
 - **`userAgents.extend`** Extra user agents on top of the defaults (26 agents from `ai.robots.txt`, see `src/defaults.ts`). **`.replace`** replaces the list.
@@ -138,7 +138,7 @@ A path naming a section rather than a page redirects 302 to the section's first 
 
 ## Content sources
 
-**`'auto'` / `@nuxt/content`** (default when the module is installed): queries every `type: 'page'` collection and stringifies with `minimark/stringify`, resolved from `@nuxt/content` itself so the stringifier is always the one that produced the tree. The output mirrors the raw markdown route `@nuxt/content` registers itself when `nuxt-llms` is present, related links included, so nothing changes for agents when this module takes over. A site transforming MDC components into plain markdown hooks `agent-discovery:document` before the tree is stringified:
+**`'auto'` / `@nuxt/content`** (default when the module is installed): on v3, queries every `type: 'page'` collection and stringifies with `minimark/stringify`, resolved from `@nuxt/content` itself so the stringifier is always the one that produced the tree. The output mirrors the raw markdown route `@nuxt/content` registers itself when `nuxt-llms` is present, related links included, so nothing changes for agents when this module takes over. A site transforming MDC components into plain markdown hooks `agent-discovery:document` before the tree is stringified:
 
 ```ts
 // server/plugins/agent-discovery.ts
@@ -148,6 +148,8 @@ export default defineNitroPlugin((nitroApp) => {
   })
 })
 ```
+
+On v4, which serves comark trees, the same detection wires v4's server `content` instance to the comark adapter below, so a v4 site needs no source file of its own. The raw twins and `/sitemap.md` are prerendered as on v3. The comark adapter's rules apply: `agent-discovery:document` receives comark's `ContentFile`, and a `llms.sections` entry selects pages with `navigation` rather than `contentCollection`.
 
 **comark**, via `createComarkSource()`. comark sites construct their own content instance, so pass an accessor:
 
@@ -234,7 +236,7 @@ export default defineNuxtConfig({
 
 It is merged but unreleased, so on 0.2.0 and earlier it governs the skill files only, and it fails `nuxt typecheck` there since the released options carry no `prerender` key.
 
-The skill files are bundled server assets either way, so turning their prerender off moves static files onto the server rather than making them fresher. It is there so one option covers both. The raw twins and `/sitemap.md` keep their own rule and prerender whatever it says: they come from the built-in `@nuxt/content` source, which compiles the content into the build. A static build has no server at all, so `nuxt generate` prerenders the skill files however the option is set.
+The skill files are bundled server assets either way, so turning their prerender off moves static files onto the server rather than making them fresher. It is there so one option covers both. The raw twins and `/sitemap.md` keep their own rule and prerender whatever it says: they come from the built-in `@nuxt/content` source, whose content is fixed at build time on v3 and v4 alike. A static build has no server at all, so `nuxt generate` prerenders the skill files however the option is set.
 
 Worth knowing before you set it: the crawler is handed the twins of pages that never render as HTML while `/llms.txt` is being prerendered, so opting `/llms.txt` out drops those twins from the build as well.
 
