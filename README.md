@@ -149,6 +149,8 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
+**`@nuxt/content` v4** (`@nuxt/content4`, or `@nuxt/content` at version 4): picked by `'auto'` from the installed version, or forced with `source: 'content4'`. v4 is built on comark-content, so this reads the server `content` instance v4 auto-imports (one instance or a hub) through the comark adapter below. A v3 `llms.sections` entry naming a `contentCollection` keeps working, since v4 turns each collection into a named hub instance; `contentFilters` has no equivalent there and is ignored. `agent-discovery:document` receives comark's `ContentFile`.
+
 **comark**, via `createComarkSource()`. comark sites construct their own content instance, so pass an accessor:
 
 ```ts

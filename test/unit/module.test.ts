@@ -1113,6 +1113,62 @@ describe('module setup: content source', () => {
   })
 })
 
+describe('module setup: @nuxt/content v4 source', () => {
+  /** A `modulesDir` holding a stand-in `@nuxt/content` package at `version`. */
+  function fakeContentPackage(name: string, version: string): string {
+    const modulesDir = join(mkdtempSync(join(tmpdir(), 'agent-discovery-content-')), 'node_modules')
+    const dir = join(modulesDir, '@nuxt/content')
+    mkdirSync(join(dir, 'dist'), { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version, type: 'module', exports: { '.': './dist/module.mjs' } }))
+    writeFileSync(join(dir, 'dist/module.mjs'), 'export default {}\n')
+    return modulesDir
+  }
+
+  const sourceAlias = (nuxt: FakeNuxt) => nuxt.options.nitro.alias?.['#agent-discovery/source']
+
+  it('keeps the v3 adapter for `@nuxt/content` 3', async () => {
+    const nuxt = await runModule()
+
+    expect(sourceAlias(nuxt)).toMatch(/sources[\\/]content$/)
+    expect(nuxt.options.nitro.alias?.['minimark/stringify']).toBeTruthy()
+  })
+
+  it('picks the v4 adapter when the site lists `@nuxt/content4`', async () => {
+    // v4 installs under the `@nuxt/content` module name, so the package name
+    // the site listed is what tells the two apart.
+    const nuxt = await runModule({}, {}, undefined, undefined, { modules: ['@nuxt/content4'] })
+
+    expect(sourceAlias(nuxt)).toMatch(/sources[\\/]content-v4$/)
+    expect(nuxt.options.nitro.alias?.['minimark/stringify']).toBeUndefined()
+  })
+
+  it('picks the v4 adapter when `@nuxt/content` resolves at version 4', async () => {
+    const nuxt = await runModule({}, {}, undefined, undefined, { modulesDir: [fakeContentPackage('@nuxt/content', '4.0.0')] })
+
+    expect(sourceAlias(nuxt)).toMatch(/sources[\\/]content-v4$/)
+  })
+
+  it('picks the v4 adapter for `@nuxt/content4` aliased as `@nuxt/content`', async () => {
+    const nuxt = await runModule({}, {}, undefined, undefined, { modulesDir: [fakeContentPackage('@nuxt/content4', '4.0.0')] })
+
+    expect(sourceAlias(nuxt)).toMatch(/sources[\\/]content-v4$/)
+  })
+
+  it('forces the v4 adapter with `source: \'content4\'`', async () => {
+    const nuxt = await runModule({ source: 'content4' })
+
+    expect(sourceAlias(nuxt)).toMatch(/sources[\\/]content-v4$/)
+  })
+
+  it('prerenders the raw twins like the v3 adapter', async () => {
+    const nuxt = await runModule({ source: 'content4' })
+    const routes = new Set<string>()
+    await nuxt.hooks.callHook('prerender:routes' as never, { routes } as never)
+
+    expect(routes).toContain('/raw/index.md')
+  })
+})
+
 describe('module setup: api-catalog', () => {
   // The catalog groups links carrying an `anchor` with a `service-desc` or
   // `service-doc` rel. A site with no `nuxt-llms`, no skills and no MCP card

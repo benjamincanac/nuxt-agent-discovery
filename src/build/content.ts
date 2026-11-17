@@ -1,4 +1,7 @@
-import { tryResolveModule, useLogger } from '@nuxt/kit'
+import { existsSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'pathe'
+import { hasNuxtModule, tryResolveModule, useLogger } from '@nuxt/kit'
 import type { Resolver } from '@nuxt/kit'
 import type { Nuxt } from '@nuxt/schema'
 
@@ -12,6 +15,43 @@ const logger = useLogger('nuxt-agent-discovery')
 
 /** `@nuxt/content`'s llms nitro plugin, by the path its feature registers. */
 const CONTENT_LLMS_PLUGIN = /features[\\/]llms[\\/]runtime[\\/]server[\\/]content-llms\.plugin/
+
+/** The `package.json` above a resolved entry. v4 does not export its own. */
+function readPackageAbove(entry: string): { name?: string, version?: string } | undefined {
+  let dir = dirname(entry.startsWith('file:') ? fileURLToPath(entry) : entry)
+  while (dir !== dirname(dir)) {
+    const file = join(dir, 'package.json')
+    if (existsSync(file)) {
+      try {
+        const pkg = JSON.parse(readFileSync(file, 'utf8')) as { name?: string, version?: string }
+        if (pkg.name) {
+          return pkg
+        }
+      } catch {
+        return undefined
+      }
+    }
+    dir = dirname(dir)
+  }
+  return undefined
+}
+
+/**
+ * Which `@nuxt/content` major the site runs. v4 keeps `@nuxt/content` as its
+ * module name, so `hasNuxtModule` cannot tell the two apart: it ships as
+ * `@nuxt/content4`, or as `@nuxt/content` at version 4 (an npm alias included).
+ */
+export async function resolveContentMajor(nuxt: Nuxt): Promise<3 | 4> {
+  if (hasNuxtModule('@nuxt/content4', nuxt)) {
+    return 4
+  }
+  const entry = await tryResolveModule('@nuxt/content', nuxt.options.modulesDir)
+  const pkg = entry ? readPackageAbove(entry) : undefined
+  if (pkg?.name === '@nuxt/content4' || Number(pkg?.version?.split('.')[0]) >= 4) {
+    return 4
+  }
+  return 3
+}
 
 /**
  * The built-in content adapter: the runtime source, and the stringifier the raw

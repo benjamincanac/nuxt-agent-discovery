@@ -20,7 +20,7 @@ import { mcpExcludedGroups } from './runtime/shared/defaults'
 import { SKILLS_INDEX, SKILLS_PREFIX, appBase, withAppBase } from './runtime/shared/paths'
 import { isValidRel } from './rels'
 import { scanSkills } from './skills'
-import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
+import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentMajor, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
 import { createFenceTracker, formatLinkHeader, hasFileExtension, isNegotiablePath, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
@@ -56,12 +56,14 @@ export interface ModuleOptions {
   rawPrefix?: string
   /**
    * Content adapter feeding the raw markdown route, `sitemap.md` and the
-   * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content`, a path points at a
-   * file exporting an `AgentContentSource`, `false` disables every
-   * content-backed feature and leaves negotiation running against whatever
-   * already serves the raw markdown.
+   * `nuxt-llms` bridge. `'auto'` detects `@nuxt/content` and picks the v3 or
+   * v4 adapter from the installed version, `'content'` does the same without
+   * the module check, `'content4'` forces the v4 adapter (`@nuxt/content4`).
+   * A path points at a file exporting an `AgentContentSource`, `false`
+   * disables every content-backed feature and leaves negotiation running
+   * against whatever already serves the raw markdown.
    */
-  source?: 'auto' | 'content' | false | string
+  source?: 'auto' | 'content' | 'content4' | false | string
   /** Page patterns markdown is negotiated for. `*` matches one segment, `**` one or more. */
   routes?: (string | AgentRoute)[]
   excludePrefixes?: {
@@ -243,11 +245,12 @@ export default defineNuxtModule<ModuleOptions>({
     }
   },
   // Optional, so this never installs `@nuxt/content`. Declared because the
-  // built-in source reaches into v3 internals (`@nuxt/content/server`,
-  // `#content/manifest`, `minimark/stringify`) that a major bump would break
-  // silently. Keep in step with `peerDependencies`.
+  // built-in sources reach into internals (v3's `@nuxt/content/server`,
+  // `#content/manifest`, `minimark/stringify`; v4's server `content`) that a
+  // major bump would break silently. v4 keeps the `@nuxt/content` module name,
+  // so it is checked against this range too. Keep in step with `peerDependencies`.
   moduleDependencies: {
-    '@nuxt/content': { version: '^3.7.0', optional: true }
+    '@nuxt/content': { version: '^3.7.0 || ^4.0.0', optional: true }
   },
   defaults: {
     siteUrl: '',
@@ -375,7 +378,14 @@ export default defineNuxtModule<ModuleOptions>({
     let sourcePath: string | undefined
     let builtinContentSource = false
     let minimarkStringify: string | undefined
-    if (options.source === 'content' || (options.source === 'auto' && hasNuxtModule('@nuxt/content'))) {
+    const wantsContent = options.source === 'content' || options.source === 'content4'
+      || (options.source === 'auto' && (hasNuxtModule('@nuxt/content') || hasNuxtModule('@nuxt/content4')))
+    if (wantsContent && (options.source === 'content4' || await resolveContentMajor(nuxt) === 4)) {
+      // comark-content underneath: no minimark to resolve and no llms feature
+      // to take out. Compiled into the build like v3.
+      sourcePath = resolve('./runtime/server/sources/content-v4')
+      builtinContentSource = true
+    } else if (wantsContent) {
       const contentSource = await resolveContentSource(nuxt, resolve)
       sourcePath = contentSource.sourcePath
       minimarkStringify = contentSource.minimarkStringify
