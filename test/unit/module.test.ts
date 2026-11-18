@@ -1111,6 +1111,20 @@ describe('module setup: content source', () => {
     expect(nuxt.options.nitro.alias?.['#agent-discovery/comark']).toMatch(/sources[\\/]comark$/)
     expect(nuxt.options.nitro.alias?.['#agent-discovery/source']).toMatch(/agent-source$/)
   })
+
+  it('keeps the v4 virtual source out of the aliases Nuxt writes to the tsconfig paths', async () => {
+    // A non-relative path there fails `nuxt typecheck` with TS5090.
+    const modulesDir = join(mkdtempSync(join(tmpdir(), 'agent-discovery-content-v4-')), 'node_modules')
+    const contentDir = join(modulesDir, '@nuxt', 'content')
+    mkdirSync(join(contentDir, 'dist'), { recursive: true })
+    writeFileSync(join(contentDir, 'package.json'), JSON.stringify({ name: '@nuxt/content', version: '4.0.0', type: 'module', exports: './dist/module.mjs' }))
+    writeFileSync(join(contentDir, 'dist', 'module.mjs'), 'export default {}\n')
+
+    const nuxt = await runModule({}, {}, undefined, undefined, { modulesDir: [modulesDir] })
+
+    expect(nuxt.options.nitro.alias?.['#agent-discovery/source']).toBe('#nuxt-agent-discovery/content-source')
+    expect(nuxt.options.alias).not.toHaveProperty('#agent-discovery/source')
+  })
 })
 
 describe('module setup: api-catalog', () => {

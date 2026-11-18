@@ -49,7 +49,7 @@ export async function resolveContentPackage(nuxt: Nuxt): Promise<ContentPackage 
  */
 export async function resolveContentSource(nuxt: Nuxt, resolve: Resolver['resolve'], contentPackage: ContentPackage | undefined): Promise<{ sourcePath: string, alias: Record<string, string> }> {
   if (contentPackage?.major && contentPackage.major >= 4) {
-    return resolveComarkContentSource(nuxt, contentPackage.entry)
+    return resolveComarkContentSource(nuxt, resolve, contentPackage.entry)
   }
 
   const sourcePath = resolve('./runtime/server/sources/content')
@@ -76,7 +76,7 @@ export async function resolveContentSource(nuxt: Nuxt, resolve: Resolver['resolv
  * registers, nor the `#content/*` virtuals behind it. Named so it does not
  * start with `#agent-discovery`, which that alias would capture as a prefix.
  */
-async function resolveComarkContentSource(nuxt: Nuxt, contentEntry: string): Promise<{ sourcePath: string, alias: Record<string, string> }> {
+async function resolveComarkContentSource(nuxt: Nuxt, resolve: Resolver['resolve'], contentEntry: string): Promise<{ sourcePath: string, alias: Record<string, string> }> {
   let contentImport: string | undefined
   nuxt.hook('nitro:init', (nitro) => {
     const imports = nitro.options.imports ? nitro.options.imports.imports : undefined
@@ -93,8 +93,8 @@ async function resolveComarkContentSource(nuxt: Nuxt, contentEntry: string): Pro
       }
       return [
         `import { content } from ${JSON.stringify(contentImport)}`,
-        `import { createComarkSource } from '#agent-discovery/comark'`,
-        `export default createComarkSource(() => content)`
+        `import { createContentSource } from ${JSON.stringify(resolve('./runtime/server/sources/content-v4'))}`,
+        `export default createContentSource(() => content)`
       ].join('\n') + '\n'
     }
   })
