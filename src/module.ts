@@ -394,7 +394,6 @@ export default defineNuxtModule<ModuleOptions>({
     // `@nuxtjs/mcp-toolkit` is detected, never depended on: the alias starts
     // on the stub and `modules:done` swaps it.
     const aliases = {
-      '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       '#agent-discovery/comark': resolve('./runtime/server/sources/comark'),
       '#agent-discovery/mcp': resolve('./runtime/server/mcp/none'),
       // The server API the shared helpers call, so only this layer is duplicated.
@@ -404,6 +403,9 @@ export default defineNuxtModule<ModuleOptions>({
     }
     nuxt.options.nitro.alias = defu(nuxt.options.nitro.alias, {
       ...sourceAlias,
+      // Nitro-only: Nuxt copies its aliases into the tsconfig `paths`.
+      // There the v4 virtual id fails `nuxt typecheck` with TS5090.
+      '#agent-discovery/source': sourcePath || resolve('./runtime/server/sources/none'),
       ...aliases
     })
     // Also aliased app-side so a single-tsconfig site can typecheck a server

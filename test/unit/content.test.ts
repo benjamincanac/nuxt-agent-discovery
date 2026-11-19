@@ -84,8 +84,8 @@ describe('resolveContentSource on v4', () => {
     expect(source.alias).toEqual({ 'comark/render': '/node_modules/comark/render.mjs' })
     expect(template.getContents()).toBe([
       'import { content } from "/app/server/content"',
-      'import { createComarkSource } from \'#agent-discovery/comark\'',
-      'export default createComarkSource(() => content)',
+      'import { createContentSource } from "./runtime/server/sources/content-v4"',
+      'export default createContentSource(() => content)',
       ''
     ].join('\n'))
   })

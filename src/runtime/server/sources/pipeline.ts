@@ -74,6 +74,14 @@ function appendRelatedLinks(nodes: DocNode[], links: unknown): void {
   }
 }
 
+/** `getting-started` → `Getting Started`, the section title a collection lists under. */
+export function titleCase(value: string): string {
+  return value
+    .replace(/[-_]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, char => char.toUpperCase())
+}
+
 /**
  * Everything both adapters do to a parsed document before handing the tree to
  * their own stringifier, kept in one place because the two renderings have to

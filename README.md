@@ -149,7 +149,7 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
-On v4, which serves comark trees, the same detection wires v4's server `content` instance to the comark adapter below, so a v4 site needs no source file of its own. The raw twins and `/sitemap.md` are prerendered as on v3. The comark adapter's rules apply: `agent-discovery:document` receives comark's `ContentFile`, and a `llms.sections` entry selects pages with `navigation` rather than `contentCollection`.
+On v4, which serves comark trees, the same detection wires v4's server `content` instance to the comark adapter below, so a v4 site needs no source file of its own. The raw twins and `/sitemap.md` are prerendered as on v3, and listings match v3 too: pages take their frontmatter title, and `llms.txt` groups them by collection when no section names them. Otherwise the comark adapter's rules apply: `agent-discovery:document` receives comark's `ContentFile`, and a `llms.sections` entry selects pages with `navigation` rather than `contentCollection`.
 
 **comark**, via `createComarkSource()`. comark sites construct their own content instance, so pass an accessor:
 
