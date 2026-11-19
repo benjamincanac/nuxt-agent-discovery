@@ -498,9 +498,10 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
 
   // The API and framework surfaces keep their JSON errors, `.md` or not. A page
   // answered under `/_`, like a readiness checker's probe for a path nothing
-  // serves, isn't one of the framework routes that prefix keeps out.
+  // serves, isn't one of the framework routes that prefix keeps out. A longer
+  // prefix a site excludes itself, like `/_internal`, still applies.
   const excluded = config.excludePrefixes.filter(prefix => pathname.startsWith(prefix))
-  if (excluded.length && !(options.page && excluded.every(prefix => prefix.startsWith('/_')))) {
+  if (excluded.length && !(options.page && excluded.every(prefix => prefix === '/_'))) {
     return false
   }
 

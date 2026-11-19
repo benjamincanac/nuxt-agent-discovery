@@ -336,6 +336,13 @@ describe('prefersMarkdownError', () => {
     expect(prefersMarkdownError(config, { path: '/.well-known/x', accept: 'text/markdown', page: true })).toBe(false)
   })
 
+  it('keeps a longer prefix the site excludes under `/_`, even for a page', () => {
+    const config = createConfig({ excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/', '/_internal'] })
+
+    expect(prefersMarkdownError(config, { path: '/_internal/report', accept: 'text/markdown', page: true })).toBe(false)
+    expect(prefersMarkdownError(config, { path: '/__probe', accept: 'text/markdown', page: true })).toBe(true)
+  })
+
   it('answers markdown on an explicit .md URL', () => {
     expect(prefersMarkdownError(config, { path: '/docs/foo.md', accept: 'text/html' })).toBe(true)
   })
