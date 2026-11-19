@@ -1,9 +1,13 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import { comarkContent } from 'comark-content'
+import { comarkContent, contentHub } from 'comark-content'
 import fs from 'comark-content/sources/fs'
 import { BADGE_BODY, BUTTON_BODY, GETTING_STARTED_BODY, INDEX_BODY, SITE_URL } from '../e2e/expected'
 import { createComarkSource } from '../../src/runtime/server/sources/comark'
+import { createContentSource } from '../../src/runtime/server/sources/content-v4'
 import type { AgentContentSource } from '../../src/runtime/shared/types'
 
 /**
@@ -210,5 +214,41 @@ describe('comark vs minimark: the known divergence', () => {
       .toBe('<callout type="warning">\nCareful.\n</callout>\n')
     expect(stringify({ type: 'minimark', value: nodes }, { format: 'markdown/html' }))
       .toBe('<callout type="warning">\n\nCareful.\n\n\n\n</callout>\n')
+  })
+})
+
+/**
+ * `@nuxt/content` v4 in v3 compatibility mode: one instance per collection,
+ * composed into a hub. Laid out like Docus, whose landing and docs collections
+ * share the `/en` prefix.
+ */
+describe('Content v4 listing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'agent-discovery-content-v4-'))
+  const write = (path: string, body: string) => {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), body)
+  }
+  write('landing/index.md', '---\ntitle: Write beautiful docs\n---\n\n# Write beautiful docs\n')
+  write('docs/1.getting-started/1.installation.md', '---\ntitle: Installation\n---\n\n# Installation\n')
+  write('docs/2.essentials/1.components.md', '---\ntitle: Markdown Components\nnavigation:\n  title: Components\n---\n\n# Markdown Components\n')
+
+  const hub = contentHub([
+    comarkContent('landing_en', { source: fs(join(root, 'landing'), { prefix: '/en' }) }),
+    comarkContent('docs_en', { source: fs(join(root, 'docs'), { prefix: '/en' }) })
+  ])
+  const v4 = createContentSource(() => hub as never)
+
+  it('titles pages from their frontmatter and groups them by collection, as on v3', async () => {
+    expect(await v4.list!(undefined, event)).toEqual([
+      { route: '/en', title: 'Write beautiful docs', description: undefined, section: 'Landing En' },
+      { route: '/en/getting-started/installation', title: 'Installation', description: undefined, section: 'Docs En' },
+      { route: '/en/essentials/components', title: 'Markdown Components', description: undefined, section: 'Docs En' }
+    ])
+  })
+
+  it('keeps the page title under a `navigation` selector', async () => {
+    const entries = await v4.list!({ navigation: '/en/essentials' }, event)
+
+    expect(entries?.find(entry => entry.route === '/en/essentials/components')?.title).toBe('Markdown Components')
   })
 })
