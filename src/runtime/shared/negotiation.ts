@@ -448,6 +448,31 @@ export function notAcceptable(config: NegotiationConfig, options: {
 }
 
 /**
+ * Whether an error came from rendering a page rather than from an API or
+ * framework route: one a page threw, which carries Nuxt's signature, or the
+ * 404 Nuxt answers for a path no page matches, early or from the router.
+ */
+export function isPageError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const { cause, data, statusText, statusMessage } = error as {
+    cause?: unknown
+    data?: { path?: unknown }
+    statusText?: unknown
+    statusMessage?: unknown
+  }
+
+  if ('__nuxt_error' in error || (cause && typeof cause === 'object' && '__nuxt_error' in cause)) {
+    return true
+  }
+
+  const message = typeof statusText === 'string' ? statusText : statusMessage
+  return typeof data?.path === 'string' && typeof message === 'string' && message.startsWith('Page not found: ')
+}
+
+/**
  * Whether an error response should be rendered as markdown rather than the
  * HTML error page or Nitro's JSON fallback.
  */
@@ -457,6 +482,8 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
   accept?: string | null
   userAgent?: string | null
   secFetchMode?: string | null
+  /** The error came from rendering a page, see `isPageError` */
+  page?: boolean
 }): boolean {
   const method = (options.method || 'GET').toUpperCase()
   if (method !== 'GET' && method !== 'HEAD') {
@@ -469,8 +496,11 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
     return true
   }
 
-  // The API and framework surfaces keep their JSON errors, `.md` or not.
-  if (isExcluded(pathname, config)) {
+  // The API and framework surfaces keep their JSON errors, `.md` or not. A page
+  // answered under `/_`, like a readiness checker's probe for a path nothing
+  // serves, isn't one of the framework routes that prefix keeps out.
+  const excluded = config.excludePrefixes.filter(prefix => pathname.startsWith(prefix))
+  if (excluded.length && !(options.page && excluded.every(prefix => prefix.startsWith('/_')))) {
     return false
   }
 

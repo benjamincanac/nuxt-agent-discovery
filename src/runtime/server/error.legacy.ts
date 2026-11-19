@@ -1,7 +1,7 @@
 import type { NitroErrorHandler } from 'nitropack/types'
 import { getRequestHeader, send, setResponseHeader, setResponseStatus } from 'h3'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from './utils/agent-discovery'
-import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
+import { errorMarkdown, isPageError, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
 
 /**
  * Answers errors with a short markdown body when the client is asking for
@@ -22,7 +22,8 @@ const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler })
     path: event.path,
     accept: getRequestHeader(event, 'accept'),
     userAgent: getRequestHeader(event, 'user-agent'),
-    secFetchMode: getRequestHeader(event, 'sec-fetch-mode')
+    secFetchMode: getRequestHeader(event, 'sec-fetch-mode'),
+    page: isPageError(error)
   })) {
     return
   }

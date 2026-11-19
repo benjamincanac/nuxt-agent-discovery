@@ -2,7 +2,7 @@ import { defineErrorHandler } from 'nitro'
 import { getRequestHeader } from 'nuxt/server'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from './utils/agent-discovery'
 import { getRequestPath } from './utils/server'
-import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
+import { errorMarkdown, isPageError, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
 
 /**
  * Answers errors with a short markdown body when the client is asking for
@@ -23,7 +23,8 @@ export default defineErrorHandler(async (error, event, { defaultHandler }) => {
     path,
     accept: getRequestHeader(event, 'accept'),
     userAgent: getRequestHeader(event, 'user-agent'),
-    secFetchMode: getRequestHeader(event, 'sec-fetch-mode')
+    secFetchMode: getRequestHeader(event, 'sec-fetch-mode'),
+    page: isPageError(error)
   })) {
     return
   }

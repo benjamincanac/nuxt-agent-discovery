@@ -161,6 +161,22 @@ describe('errors', () => {
     expect(response.headers.get('content-type')).toContain('text/html')
   })
 
+  // Readiness checkers probe a path nothing serves, like is-agentic's `/__ora-404-probe-*`. A page answered it,
+  // so the `/_` prefix that keeps framework routes out of negotiation doesn't apply.
+  it('answers an unknown page under `/_` with markdown for an agent', async () => {
+    const response = await fetch('/__probe-404', { headers: { Accept: 'text/markdown' } })
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+  })
+
+  it('keeps the JSON error of an unknown API path, even for an agent', async () => {
+    const response = await fetch('/api/does-not-exist', { headers: { 'User-Agent': CLAUDE_BOT } })
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('content-type')).toContain('application/json')
+  })
+
   it('offers the HTML 404 the same recovery links the markdown one carries', async () => {
     const html = await (await fetch('/docs/nonexistent', {
       headers: { 'Accept': BROWSER_ACCEPT, 'Sec-Fetch-Mode': 'navigate' }

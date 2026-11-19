@@ -326,6 +326,16 @@ describe('prefersMarkdownError', () => {
     expect(prefersMarkdownError(config, { path: '/_nuxt/x', accept: 'text/markdown' })).toBe(false)
   })
 
+  it('answers markdown for a page under `/_`, which no framework route answered', () => {
+    expect(prefersMarkdownError(config, { path: '/__probe', accept: 'text/markdown', page: true })).toBe(true)
+    expect(prefersMarkdownError(config, { path: '/__probe', accept: 'text/markdown' })).toBe(false)
+  })
+
+  it('keeps JSON errors on the other excluded prefixes, even for a page', () => {
+    expect(prefersMarkdownError(config, { path: '/api/x', accept: 'text/markdown', page: true })).toBe(false)
+    expect(prefersMarkdownError(config, { path: '/.well-known/x', accept: 'text/markdown', page: true })).toBe(false)
+  })
+
   it('answers markdown on an explicit .md URL', () => {
     expect(prefersMarkdownError(config, { path: '/docs/foo.md', accept: 'text/html' })).toBe(true)
   })

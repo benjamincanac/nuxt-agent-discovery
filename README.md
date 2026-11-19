@@ -50,7 +50,7 @@ In this order:
 
 Exclusions never negotiate: `/_`, `/api/`, `/mcp`, `/.well-known/`, the raw prefix itself, and any path whose last segment is dotted (assets, `_payload.json`, images).
 
-Errors follow the same idea but browsers are protected: a `fetch()` call keeps the HTML or JSON error it was written against, and an explicit `Accept: text/html` or `application/json` is honored unless the client is a known agent. Everything else, curl, an empty `Accept`, a navigation, gets the markdown error body.
+Errors follow the same idea but browsers are protected: a `fetch()` call keeps the HTML or JSON error it was written against, and an explicit `Accept: text/html` or `application/json` is honored unless the client is a known agent. Everything else, curl, an empty `Accept`, a navigation, gets the markdown error body. Excluded prefixes keep their JSON errors, except a page answered under `/_`, like the 404 of a readiness checker's `/__probe` path, which still gets the markdown body.
 
 ### Strict content negotiation
 
