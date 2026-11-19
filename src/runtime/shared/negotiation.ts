@@ -447,6 +447,9 @@ export function notAcceptable(config: NegotiationConfig, options: {
   return REPRESENTATIONS.every(type => acceptQuality(entries, type) === 0)
 }
 
+/** The route Nuxt fetches itself to render its error page. */
+const NUXT_ERROR_ROUTE = '/__nuxt_error'
+
 /**
  * Whether an error came from rendering a page rather than from an API or
  * framework route: one a page threw, which carries Nuxt's signature, or the
@@ -499,9 +502,12 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
   // The API and framework surfaces keep their JSON errors, `.md` or not. A page
   // answered under `/_`, like a readiness checker's probe for a path nothing
   // serves, isn't one of the framework routes that prefix keeps out. A longer
-  // prefix a site excludes itself, like `/_internal`, still applies.
+  // prefix a site excludes itself, like `/_internal`, still applies, and so
+  // does Nuxt's own error page request, whose response it copies into one this
+  // handler already passed on.
   const excluded = config.excludePrefixes.filter(prefix => pathname.startsWith(prefix))
-  if (excluded.length && !(options.page && excluded.every(prefix => prefix === '/_'))) {
+  const page = options.page && !pathname.startsWith(NUXT_ERROR_ROUTE)
+  if (excluded.length && !(page && excluded.every(prefix => prefix === '/_'))) {
     return false
   }
 

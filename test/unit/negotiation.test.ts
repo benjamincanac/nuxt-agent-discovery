@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { createError } from 'h3'
 import {
   MARKDOWN_VARY,
   absolutizeMarkdownLinks,
@@ -11,6 +12,7 @@ import {
   hasFileExtension,
   isHomepage,
   isNegotiablePath,
+  isPageError,
   prerenderTwin,
   handlerRouteMatches,
   siteServesRaw,
@@ -311,6 +313,30 @@ describe('negotiatedRawPath: dotted paths', () => {
   })
 })
 
+describe('isPageError', () => {
+  it('recognizes an error a page threw by Nuxt\'s signature', () => {
+    expect(isPageError({ statusCode: 404, __nuxt_error: true })).toBe(true)
+    expect(isPageError({ statusCode: 500, cause: { __nuxt_error: true } })).toBe(true)
+  })
+
+  // The early 404 and the router's, for a path no page matches. h3 v1 maps
+  // `statusText` to `statusMessage`, h3 v2 keeps it.
+  it('recognizes the 404 Nuxt answers for a path no page matches', () => {
+    const v1 = createError({ status: 404, statusText: 'Page not found: /__probe', data: { path: '/__probe' } })
+
+    expect(isPageError(v1)).toBe(true)
+    expect(isPageError({ status: 404, statusText: 'Page not found: /__probe', data: { path: '/__probe' } })).toBe(true)
+  })
+
+  it('leaves out API and framework errors', () => {
+    expect(isPageError(createError({ statusCode: 404, statusMessage: 'Cannot find any route matching /api/x' }))).toBe(false)
+    expect(isPageError(createError({ statusCode: 404, statusMessage: 'Page not found: /api/x' }))).toBe(false)
+    expect(isPageError(new Error('boom'))).toBe(false)
+    expect(isPageError(null)).toBe(false)
+    expect(isPageError('Page not found: /x')).toBe(false)
+  })
+})
+
 describe('prefersMarkdownError', () => {
   it('only answers GET and HEAD', () => {
     expect(prefersMarkdownError(config, { method: 'POST', path: '/docs/foo', accept: 'text/markdown' })).toBe(false)
@@ -341,6 +367,12 @@ describe('prefersMarkdownError', () => {
 
     expect(prefersMarkdownError(config, { path: '/_internal/report', accept: 'text/markdown', page: true })).toBe(false)
     expect(prefersMarkdownError(config, { path: '/__probe', accept: 'text/markdown', page: true })).toBe(true)
+  })
+
+  // Nuxt fetches its error page with the original request's headers and copies
+  // the response into the one this handler passed on.
+  it('keeps Nuxt\'s own error page request out, even for a page', () => {
+    expect(prefersMarkdownError(config, { path: '/__nuxt_error?status=404', accept: 'text/markdown', page: true })).toBe(false)
   })
 
   it('answers markdown on an explicit .md URL', () => {
