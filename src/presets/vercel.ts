@@ -97,6 +97,42 @@ function excludeLookahead(config: NegotiationConfig): string {
 const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
 
 /**
+ * The alternatives of a lookahead, with the sources that differ only by a
+ * literal first segment written once. A site caching each locale on its own,
+ * `/de-de/products/**`, `/fr-fr/products/**` and so on, otherwise lists every
+ * pattern once per locale, and Vercel refuses a route longer than 4096
+ * characters. `/de-de/products/(?:.+?)` and `/fr-fr/products/(?:.+?)` become
+ * `/(?:de-de|fr-fr)/products/(?:.+?)`, and the tails sharing the same segments
+ * are joined behind them. The sources stay as they are when that is shorter.
+ */
+export function joinAlternatives(sources: string[]): string {
+  const headsByTail = new Map<string, string[]>()
+  const joined: string[] = []
+  for (const source of sources) {
+    const match = /^\/((?:[\w-]|\\\.)+)(\/.+)$/.exec(source)
+    if (!match) {
+      joined.push(source)
+      continue
+    }
+    const heads = headsByTail.get(match[2]!) ?? []
+    headsByTail.set(match[2]!, [...heads, match[1]!])
+  }
+  const tailsByHeads = new Map<string, string[]>()
+  for (const [tail, heads] of headsByTail) {
+    const key = [...new Set(heads)].sort().join('|')
+    tailsByHeads.set(key, [...tailsByHeads.get(key) ?? [], tail])
+  }
+  for (const [heads, tails] of tailsByHeads) {
+    const head = heads.includes('|') ? `(?:${heads})` : heads
+    joined.push(`/${head}${tails.length > 1 ? `(?:${tails.join('|')})` : tails[0]}`)
+  }
+  // Grouping a few short heads can cost more characters than it saves
+  const grouped = joined.join('|')
+  const plain = sources.join('|')
+  return grouped.length < plain.length ? grouped : plain
+}
+
+/**
  * One negotiated route: a rewrite on a prerendered page, a 307 on a cached one.
  * A rewrite keeps the page URL, but a response cache keyed on the request path
  * alone ignores `Vary`, so rewriting an `isr`/`swr` page would let its HTML and
@@ -281,7 +317,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     // destination. `^body/?$` without the anchors or the trailing slash the
     // alternation adds back once for all of them.
     const sources = overlapping.map(entry => compilePattern(encodeAgentRoute(entry), { capture: false }).source.slice(1, -3))
-    return `(?!(?:${sources.join('|')})/?$)`
+    return `(?!(?:${joinAlternatives(sources)})/?$)`
   }
 
   for (const rule of redirectedRules) {
