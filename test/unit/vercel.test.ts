@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dropDuplicateLinkRoutes, vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
+import { dropDuplicateLinkRoutes, joinAlternatives, vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
 import type { VercelHandle, VercelRoute } from '../../src/presets/vercel'
 import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
@@ -705,6 +705,13 @@ describe('vercelMarkdownRoutes: cached routes', () => {
 
     // A page no rule caches is still rewritten
     expect(rewrites(routes).filter(route => matches(route, '/de-de/search')).length).toBeGreaterThan(0)
+  })
+
+  it('never makes the alternatives longer than they were', () => {
+    // One-letter heads with a tail each save less than the group costs
+    const sources = 'abc'.split('').flatMap(head => [`/${head}/${head}x`, `/${head}/${head}y`])
+    expect(joinAlternatives(sources)).toBe(sources.join('|'))
+    expect(joinAlternatives(['/de-de/products/(?:.+?)', '/fr-fr/products/(?:.+?)'])).toBe('/(?:de-de|fr-fr)/products/(?:.+?)')
   })
 
   it('keeps the table the same size either way', () => {

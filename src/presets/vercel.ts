@@ -103,7 +103,7 @@ const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
  * pattern once per locale, and Vercel refuses a route longer than 4096
  * characters. `/de-de/products/(?:.+?)` and `/fr-fr/products/(?:.+?)` become
  * `/(?:de-de|fr-fr)/products/(?:.+?)`, and the tails sharing the same segments
- * are joined behind them.
+ * are joined behind them. The sources stay as they are when that is shorter.
  */
 export function joinAlternatives(sources: string[]): string {
   const headsByTail = new Map<string, string[]>()
@@ -126,7 +126,10 @@ export function joinAlternatives(sources: string[]): string {
     const head = heads.includes('|') ? `(?:${heads})` : heads
     joined.push(`/${head}${tails.length > 1 ? `(?:${tails.join('|')})` : tails[0]}`)
   }
-  return joined.join('|')
+  // Grouping a few short heads can cost more characters than it saves
+  const grouped = joined.join('|')
+  const plain = sources.join('|')
+  return grouped.length < plain.length ? grouped : plain
 }
 
 /**
