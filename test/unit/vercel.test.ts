@@ -686,6 +686,27 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect(routes.filter(route => route.dest === '/raw/docs/$1.md')).toHaveLength(1)
   })
 
+  it('keeps every route under Vercel\'s 4096 characters with a rule per locale', () => {
+    // Each locale cached on its own, like a store with a market per country
+    const locales = ['de', 'en', 'es', 'fr', 'it'].flatMap(language => ['au', 'ca', 'de', 'es', 'fr', 'gb', 'it', 'jp', 'us'].map(country => `${language}-${country}`))
+    const sections = ['/products/**', '/collections/**', '/pages/**', '/policies/**', '/blogs', '/blogs/**']
+    const routes = vercelMarkdownRoutes(createConfig({
+      routes: ['', '/*'].flatMap(prefix => ['/index', '/search', '/products/*', '/collections/*', '/blogs', '/blogs/*'].map(path => ({ path: `${prefix}${path}` }))).concat({ path: '/' }),
+      cachedRoutes: ['/', ...sections, ...locales.flatMap(locale => [`/${locale}`, ...sections.map(section => `/${locale}${section}`)])]
+    }))
+
+    expect(Math.max(...routes.map(route => route.src.length))).toBeLessThanOrEqual(4096)
+
+    // A cached page of a locale still goes to its 307, never to a rewrite
+    for (const path of ['/de-de/products/sweatpants', '/fr-fr/blogs', '/products/sweatpants']) {
+      expect(rewrites(routes).filter(route => matches(route, path)), path).toHaveLength(0)
+      expect(routes.filter(route => route.status === 307 && matches(route, path)).length, path).toBeGreaterThan(0)
+    }
+
+    // A page no rule caches is still rewritten
+    expect(rewrites(routes).filter(route => matches(route, '/de-de/search')).length).toBeGreaterThan(0)
+  })
+
   it('keeps the table the same size either way', () => {
     expect(routes.length).toBe(vercelMarkdownRoutes(createConfig()).length)
   })
