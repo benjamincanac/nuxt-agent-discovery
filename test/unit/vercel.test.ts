@@ -238,10 +238,9 @@ describe('vercelMarkdownRoutes: Link', () => {
 describe('dropDuplicateLinkRoutes', () => {
   const linkHeader = formatLinkHeader(LINKS)
 
-  /** Our own routes, plus what Nitro emits for the `/` route rule the module sets. */
+  /** What Nitro emits for the `/` route rule the module sets. */
   function table(): (VercelRoute | VercelHandle)[] {
     return [
-      ...vercelMarkdownRoutes(createConfig({ links: LINKS })),
       { src: '/', headers: { Link: linkHeader, Vary: MARKDOWN_VARY } },
       { handle: 'filesystem' }
     ]
@@ -250,10 +249,19 @@ describe('dropDuplicateLinkRoutes', () => {
   it('leaves the homepage answering with the link set once', () => {
     const routes = table()
     dropDuplicateLinkRoutes(routes, linkHeader)
+    routes.unshift(...vercelMarkdownRoutes(createConfig({ links: LINKS })))
 
     const carrying = routes.filter(route => !('handle' in route) && route.headers?.Link === linkHeader) as VercelRoute[]
     expect(carrying).toHaveLength(1)
-    expect(carrying[0]!.src).toBe('^/$')
+    expect(carrying[0]!.continue).toBe(true)
+  })
+
+  // Nitro 2.14 anchors the source, so it reads exactly like the preset route.
+  it('drops the duplicate when Nitro anchors its source', () => {
+    const routes: (VercelRoute | VercelHandle)[] = [{ src: '^/$', headers: { Link: linkHeader }, continue: true }]
+    dropDuplicateLinkRoutes(routes, linkHeader)
+
+    expect(routes).toHaveLength(0)
   })
 
   it('keeps the rest of the route rule it came from', () => {
