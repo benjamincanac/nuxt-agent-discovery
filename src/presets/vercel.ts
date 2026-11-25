@@ -1,10 +1,25 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import { useLogger } from '@nuxt/kit'
-import type { Nitro } from 'nitropack'
 import { compilePattern, encodeAgentRoute, formatLinkHeader, isNegotiablePath, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import { appBase } from '../runtime/shared/paths'
 import type { NegotiationConfig } from '../runtime/shared/types'
+
+/**
+ * What the preset reads off the Nitro instance. Spelled out because the
+ * `nitropack` and `nitro` instances both have it but type their hooks apart.
+ */
+interface PresetNitro {
+  options: {
+    dev: boolean
+    static: boolean
+    preset: string
+    baseURL: string
+    output: { dir: string }
+    routeRules: Record<string, object | undefined>
+  }
+  hooks: { hook: (name: 'compiled', fn: () => Promise<void>) => unknown }
+}
 
 export interface VercelRoute {
   src: string
@@ -450,8 +465,9 @@ export function vercelTwinLinkRoutes(config: NegotiationConfig): VercelRoute[] {
  * answers with the whole link set twice. The preset route is the one that stays:
  * a homepage rewritten to its raw twin never reaches the route rule.
  *
- * Only an exact copy of our own header goes, so a site setting a `Link` of its
- * own on `/` keeps it.
+ * Runs on Nitro's table before the preset routes go in, since Nitro 2.14
+ * anchors its source to the same `^/$`. Only an exact copy of our own header
+ * goes, so a site setting a `Link` of its own on `/` keeps it.
  */
 export function dropDuplicateLinkRoutes(routes: (VercelRoute | VercelHandle)[], linkHeader: string): void {
   if (!linkHeader) {
@@ -459,7 +475,7 @@ export function dropDuplicateLinkRoutes(routes: (VercelRoute | VercelHandle)[], 
   }
   for (let index = routes.length - 1; index >= 0; index--) {
     const route = routes[index]!
-    if ('handle' in route || route.src === '^/$' || route.headers?.Link !== linkHeader) {
+    if ('handle' in route || route.headers?.Link !== linkHeader) {
       continue
     }
     delete route.headers.Link
@@ -475,7 +491,7 @@ export function dropDuplicateLinkRoutes(routes: (VercelRoute | VercelHandle)[], 
  * `.vercel/output/config.json` (Build Output API v3), not `vercel.json`, which
  * has a different schema. https://vercel.com/docs/build-output-api/configuration
  */
-export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, collectCachedRoutes?: (routeRules: Nitro['options']['routeRules']) => void) {
+export function setupVercelPreset(nitro: PresetNitro, config: NegotiationConfig, collectCachedRoutes?: (routeRules: PresetNitro['options']['routeRules']) => void) {
   // `nuxt generate` resolves the `vercel-static` preset, whose name contains
   // "vercel" but which emits no function routes to fall through to.
   if (nitro.options.dev || nitro.options.static || !nitro.options.preset.includes('vercel')) {
@@ -493,8 +509,8 @@ export function setupVercelPreset(nitro: Nitro, config: NegotiationConfig, colle
     collectCachedRoutes?.(nitro.options.routeRules)
     const vcJSON = resolve(nitro.options.output.dir, 'config.json')
     const vcConfig = JSON.parse(await readFile(vcJSON, 'utf8')) as { routes: (VercelRoute | VercelHandle)[] }
-    vcConfig.routes.unshift(...vercelMarkdownRoutes(config))
     dropDuplicateLinkRoutes(vcConfig.routes, config.linkHeader ? formatLinkHeader(config.links) : '')
+    vcConfig.routes.unshift(...vercelMarkdownRoutes(config))
     // Nitro emits no `hit` phase of its own, so the pair opens one at the end of
     // the table. A phase is a position in the array, so one already there takes
     // the routes instead of a second marker.

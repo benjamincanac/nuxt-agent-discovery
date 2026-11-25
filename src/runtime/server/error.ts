@@ -3,6 +3,7 @@ import { getRequestHeader } from 'nuxt/server'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from './utils/agent-discovery'
 import { getRequestPath } from './utils/server'
 import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
+import type { AgentWebRequestEvent } from '../shared/types'
 
 /**
  * Answers errors with a short markdown body when the client is asking for
@@ -14,7 +15,10 @@ import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/ne
  * Nitro 3 has no sent state, and Nuxt only renders its error page for an error
  * this handler passed on.
  */
-export default defineErrorHandler(async (error, event, { defaultHandler }) => {
+export default defineErrorHandler(async (error, httpEvent, { defaultHandler }) => {
+  // Typed as the bare `HTTPEvent`, but Nitro's app hands its error handlers the
+  // full h3 event, response included.
+  const event = httpEvent as AgentWebRequestEvent
   const config = useAgentDiscoveryConfig(event)
   const path = getRequestPath(event)
 
@@ -30,7 +34,7 @@ export default defineErrorHandler(async (error, event, { defaultHandler }) => {
 
   // The default handler logs the error, sets the status and computes the
   // hardening headers. Nuxt's HTML handler goes through it too.
-  const res = await defaultHandler(error, event, { json: true })
+  const res = await defaultHandler(error, httpEvent, { json: true })
   const status = res.status || error.status || 500
 
   // The headers set before the error, then the default handler's own, minus
