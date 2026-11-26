@@ -4,7 +4,8 @@ import type { DocNode } from './pipeline'
 /** The part of minimark's stringify state these handlers use. */
 interface MinimarkState {
   handlers: Record<string, MinimarkHandler | undefined>
-  context: { blockSeparator: string, format: string }
+  context: { blockSeparator: string, format: string, list?: boolean, order?: number | false, start?: number }
+  applyContext: (edit: Record<string, unknown>) => Record<string, unknown>
   one: (node: unknown, state: MinimarkState, parent?: DocNode) => string
 }
 
@@ -76,26 +77,73 @@ const code: MinimarkHandler = (node, state) => {
   return `${fence}${padded}${fence}${mdcAttributes(state, language ? { lang: language, ...rest } : rest)}`
 }
 
-/** minimark numbers every ordered list from 1. Renumbered from `start`, nested lists aside. */
-const ol: MinimarkHandler = (node, state, parent) => {
-  const markdown = state.handlers.ol!(node, state, parent)
-  const start = Number(node[1]?.start)
-  const indent = markdown.match(/^\n?( *)\d+\. /)?.[1]
-  if (!Number.isInteger(start) || start === 1 || indent === undefined) {
-    return markdown
+const BLOCK_TAGS = new Set(['blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'ol', 'p', 'pre', 'table', 'ul'])
+
+/** A block, or a component holding one, which the parser only reads as a block component. */
+function isBlock(node: unknown): node is DocNode {
+  if (!Array.isArray(node)) {
+    return false
   }
-  let number = start
-  return markdown.replace(new RegExp(`^${indent}\\d+\\. `, 'gm'), () => `${indent}${number++}. `)
+  const tag = String(node[0])
+  return BLOCK_TAGS.has(tag) || (!MINIMARK_TAGS.has(tag) && node.slice(2).some(child => Array.isArray(child) && BLOCK_TAGS.has(String(child[0]))))
+}
+
+/** minimark numbers every ordered list from 1. The items read `start` back from the context. */
+const ol: MinimarkHandler = (node, state, parent) => {
+  const start = Number(node[1]?.start)
+  const revert = state.applyContext({ start: Number.isInteger(start) ? start : 1 })
+  const markdown = state.handlers.ol!(node, state, parent)
+  state.applyContext(revert)
+  return markdown
 }
 
 /**
- * minimark indents a nested list by two spaces whatever the marker, which
- * nests it under `- ` but not under `1. `.
+ * minimark joins an item's children as they come, so a code block, a table or
+ * a nested list lands on the line of the text before it. Each block goes on
+ * lines of its own, indented under the marker so it stays in the item.
  */
-const li: MinimarkHandler = (node, state, parent) => {
-  const markdown = state.handlers.li!(node, state, parent)
-  const marker = markdown.match(/^\d+\. /)?.[0]
-  return marker ? markdown.replace(/\n(?=.)/g, `\n${' '.repeat(marker.length - 2)}`) : markdown
+const li: MinimarkHandler = (node, state) => {
+  const children = node.slice(2)
+  const order = state.context.order
+  const marker = order ? `${order + (state.context.start ?? 1) - 1}. ` : '- '
+  let prefix = marker
+  if (([] as unknown[]).concat(node[1]?.className || []).join(' ').includes('task-list-item')) {
+    const input = children[0]
+    if (Array.isArray(input) && input[0] === 'input') {
+      children.shift()
+      prefix += input[1]?.checked ? '[x] ' : '[ ] '
+    }
+  }
+
+  let body = ''
+  let text = ''
+  const push = (block: string, tight = false) => {
+    if (block) {
+      body += `${body && (tight ? '\n' : '\n\n')}${block}`
+    }
+  }
+  for (const child of children) {
+    if (!isBlock(child)) {
+      text += state.one(child, state, node)
+      continue
+    }
+    push(text.trim())
+    // No blank line where the source had none: the parser keeps the line break
+    // on the text, and a list right under it reads the same either way.
+    const tight = Boolean(text.trim()) && (text.endsWith('\n') || child[0] === 'ul' || child[0] === 'ol')
+    // Outside the list context, where minimark would indent a nested list itself.
+    const revert = state.applyContext({ list: false })
+    // Leading newlines only: a nested component's indentation is part of it.
+    push(state.one(child, state, node).replace(/^\n+/, '').trimEnd(), tight)
+    state.applyContext(revert)
+    text = ''
+  }
+  push(text.trim())
+
+  if (order) {
+    state.applyContext({ order: order + 1 })
+  }
+  return `${prefix}${body.replace(/\n(?=.)/g, `\n${' '.repeat(marker.length)}`)}\n`
 }
 
 /**
@@ -109,8 +157,6 @@ const img: MinimarkHandler = (node, state) => {
   const { src, alt, title, ...rest } = node[1] || {}
   return `![${alt ?? ''}](${src}${title ? ` "${title}"` : ''})${mdcAttributes(state, rest)}`
 }
-
-const BLOCK_TAGS = new Set(['blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'ol', 'p', 'pre', 'table', 'ul'])
 
 /**
  * A GFM table. minimark writes an HTML table indented under its blank lines,
@@ -244,11 +290,14 @@ function slotName(node: DocNode, level: number): string | undefined {
  * its arguments that it has to stay inline.
  */
 function place(nodes: unknown[], placements: WeakMap<DocNode, Placement>, tags: Set<string>, parent?: DocNode, level = 0): void {
-  const inline = !!parent && (INLINE_PARENTS.has(parent[0]) || parent.slice(2).some(child => typeof child === 'string'))
+  const phrasingParent = !!parent && INLINE_PARENTS.has(parent[0])
+  const besideText = !!parent && parent.slice(2).some(child => typeof child === 'string')
   for (const node of nodes) {
     if (!Array.isArray(node)) {
       continue
     }
+    // A list item holds its text bare, next to any block component under it.
+    const inline = phrasingParent || (besideText && !isBlock(node))
     const tag = String(node[0])
     let childLevel = level
     if (!MINIMARK_TAGS.has(tag)) {
