@@ -183,7 +183,13 @@ export function ruleCoversPattern(rule: string, pattern: string): boolean {
  */
 export function pageVary(config: Pick<NegotiationConfig, 'cachedRoutes' | 'cdnRoutes'>, path: string): string {
   const pathname = normalizePathname(path)
-  return config.cdnRoutes && config.cachedRoutes.some(rule => ruleMatchesPath(rule, pathname)) ? 'Accept' : MARKDOWN_VARY
+  // `ruleMatchesPath` reads a rule with a wildcard before its `**` by its
+  // static prefix, which errs towards cached. Here that is the unsafe side, so
+  // such a rule is matched whole, the section root its `**` covers included.
+  const cached = (rule: string) => rule.endsWith('**') && rule.slice(0, -2).includes('*')
+    ? patternRegExp(rule).test(pathname) || patternRegExp(trimSlash(rule.slice(0, -2))).test(pathname)
+    : ruleMatchesPath(rule, pathname)
+  return config.cdnRoutes && config.cachedRoutes.some(cached) ? 'Accept' : MARKDOWN_VARY
 }
 
 /** The raw markdown destination for a page. `raw` is only honoured on exact patterns. */

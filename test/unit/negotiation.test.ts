@@ -799,6 +799,14 @@ describe('pageVary', () => {
     expect(pageVary(vercel, '/pricing')).toBe('Accept')
   })
 
+  it('matches a rule with a wildcard before its `**` whole, not by its static prefix', () => {
+    const vercel = { cachedRoutes: ['/docs/*/private/**'], cdnRoutes: true }
+
+    expect(pageVary(vercel, '/docs/en/private/page')).toBe('Accept')
+    expect(pageVary(vercel, '/docs/en/private')).toBe('Accept')
+    expect(pageVary(vercel, '/docs/public')).toBe('Accept, User-Agent')
+  })
+
   it('keeps both on the pages the CDN routes rewrite', () => {
     // The function answers the markdown itself when the twin is not a static
     // file, so the two halves still share a URL there.
