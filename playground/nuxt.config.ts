@@ -15,8 +15,11 @@ export default defineNuxtConfig({
   // a cached pattern has to 307 to its raw twin, because a response cache keys
   // on the path alone and would otherwise serve one visitor's markdown to the
   // next, while everything outside it keeps a URL-preserving rewrite.
+  // `/store/**` is cached the other way, through `Cache-Control` on the
+  // function response. That cache does read `Vary`, where ISR ignores it.
   routeRules: {
-    '/docs/**': { isr: 60 }
+    '/docs/**': { isr: 60 },
+    '/store/**': { cache: { maxAge: 120, headersOnly: true } }
   },
   compatibilityDate: '2026-01-01',
   nitro: {
