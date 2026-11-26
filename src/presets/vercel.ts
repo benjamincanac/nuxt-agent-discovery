@@ -502,6 +502,8 @@ export function setupVercelPreset(nitro: PresetNitro, config: NegotiationConfig,
     useLogger('nuxt-agent-discovery').warn(`The Vercel routes are not emitted under a base path (\`${nitro.options.baseURL}\`), so a prerendered page does not negotiate. Pages rendered by the server still do.`)
     return
   }
+  // The runtime labels a cached page's HTML for the routes emitted below.
+  config.cdnRoutes = true
   nitro.hooks.hook('compiled', async () => {
     // The last read of the rule table before it decides rewrite or 307: an
     // inline `defineRouteRules({ isr })` only lands on it during the Nuxt build,

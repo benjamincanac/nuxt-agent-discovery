@@ -1067,6 +1067,10 @@ export {}
         const runtime = nitro.options.runtimeConfig.agentDiscovery as NegotiationConfig | undefined
         if (runtime) {
           runtime.cachedRoutes = [...config.cachedRoutes]
+          // Set by the preset at `nitro:init`, after the clone.
+          if (config.cdnRoutes) {
+            runtime.cdnRoutes = true
+          }
         }
       })
       nuxt.hook('nitro:init', (nitro) => {
