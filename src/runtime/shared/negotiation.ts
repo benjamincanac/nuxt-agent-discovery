@@ -5,9 +5,6 @@ import type { AgentRoute, DiscoveryLink, NegotiationConfig } from './types'
 /** Request headers the markdown representation depends on. */
 export const MARKDOWN_VARY = 'Accept, User-Agent'
 
-/** `Vary` on a page whose markdown requests a CDN route redirects before its cache is read. */
-export const PAGE_VARY = 'Accept'
-
 /* --------------------------------- paths --------------------------------- */
 
 /** Drops the query string and any trailing slash, keeping the root as `/`. */
@@ -178,13 +175,15 @@ export function ruleCoversPattern(rule: string, pattern: string): boolean {
 /**
  * `Vary` for the HTML half of a negotiated page. Behind CDN routes a cached
  * page is redirected to its twin before the cache is read, so its HTML only
- * ever reaches clients that get HTML, and naming `User-Agent` would store one
- * copy per browser version on a CDN keying its cache on `Vary`. Everywhere
- * else this handler answers both halves from one URL.
+ * reaches clients that get HTML. Vercel keys a function response on every
+ * header `Vary` names, the one set here and not the one its routes add, so
+ * `User-Agent` there stores a copy of the page per browser version. `Accept`
+ * is part of that key already. Everywhere else this server answers both
+ * halves from one URL and a cache in front of it needs both headers.
  */
 export function pageVary(config: Pick<NegotiationConfig, 'cachedRoutes' | 'cdnRoutes'>, path: string): string {
   const pathname = normalizePathname(path)
-  return config.cdnRoutes && config.cachedRoutes.some(rule => ruleMatchesPath(rule, pathname)) ? PAGE_VARY : MARKDOWN_VARY
+  return config.cdnRoutes && config.cachedRoutes.some(rule => ruleMatchesPath(rule, pathname)) ? 'Accept' : MARKDOWN_VARY
 }
 
 /** The raw markdown destination for a page. `raw` is only honoured on exact patterns. */

@@ -19,6 +19,7 @@ import {
   normalizeAgentRoute,
   notAcceptable,
   normalizePathname,
+  pageVary,
   parseAccept,
   patternsOverlap,
   prefersMarkdownError,
@@ -778,6 +779,30 @@ describe('formatLinkHeader', () => {
 
   it('is empty without links', () => {
     expect(formatLinkHeader([])).toBe('')
+  })
+})
+
+describe('pageVary', () => {
+  const cached = { cachedRoutes: ['/store/**', '/pricing'] }
+
+  it('names both headers where the server answers both halves from one URL', () => {
+    expect(pageVary(cached, '/store/catalog')).toBe('Accept, User-Agent')
+    expect(pageVary({ cachedRoutes: [] }, '/docs/guide')).toBe('Accept, User-Agent')
+  })
+
+  it('drops `User-Agent` on a cached page the CDN routes redirect', () => {
+    const vercel = { ...cached, cdnRoutes: true }
+
+    expect(pageVary(vercel, '/store/catalog')).toBe('Accept')
+    expect(pageVary(vercel, '/store/catalog/?page=2')).toBe('Accept')
+    expect(pageVary(vercel, '/store')).toBe('Accept')
+    expect(pageVary(vercel, '/pricing')).toBe('Accept')
+  })
+
+  it('keeps both on the pages the CDN routes rewrite', () => {
+    // The function answers the markdown itself when the twin is not a static
+    // file, so the two halves still share a URL there.
+    expect(pageVary({ ...cached, cdnRoutes: true }, '/docs/guide')).toBe('Accept, User-Agent')
   })
 })
 
