@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import type { AgentContentSource } from '../../src/runtime/shared/types'
 import type { LlmsOptions } from '../../src/runtime/server/utils/llms'
 
@@ -79,5 +79,27 @@ describe('llms bridge: llms-full.txt', () => {
     await createLlmsBridge().generateFull(event, { domain: 'https://example.com', sections: [{ title: 'Docs', contentCollection: 'docs' } as never] }, contents)
 
     expect(contents).toEqual(['# /docs/a\n', '# /docs/b\n'])
+  })
+
+  it('skips a page whose `get()` rejects and keeps the others', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    setAgentContentSource(createSource({
+      get: async (route) => {
+        if (route === '/docs/a') {
+          throw new Error('boom')
+        }
+        return { markdown: `# ${route}\n` }
+      }
+    }))
+    const contents: string[] = []
+    try {
+      await createLlmsBridge().generateFull(event, { domain: 'https://example.com', sections: [] }, contents)
+
+      expect(contents).toEqual(['# /docs/b\n'])
+      expect(warn).toHaveBeenCalledOnce()
+      expect(String(warn.mock.calls[0]![0])).toContain('/docs/a')
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

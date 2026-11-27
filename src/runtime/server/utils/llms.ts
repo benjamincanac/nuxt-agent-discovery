@@ -291,11 +291,18 @@ export function createLlmsBridge() {
     // agent fetches `/raw/**.md` or the full document. The homepages carry the
     // resources block like their twins do, and `/` alone has a fallback.
     const pages = await mapLimit(routes, async (route) => {
-      const page = await getSourcePage(route, event)
-      if (page) {
-        return isHomepage(config, route) ? { ...page, markdown: appendAgentResources(event, page.markdown) } : page
+      // One page failing to render, in the adapter or a document hook, costs that
+      // page and not the whole document.
+      try {
+        const page = await getSourcePage(route, event)
+        if (page) {
+          return isHomepage(config, route) ? { ...page, markdown: appendAgentResources(event, page.markdown) } : page
+        }
+        return route === '/' ? await generatedIndexPage(event) : null
+      } catch (error) {
+        console.warn(`[nuxt-agent-discovery] Left ${route} out of llms-full.txt, rendering it failed:`, error)
+        return null
       }
-      return route === '/' ? await generatedIndexPage(event) : null
     })
     for (const page of pages) {
       if (page?.markdown) {
