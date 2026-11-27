@@ -27,7 +27,8 @@ function llmsDomain(event: AgentRequestEvent, options: LlmsOptions): string {
   if (!options.domain) {
     return getAgentSiteUrl(event)
   }
-  const domain = options.domain.replace(/\/+$/, '')
+  // A bare host fails to parse, which made every link read as foreign.
+  const domain = (/^[a-z][a-z\d+.-]*:\/\//i.test(options.domain) ? options.domain : `https://${options.domain.replace(/^\/+/, '')}`).replace(/\/+$/, '')
   try {
     return new URL(domain).pathname === '/' ? `${domain}${getAgentBase(event)}` : domain
   } catch {

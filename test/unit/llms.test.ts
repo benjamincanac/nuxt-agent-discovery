@@ -71,6 +71,14 @@ describe('llms bridge: llms.txt', () => {
 
     expect(hrefs(options)).toEqual(['https://example.com/raw/docs/a.md', 'https://example.com/raw/docs/b.md'])
   })
+
+  it('reads a domain without a scheme as https', async () => {
+    const options: LlmsOptions = { domain: 'example.com', sections: [{ title: 'Docs', contentCollection: 'docs' } as never] }
+    await createLlmsBridge().generate(event, options)
+
+    expect(options.sections.map(section => section.title)).toEqual(['Docs'])
+    expect(hrefs(options)).toEqual(['https://example.com/raw/docs/a.md', 'https://example.com/raw/docs/b.md'])
+  })
 })
 
 describe('llms bridge: llms-full.txt', () => {
