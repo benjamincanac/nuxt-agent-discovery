@@ -551,6 +551,18 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect(rewrite).toBeUndefined()
   })
 
+  it('reads a configured path as written, a literal `%` included', () => {
+    // `/blog/a%20b` is a decoded path holding a `%`; decoded again it would
+    // read as `/blog/a b` and lose its own redirect to the wildcard pair.
+    const config = createConfig({
+      routes: [{ path: '/blog/a%20b', raw: '/custom/pinned.md' }, { path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/blog/**']
+    })
+
+    expect(redirect(vercelMarkdownRoutes(config), '/blog/a%2520b')).toBe('/custom/pinned.md')
+    expect(negotiatedRawPath(config, '/blog/a%2520b', { accept: 'text/markdown' })).toBe('/custom/pinned.md')
+  })
+
   it('emits no pair for a rule whose only pages are exact patterns', () => {
     const site = vercelMarkdownRoutes(createConfig({
       routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/blog/pinned' }, { path: '/docs/**' }],

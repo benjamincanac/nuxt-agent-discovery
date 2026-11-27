@@ -772,13 +772,18 @@ describe('matchRoute', () => {
   // Patterns are written decoded while a request path arrives encoded, in
   // whatever hex case the client chose.
   it('matches a percent-encoded request path against a decoded pattern', () => {
-    const routes = [{ path: '/café/**' }, { path: '/x y/**' }, { path: '/a/b/**' }]
-    expect(matchRoute(routes, '/caf%C3%A9/x')).toEqual({ path: '/café/**' })
-    expect(matchRoute(routes, '/caf%c3%a9/x')).toEqual({ path: '/café/**' })
-    expect(matchRoute(routes, '/x%20y/z')).toEqual({ path: '/x y/**' })
-    expect(matchRoute(routes, '/café/x')).toEqual({ path: '/café/**' })
+    const encoded = { ...config, routes: [{ path: '/café/**' }, { path: '/x y/**' }, { path: '/a/b/**' }] }
+    const negotiated = (path: string) => negotiatedRawPath(encoded, path, { accept: 'text/markdown' })
+    expect(negotiated('/caf%C3%A9/x')).toBe('/raw/caf%C3%A9/x.md')
+    expect(negotiated('/caf%c3%a9/x')).toBe('/raw/caf%c3%a9/x.md')
+    expect(negotiated('/x%20y/z')).toBe('/raw/x%20y/z.md')
     // An encoded slash is data, not a segment boundary.
-    expect(matchRoute(routes, '/a%2Fb/c')).toBeUndefined()
+    expect(negotiated('/a%2Fb/c')).toBeUndefined()
+  })
+
+  it('matches a configured path as written', () => {
+    expect(matchRoute([{ path: '/blog/a%20b' }], '/blog/a%20b')).toEqual({ path: '/blog/a%20b' })
+    expect(matchRoute([{ path: '/blog/a%20b' }], '/blog/a b')).toBeUndefined()
   })
 
   it('requires at least one segment after **', () => {

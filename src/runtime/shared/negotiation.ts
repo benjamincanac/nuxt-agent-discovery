@@ -125,19 +125,23 @@ function patternRegExp(pattern: string): RegExp {
   return regexp
 }
 
-/**
- * First route whose pattern matches the pathname, in declaration order.
- * Patterns are spelled decoded, so the path is too. `decodeURI` keeps an
- * encoded `/` as data rather than a segment boundary.
- */
+/** First route whose pattern matches a decoded pathname, in declaration order. */
 export function matchRoute(routes: AgentRoute[], pathname: string): AgentRoute | undefined {
+  return routes.find(route => patternRegExp(route.path).test(pathname))
+}
+
+/**
+ * The same for a path off the wire. Patterns are spelled decoded, so the path
+ * is decoded first, with `decodeURI` keeping an encoded `/` as data.
+ */
+function matchRequestRoute(routes: AgentRoute[], pathname: string): AgentRoute | undefined {
   let decoded = pathname
   try {
     decoded = decodeURI(pathname)
   } catch {
     // Malformed escape: match it as it came.
   }
-  return routes.find(route => patternRegExp(route.path).test(decoded))
+  return matchRoute(routes, decoded)
 }
 
 /** Everything before the first wildcard: `/docs/**` → `/docs/`, `/` → `/`. */
@@ -359,7 +363,7 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
     if (base.length <= 1) {
       return undefined
     }
-    const route = matchRoute(config.routes, base)
+    const route = matchRequestRoute(config.routes, base)
     return route ? rawDestination(config, route, base) : undefined
   }
 
@@ -432,7 +436,7 @@ function negotiableRoute(config: NegotiationConfig, path: string): AgentRoute | 
   if (isAssetPath(path)) {
     return undefined
   }
-  return matchRoute(config.routes, pathname)
+  return matchRequestRoute(config.routes, pathname)
 }
 
 /** Whether a normalized pathname is the raw prefix itself or sits under it. */
