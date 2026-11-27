@@ -102,9 +102,14 @@ function patternDest(pattern: string): string {
   return pattern.replace(/\*\*|\*/g, () => `$${++capture}`)
 }
 
-/** Keeps the excluded prefixes out of a wildcard match, mirroring the runtime's exclusion check. */
+/**
+ * Keeps the excluded prefixes out of a wildcard match, mirroring `isExcluded`:
+ * a prefix ending in `/` covers the bare segment too, so `/api/` refuses `/api`.
+ */
 function excludeLookahead(config: NegotiationConfig): string {
-  const prefixes = [`${config.rawPrefix}/`, ...config.excludePrefixes].map(escapeEncoded)
+  const prefixes = [`${config.rawPrefix}/`, ...config.excludePrefixes].map(prefix => prefix.length > 1 && prefix.endsWith('/')
+    ? `${escapeEncoded(prefix.slice(0, -1))}(?:/|$)`
+    : escapeEncoded(prefix))
   return `(?!${prefixes.join('|')})`
 }
 

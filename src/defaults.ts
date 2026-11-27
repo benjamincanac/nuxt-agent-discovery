@@ -47,5 +47,8 @@ export const AGENT_USER_AGENTS = [
  */
 export { MCP_EXCLUDED_GROUPS } from './runtime/shared/defaults'
 
-/** Paths owned by the framework or the API, never markdown. */
-export const EXCLUDE_PREFIXES = ['/_', '/api/', '/mcp', '/.well-known/']
+/**
+ * Paths owned by the framework or the API, never markdown. A trailing slash
+ * covers the bare segment too, so `/mcp/` keeps `/mcp` out but not `/mcp-guide`.
+ */
+export const EXCLUDE_PREFIXES = ['/_', '/api/', '/mcp/', '/.well-known/']

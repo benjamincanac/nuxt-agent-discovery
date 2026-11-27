@@ -22,7 +22,7 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
-import { createFenceTracker, formatLinkHeader, hasFileExtension, isNegotiablePath, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix } from './runtime/shared/negotiation'
+import { createFenceTracker, formatLinkHeader, hasFileExtension, isExcluded, isNegotiablePath, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
 import type { AgentMarkdownFormat, AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -335,7 +335,7 @@ export default defineNuxtModule<ModuleOptions>({
     // middleware proxies itself forever, directly or through other routes.
     // Walk the runtime chain on normalized pathnames; revisiting one is the loop.
     const nextHop = (pathname: string): string | undefined => {
-      if (isRawPath(config, pathname) || excludePrefixes.some(prefix => pathname.startsWith(prefix))) {
+      if (isRawPath(config, pathname) || isExcluded(pathname, config)) {
         return undefined
       }
       const base = pathname.endsWith('.md') ? pathname.slice(0, -3) : pathname
@@ -730,8 +730,11 @@ export {}
         if (!cached) {
           continue
         }
-        // Excluded prefixes never negotiate, so their caches are safe.
-        if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
+        // Excluded prefixes never negotiate, so their caches are safe. A
+        // wildcard key is excluded only when every path it matches is.
+        const prefix = staticPrefix(key)
+        const excluded = prefix === key ? isExcluded(key, config) : config.excludePrefixes.some(entry => prefix.startsWith(entry))
+        if (excluded || prefix.startsWith(`${rawPrefix}/`)) {
           continue
         }
         // For an exact rule the question is whether the path negotiates, not

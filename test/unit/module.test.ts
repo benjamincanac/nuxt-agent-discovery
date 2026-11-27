@@ -194,11 +194,11 @@ describe('module setup: shared defaults', () => {
     // `/sitemap.md` is pushed onto the negotiation config once per instance.
     // Before the copy it landed on `EXCLUDE_PREFIXES` itself, so the second
     // Nuxt instance in the same process started from a polluted default.
-    expect(EXCLUDE_PREFIXES).toEqual(['/_', '/api/', '/mcp', '/.well-known/'])
+    expect(EXCLUDE_PREFIXES).toEqual(['/_', '/api/', '/mcp/', '/.well-known/'])
     expect(EXCLUDE_PREFIXES).toHaveLength(4)
 
     for (const config of [first, second]) {
-      expect(config.excludePrefixes).toEqual(['/_', '/api/', '/mcp', '/.well-known/', '/sitemap.md'])
+      expect(config.excludePrefixes).toEqual(['/_', '/api/', '/mcp/', '/.well-known/', '/sitemap.md'])
     }
     expect(first.excludePrefixes).not.toBe(second.excludePrefixes)
   })
@@ -393,6 +393,12 @@ describe('module setup: cached routes', () => {
     expect(locations.some(location => location.startsWith('/raw/llms'))).toBe(false)
     expect(locations.some(location => location.startsWith('/raw/sitemap'))).toBe(false)
     expect(locations.filter(Boolean)).toEqual(['/raw/tools.md', '/raw/tools.md', '/raw/tools/$1.md', '/raw/tools/$1.md'])
+  })
+
+  it('skips a cache under an excluded segment and keeps one beside it', async () => {
+    const config = await setupModule({}, { '/api': { isr: true }, '/mcp/**': { isr: true }, '/mcp-guide/**': { isr: true } })
+
+    expect(config.cachedRoutes).toEqual(['/mcp-guide/**'])
   })
 
   it('drops a dotted rule under the default catch-all pattern too', async () => {

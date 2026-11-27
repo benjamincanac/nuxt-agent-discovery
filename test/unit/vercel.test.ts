@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { dropDuplicateLinkRoutes, joinAlternatives, setupVercelPreset, vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
 import type { VercelHandle, VercelRoute } from '../../src/presets/vercel'
-import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
+import { acceptsMarkdown, formatLinkHeader, negotiatedRawPath, notAcceptable, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
+import { EXCLUDE_PREFIXES } from '../../src/defaults'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -14,7 +15,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
       { path: '/docs/**' }
     ],
     userAgents: ['ClaudeBot', 'GPTBot', 'curl/8.4'],
-    excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/'],
+    excludePrefixes: ['/_', '/api/', '/mcp/', '/.well-known/'],
     links: [],
     linkHeader: true,
     cachedRoutes: [],
@@ -1090,5 +1091,49 @@ describe('vercelMarkdownRoutes: non-ASCII exact patterns', () => {
     const pairs = vercelTwinLinkRoutes(config)
     const twinPair = pairs.find(route => new RegExp(route.src).test('/raw/%E6%96%87%E6%A1%A3.md'))
     expect(twinPair?.headers?.Link).toContain('<https://example.com/%E6%96%87%E6%A1%A3>; rel="canonical"')
+  })
+})
+
+describe('vercelMarkdownRoutes: parity with the runtime', () => {
+  type Headers = Record<string, string>
+
+  /**
+   * The answer of the first route that ends routing, read the way the edge
+   * reads the table: `has` and `missing` values anchored and case-sensitive.
+   */
+  function edge(config: NegotiationConfig, path: string, headers: Headers): string | undefined {
+    const matcher = (entry: { key: string, value: string }) =>
+      headers[entry.key] !== undefined && new RegExp(`^(?:${entry.value})$`).test(headers[entry.key]!)
+    for (const route of vercelMarkdownRoutes(config)) {
+      const src = new RegExp(route.src)
+      if (!src.test(path) || route.continue || (route.has && !route.has.every(matcher)) || route.missing?.some(matcher)) {
+        continue
+      }
+      if (route.status === 406) {
+        return '406'
+      }
+      return path.replace(src, route.status ? route.headers!.Location! : route.dest!)
+    }
+    return undefined
+  }
+
+  function origin(config: NegotiationConfig, path: string, headers: Headers): string | undefined {
+    const options = { path, accept: headers.accept, userAgent: headers['user-agent'] }
+    return negotiatedRawPath(config, path, options) ?? (notAcceptable(config, options) ? '406' : undefined)
+  }
+
+  const config = createConfig({ routes: [{ path: '/' }, { path: '/**' }], excludePrefixes: EXCLUDE_PREFIXES, notAcceptable: true })
+  const agent = { 'user-agent': 'ClaudeBot/1.0' }
+  const markdown = { accept: 'text/markdown' }
+
+  const expectParity = (site: NegotiationConfig, cases: [string, Headers][]) => {
+    for (const [path, headers] of cases) {
+      expect(edge(site, path, headers), `${path} ${JSON.stringify(headers)}`).toBe(origin(site, path, headers))
+    }
+  }
+
+  it('excludes the same prefixes', () => {
+    const paths = ['/mcp', '/mcp/', '/mcp/x', '/mcp-guide', '/mcp-toolkit/setup', '/api', '/api/', '/api/x', '/apis', '/_nuxt/x', '/.well-known/api-catalog']
+    expectParity(config, paths.flatMap(path => [[path, agent], [path, markdown]] as [string, Headers][]))
   })
 })

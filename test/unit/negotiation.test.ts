@@ -28,6 +28,7 @@ import {
   ruleMatchesPath,
   staticPrefix
 } from '../../src/runtime/shared/negotiation'
+import { EXCLUDE_PREFIXES } from '../../src/defaults'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -40,7 +41,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
       { path: '/docs/**' }
     ],
     userAgents: ['ClaudeBot', 'GPTBot', 'curl/8.4'],
-    excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/'],
+    excludePrefixes: ['/_', '/api/', '/mcp/', '/.well-known/'],
     links: [],
     linkHeader: true,
     cachedRoutes: [],
@@ -297,6 +298,24 @@ describe('negotiatedRawPath: exclusions', () => {
     expect(negotiatedRawPath(config, '/_nuxt/x', { userAgent: CLAUDE_BOT })).toBeUndefined()
     expect(negotiatedRawPath(config, '/.well-known/api-catalog', { userAgent: CLAUDE_BOT })).toBeUndefined()
     expect(negotiatedRawPath(config, '/mcp', { userAgent: CLAUDE_BOT })).toBeUndefined()
+  })
+
+  // A prefix ending in a slash names a whole segment: `/mcp/` keeps the MCP
+  // endpoint out without taking every page whose name starts with `mcp`.
+  it('reads a prefix ending in a slash as a whole segment', () => {
+    const site = createConfig({ routes: [{ path: '/' }, { path: '/**' }], excludePrefixes: EXCLUDE_PREFIXES })
+    for (const path of ['/mcp', '/mcp/', '/mcp/x', '/api', '/api/', '/api/x', '/_nuxt/x', '/.well-known', '/.well-known/api-catalog']) {
+      expect(negotiatedRawPath(site, path, { userAgent: CLAUDE_BOT }), path).toBeUndefined()
+    }
+    expect(negotiatedRawPath(site, '/mcp-guide', { userAgent: CLAUDE_BOT })).toBe('/raw/mcp-guide.md')
+    expect(negotiatedRawPath(site, '/mcp-toolkit/setup', { accept: 'text/markdown' })).toBe('/raw/mcp-toolkit/setup.md')
+    expect(negotiatedRawPath(site, '/apis', { userAgent: CLAUDE_BOT })).toBe('/raw/apis.md')
+  })
+
+  it('keeps a prefix without a trailing slash a plain string prefix', () => {
+    const site = createConfig({ routes: [{ path: '/**' }], excludePrefixes: ['/admin'] })
+    expect(negotiatedRawPath(site, '/admin', { userAgent: CLAUDE_BOT })).toBeUndefined()
+    expect(negotiatedRawPath(site, '/administrators', { userAgent: CLAUDE_BOT })).toBeUndefined()
   })
 })
 
