@@ -117,6 +117,15 @@ export function staticPrefix(pattern: string): string {
   return pattern.split('*')[0]!
 }
 
+/**
+ * The static prefix cut back to a segment boundary, so a wildcard inside a
+ * segment is compared from its parent: `/docs/v*` from `/docs/`.
+ */
+function segmentPrefix(pattern: string): string {
+  const prefix = staticPrefix(pattern)
+  return prefix === pattern || prefix.endsWith('/') ? prefix : prefix.slice(0, prefix.lastIndexOf('/') + 1)
+}
+
 function trimSlash(value: string): string {
   return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value
 }
@@ -131,8 +140,8 @@ function isUnder(path: string, prefix: string): boolean {
  * false negative lets two representations share one route rule cache entry.
  */
 export function patternsOverlap(a: string, b: string): boolean {
-  const left = trimSlash(staticPrefix(a))
-  const right = trimSlash(staticPrefix(b))
+  const left = trimSlash(segmentPrefix(a))
+  const right = trimSlash(segmentPrefix(b))
   if (!isUnder(left, right) && !isUnder(right, left)) {
     return false
   }

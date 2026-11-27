@@ -501,6 +501,72 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect(matches(routes[0]!, '/docs/foo')).toBe(true)
   })
 
+  /** Where the first 307 matching a path sends it, the way the CDN reads the table. */
+  const redirect = (table: VercelRoute[], path: string) => {
+    const route = table.find(route => route.status === 307 && matches(route, path))
+    return route && path.replace(new RegExp(route.src), route.headers!.Location!)
+  }
+
+  it('redirects only the pages a pattern matches under a rule wider than the patterns', () => {
+    // `/fr/pricing` has no twin: no pattern matches it, so the runtime serves
+    // its HTML and a 307 built from the rule alone would land on a 404.
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/*/docs/**' }],
+      cachedRoutes: ['/fr/**']
+    }))
+
+    expect(redirect(site, '/fr/docs/guide')).toBe('/raw/fr/docs/guide.md')
+    expect(redirect(site, '/fr/docs/guide/')).toBe('/raw/fr/docs/guide.md')
+    expect(redirect(site, '/fr/pricing')).toBeUndefined()
+    expect(redirect(site, '/fr/docs')).toBeUndefined()
+    expect(redirect(site, '/fr')).toBeUndefined()
+  })
+
+  it('leaves an exact pattern under a cached rule to its own redirect, which knows its `raw`', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/blog/pinned', raw: '/custom/pinned.md' }, { path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/blog/**']
+    }))
+
+    expect(redirect(site, '/blog/pinned')).toBe('/custom/pinned.md')
+    expect(redirect(site, '/blog/pinned/')).toBe('/custom/pinned.md')
+    expect(redirect(site, '/blog/other')).toBe('/raw/blog/other.md')
+    expect(site.filter(route => route.status === 307 && matches(route, '/blog/pinned'))).toHaveLength(2)
+  })
+
+  it('redirects a cached path a wildcard inside a segment matches', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/docs/v*/**' }, { path: '/*/docs/**' }],
+      cachedRoutes: ['/docs/v1/**']
+    }))
+    const rewrite = site.find(route => route.dest && route.has && matches(route, '/docs/v1/guide'))
+
+    expect(redirect(site, '/docs/v1/guide')).toBe('/raw/docs/v1/guide.md')
+    expect(rewrite).toBeUndefined()
+  })
+
+  it('emits no pair for a rule whose only pages are exact patterns', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/blog/pinned' }, { path: '/docs/**' }],
+      cachedRoutes: ['/blog/**']
+    }))
+
+    expect(redirect(site, '/blog/pinned')).toBe('/raw/blog/pinned.md')
+    expect(redirect(site, '/blog/other')).toBeUndefined()
+    expect(site.filter(route => route.status === 307)).toHaveLength(2)
+  })
+
+  it('adds no lookahead where a pattern covers the whole rule', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/docs/**']
+    }))
+    const pair = site.filter(route => route.headers?.Location === '/raw/docs/$1.md')
+
+    expect(pair).toHaveLength(2)
+    expect(pair[0]!.src).not.toContain('(?=')
+  })
+
   // A rule only demotes a pattern it covers *entirely*. Comparing static-prefix
   // lengths instead tied `/` with `/**`, so one cached page took the whole site
   // down to redirects with it.
