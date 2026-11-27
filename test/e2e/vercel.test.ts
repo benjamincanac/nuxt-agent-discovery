@@ -178,7 +178,7 @@ describe('vercel build output', () => {
     const twin = routes.find(route => route.dest?.startsWith('/raw/') && !route.has)
 
     expect(twin).toBeDefined()
-    expect(twin!.src).toContain('\\.md$')
+    expect(twin!.src).toContain('\\.md/?$')
   })
 
   // The property is that the table is a function of the configured patterns and
