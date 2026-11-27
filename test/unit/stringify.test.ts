@@ -181,6 +181,12 @@ describe('content stringify: lead', () => {
     expect(render(nodes)).toBe('# \\<NuxtLink> \\*x\\* \\[y\\]\n\n> \\# not heading\n> \\- dash\n\nBody\n')
   })
 
+  it('encodes a related link target holding a space', () => {
+    const nodes: DocNode[] = [['p', {}, 'Body']]
+    prepareDocumentTree(nodes, { links: [{ label: 'Spaced', to: '/x y' }], siteUrl: 'https://example.com' })
+
+    expect(render(nodes)).toBe('Body\n\n---\n\n- [Spaced](https://example.com/x%20y)\n')
+  })
 })
 
 describe('content stringify: text', () => {
@@ -222,6 +228,34 @@ describe('content stringify: text', () => {
     const markdown = render(await parse(source))
 
     expect(markdown).toBe(source)
+  })
+})
+
+describe('content stringify: links and images', () => {
+  it.each([
+    ['a link title', '[t](/a "My title")\n'],
+    ['link attributes', '[x](/a){target="_blank" .cls}\n'],
+    ['an image title holding quotes', '![a](/a.png "say \\"hi\\"")\n'],
+    ['an image alt holding a bracket', '![a \\] b](/a.png)\n'],
+    ['a bracket in inline component content', 'A :badge[a \\] b] here.\n'],
+    ['whitespace-only inline code', '` x ` and `  ` and `a  b`\n'],
+    ['an external link', '[Nuxt](https://nuxt.com)\n']
+  ])('round-trips %s', async (_name, markdown) => {
+    const tree = await parse(markdown)
+
+    expect(await parse(render(structuredClone(tree)))).toEqual(tree)
+  })
+
+  it('writes a link title and attributes the way the source did', async () => {
+    const markdown = render(await parse('[t](/a "My title") [x](/a){target="_blank" .cls} [Nuxt](https://nuxt.com)\n'))
+
+    expect(markdown).toBe('[t](/a "My title") [x](/a){class="cls" target="_blank"} [Nuxt](https://nuxt.com)\n')
+  })
+
+  it('keeps a link title but no attributes as `markdown/html`', async () => {
+    const markdown = render(await parse('[t](/a "My title") [x](/a){target="_blank"}\n'), 'markdown/html')
+
+    expect(markdown).toBe('[t](/a "My title") [x](/a)\n')
   })
 })
 

@@ -121,6 +121,16 @@ describe('comark source', () => {
     expect(page?.markdown).toBe('# \\<NuxtLink> \\*x\\* \\[y\\]\n\n> \\# not heading\n> \\- dash\n\nBody\n')
   })
 
+  it('encodes a related link target holding a space', async () => {
+    const page = await createStubSource({
+      meta: { kind: 'document' },
+      data: { links: [{ label: 'Spaced', to: '/x y' }] },
+      nodes: [['p', {}, 'Body']]
+    }).get('/spaced', event)
+
+    expect(page?.markdown).toBe(`Body\n\n---\n\n- [Spaced](${SITE_URL}/x%20y)\n`)
+  })
+
   it('absolutizes site-relative links, including component props', async () => {
     const relative = {
       meta: { kind: 'document' },

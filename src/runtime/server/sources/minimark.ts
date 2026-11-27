@@ -73,8 +73,10 @@ const code: MinimarkHandler = (node, state) => {
   const text = textContent(node)
   const longest = Math.max(0, ...(text.match(/`+/g) || []).map(run => run.length))
   const fence = '`'.repeat(longest + 1)
-  const padded = longest || /^ .* $/.test(text) ? ` ${text} ` : text
-  return `${fence}${padded}${fence}${mdcAttributes(state, language ? { lang: language, ...rest } : rest)}`
+  // The parser strips one space from each side unless the span is only spaces,
+  // so a span of spaces alone keeps no padding.
+  const pad = text.startsWith('`') || text.endsWith('`') || (text.startsWith(' ') && text.endsWith(' ') && /[^ ]/.test(text)) ? ' ' : ''
+  return `${fence}${pad}${text}${pad}${fence}${mdcAttributes(state, language ? { lang: language, ...rest } : rest)}`
 }
 
 const BLOCK_TAGS = new Set(['blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'ol', 'p', 'pre', 'table', 'ul'])
@@ -152,10 +154,66 @@ const li: MinimarkHandler = (node, state) => {
  */
 const br: MinimarkHandler = () => '<br>'
 
-/** minimark drops every attribute but `src` and `alt`. */
+function isBalanced(value: string, open: string, close: string, escapes: boolean): boolean {
+  let depth = 0
+  for (let index = 0; index < value.length; index++) {
+    if (escapes && value[index] === '\\') {
+      index++
+    } else if (value[index] === open) {
+      depth++
+    } else if (value[index] === close && --depth < 0) {
+      return false
+    }
+  }
+  return depth === 0
+}
+
+/**
+ * A link or image destination as comark writes one: a space or a control
+ * character percent-encoded, a stray parenthesis and a character reference
+ * escaped, so `/x y` does not end the destination early.
+ */
+function linkDestination(url: unknown): string {
+  if (url === undefined || url === null || url === '') {
+    return '<>'
+  }
+  const value = String(url)
+  const escapeParens = !isBalanced(value, '(', ')', false)
+  let result = ''
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]!
+    const code = value.charCodeAt(index)
+    if (code <= 0x20 || code === 0x7F) {
+      result += `%${code.toString(16).toUpperCase().padStart(2, '0')}`
+    } else if (char === '\\' || char === '<' || char === '>' || (escapeParens && (char === '(' || char === ')')) || (char === '&' && /^&#?[a-z0-9]+;/i.test(value.slice(index, index + 34)))) {
+      result += `\\${char}`
+    } else {
+      result += char
+    }
+  }
+  return result
+}
+
+function linkTitle(title: unknown): string {
+  return ` "${String(title).replace(/["\\<&]/g, '\\$&')}"`
+}
+
+/** minimark drops every attribute but `src` and `alt`, and escapes neither. */
 const img: MinimarkHandler = (node, state) => {
   const { src, alt, title, ...rest } = node[1] || {}
-  return `![${alt ?? ''}](${src}${title ? ` "${title}"` : ''})${mdcAttributes(state, rest)}`
+  const text = String(alt ?? '')
+  const escapedAlt = isBalanced(text, '[', ']', true) ? text : text.replace(/(?<!\\)[[\]]/g, '\\$&')
+  return `![${escapedAlt}](${linkDestination(src)}${title ? linkTitle(title) : ''})${mdcAttributes(state, rest)}`
+}
+
+/** minimark writes the text and `href` alone, dropping the title and every attribute. */
+const a: MinimarkHandler = (node, state) => {
+  const { href, title, ...rest } = node[1] || {}
+  // The parser adds `rel="nofollow"` to every external link, so it is not the source's.
+  if (([] as unknown[]).concat(rest.rel ?? []).join(' ') === 'nofollow') {
+    delete rest.rel
+  }
+  return `[${phrasing(node, state)}](${linkDestination(href)}${title ? linkTitle(title) : ''})${mdcAttributes(state, rest)}`
 }
 
 const cells = (row: DocNode) => row.slice(2).filter((cell): cell is DocNode => Array.isArray(cell) && (cell[0] === 'th' || cell[0] === 'td'))
@@ -333,7 +391,7 @@ function place(nodes: unknown[], placements: WeakMap<DocNode, Placement>, tags: 
  * one line. There is no narrower hook: its component handler is not exported.
  */
 export function minimarkHandlers(nodes: DocNode[], format: string): Record<string, MinimarkHandler> {
-  const handlers: Record<string, MinimarkHandler> = Object.assign(Object.create(null), { br, code, del, em, img, li, ol, pre, strong, table })
+  const handlers: Record<string, MinimarkHandler> = Object.assign(Object.create(null), { a, br, code, del, em, img, li, ol, pre, strong, table })
   if (format !== 'markdown/mdc') {
     return handlers
   }
