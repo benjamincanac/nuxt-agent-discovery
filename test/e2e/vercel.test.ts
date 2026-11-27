@@ -146,6 +146,7 @@ describe('vercel build output', () => {
       expect(accepts('text/markdown')).toBe(true)
       expect(accepts('text/html, text/markdown')).toBe(true)
       expect(accepts('text/html;profile="text/markdown"')).toBe(false)
+      expect(accepts('Text/Markdown')).toBe(true)
 
       // A client that explicitly refused markdown is excluded, whitespace
       // before the delimiter included: RFC 9110 allows it and a real edge

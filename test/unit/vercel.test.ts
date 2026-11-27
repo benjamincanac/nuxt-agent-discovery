@@ -185,9 +185,9 @@ describe('vercelMarkdownRoutes: 406', () => {
   const refusal = vercelMarkdownRoutes(strict).find(route => route.status === 406)!
   const matcher = (route: VercelRoute, key: string, list: 'has' | 'missing') =>
     route[list]?.find(entry => entry.key === key)?.value
-  /** The `missing` `Accept` matcher, read the way the edge reads it: anchored, case-insensitive. */
+  /** The `missing` `Accept` matcher, read the way the edge reads it: anchored and case-sensitive. */
   const accepts = (route: VercelRoute) => (header: string) =>
-    new RegExp(`^(?:${matcher(route, 'accept', 'missing')})$`, 'i').test(header)
+    new RegExp(`^(?:${matcher(route, 'accept', 'missing')})$`).test(header)
 
   it('is absent unless the site turns it on', () => {
     expect(vercelMarkdownRoutes(createConfig()).some(route => route.status === 406)).toBe(false)
@@ -215,13 +215,17 @@ describe('vercelMarkdownRoutes: 406', () => {
     expect(offers('text/markdown')).toBe(true)
     expect(offers('application/xml')).toBe(false)
     expect(offers('image/png, application/pdf')).toBe(false)
+    // Media types are case-insensitive, and the runtime lowercases them.
+    expect(offers('Text/HTML, application/json')).toBe(true)
+    expect(offers('TEXT/*')).toBe(true)
 
     // Present and carrying a media range, so a mangled header cannot refuse.
     // Both halves have to be there, or the edge would 406 what the origin
     // serves, which is the one divergence this route cannot have.
-    const present = new RegExp(`^(?:${matcher(refusal, 'accept', 'has')})$`, 'i')
+    const present = new RegExp(`^(?:${matcher(refusal, 'accept', 'has')})$`)
     expect(present.test('application/xml')).toBe(true)
     expect(present.test('image/png, application/pdf')).toBe(true)
+    expect(present.test('Application/XML')).toBe(true)
     expect(present.test('garbage')).toBe(false)
     expect(present.test('text/')).toBe(false)
     expect(present.test('/html')).toBe(false)
@@ -402,6 +406,7 @@ describe('vercelMarkdownRoutes: negotiated rewrites', () => {
     expect(accept('text/markdown')).toBe(true)
     expect(accept('text/markdown;q=0.9')).toBe(true)
     expect(accept('text/html, text/markdown')).toBe(true)
+    expect(accept('Text/Markdown')).toBe(true)
     expect(accept('text/html;profile="text/markdown"')).toBe(false)
     expect(accept('text/html')).toBe(false)
   })
@@ -894,6 +899,7 @@ describe('vercelMarkdownRoutes: explicit markdown refusal', () => {
       'text/markdown;q=0, text/html',
       'text/markdown; q=0',
       'text/markdown;Q=0',
+      'Text/Markdown;q=0',
       'text/markdown;q=0.0',
       'text/markdown;q=0.000',
       'text/html, text/markdown;q=0'
@@ -1144,5 +1150,10 @@ describe('vercelMarkdownRoutes: parity with the runtime', () => {
     const site = createConfig({ routes: [{ path: '/café/**' }, { path: '/x y/**' }], excludePrefixes: EXCLUDE_PREFIXES })
     const paths = ['/caf%C3%A9/x', '/caf%C3%A9/x.md', '/x%20y/z', '/x%20y/z.md']
     expectParity(site, paths.flatMap(path => [[path, agent], [path, markdown], [path, {}]] as [string, Headers][]))
+  })
+  it('reads `Accept` in any case', () => {
+    const strict = createConfig({ routes: [{ path: '/' }, { path: '/**' }], excludePrefixes: EXCLUDE_PREFIXES, notAcceptable: true })
+    const headers = ['Text/Markdown', 'TEXT/MARKDOWN;q=0.5', 'Text/HTML, application/json', 'TEXT/*', 'Application/JSON']
+    expectParity(strict, headers.map(accept => ['/docs/guide', { accept }] as [string, Headers]))
   })
 })

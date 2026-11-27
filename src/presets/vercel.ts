@@ -60,16 +60,22 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\
 const escapeEncoded = (path: string) => escapeRegExp(encodeAgentRoute(path))
 
 /**
+ * A literal matched in any case, letter by letter, for the `has` and
+ * `missing` values: only `src` documents `caseSensitive`.
+ */
+const caseless = (value: string) => escapeRegExp(value).replace(/[a-z]/gi, letter => `[${letter.toLowerCase()}${letter.toUpperCase()}]`)
+
+/**
  * `Accept` values that refuse markdown with `q=0`, used as a `missing` matcher
  * because a regex over the raw header cannot express "markdown, but not at
  * q=0". `[qQ]` since only `src` documents `caseSensitive`, `(\.0+)?` to keep a
  * real `q=0.05` out, and the space before the boundary since RFC 9110 allows
  * one around a list separator.
  */
-const REFUSES_MARKDOWN = String.raw`.*text/markdown\s*;\s*[qQ]=0(\.0+)?(\s*[;,].*)?`
+const REFUSES_MARKDOWN = String.raw`.*${caseless('text/markdown')}\s*;\s*[qQ]=0(\.0+)?(\s*[;,].*)?`
 
 /** A media range half: a non-empty RFC 9110 token, which `*` is one of. */
-const TOKEN = String.raw`[a-z0-9!#$%&'*+.^_|~-]+`
+const TOKEN = String.raw`[a-zA-Z0-9!#$%&'*+.^_|~-]+`
 
 /**
  * `Accept` values leaving a negotiated page something to serve, as the
@@ -78,7 +84,7 @@ const TOKEN = String.raw`[a-z0-9!#$%&'*+.^_|~-]+`
  * substring matches inside a parameter value too. It ranks no q-values, so a
  * range refused with `q=0` reads as offered and the edge serves the page.
  */
-const ACCEPTS_A_REPRESENTATION = String.raw`(([^"]|"[^"]*")*,)?\s*(text/(html|markdown|\*)|\*/\*)\s*([;,].*)?`
+const ACCEPTS_A_REPRESENTATION = String.raw`(([^"]|"[^"]*")*,)?\s*(${caseless('text/')}(${caseless('html')}|${caseless('markdown')}|\*)|\*/\*)\s*([;,].*)?`
 
 /**
  * An `Accept` carrying at least one media range. Both halves have to be there:
@@ -92,8 +98,7 @@ const ANY_MEDIA_RANGE = String.raw`(.*,)?\s*${TOKEN}/${TOKEN}\s*([;,].*)?`
  * Case-folded letter by letter because only `src` documents `caseSensitive`.
  */
 function agentUserAgentPattern(config: NegotiationConfig): string {
-  const fold = (value: string) => value.replace(/[a-z]/gi, letter => `[${letter.toLowerCase()}${letter.toUpperCase()}]`)
-  return `.*(${config.userAgents.map(agent => fold(escapeRegExp(agent))).join('|')}).*`
+  return `.*(${config.userAgents.map(caseless).join('|')}).*`
 }
 
 /** Pattern wildcards replaced by their capture references: `/docs/**` → `/docs/$1`. */
@@ -181,7 +186,7 @@ function negotiatedRoute(src: string, dest: string, has: RouteMatcher[], cached:
 export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // Anchored at a media-range boundary: a bare substring also matches inside a
   // parameter value, so `Accept: text/html;profile="text/markdown"` reads as markdown.
-  const acceptMarkdown = { type: 'header', key: 'accept', value: String.raw`(.*,)?\s*text/markdown\s*([;,].*)?` }
+  const acceptMarkdown = { type: 'header', key: 'accept', value: String.raw`(.*,)?\s*${caseless('text/markdown')}\s*([;,].*)?` }
   // Only on the `Accept` routes: a known agent gets markdown whatever its `Accept` says.
   const refusesMarkdown = [{ type: 'header', key: 'accept', value: REFUSES_MARKDOWN }]
   // An empty list has no matcher: `.*().*` matches every user agent there is.
