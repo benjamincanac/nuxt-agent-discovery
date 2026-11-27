@@ -13,7 +13,7 @@ import {
   useLogger
 } from '@nuxt/kit'
 import { defu } from 'defu'
-import { join } from 'pathe'
+import { join, resolve as resolveDir } from 'pathe'
 import { decodePath, withLeadingSlash, withoutTrailingSlash } from 'ufo'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { mcpExcludedGroups } from './runtime/shared/defaults'
@@ -618,7 +618,8 @@ export {}
           logger.warn('Another module already serves `/robots.txt`, so the AI robots policy is not applied to it. Contribute the `agentDiscovery.userAgents` list through that module instead.')
           return
         }
-        if (existsSync(join(nuxt.options.rootDir, nuxt.options.dir?.public || 'public', 'robots.txt'))) {
+        // Nuxt resolves `dir.public` to an absolute path already, which `resolve` keeps as is.
+        if (existsSync(join(resolveDir(nuxt.options.rootDir, nuxt.options.dir?.public || 'public'), 'robots.txt'))) {
           logger.warn('A static `public/robots.txt` exists, so the AI robots policy is not applied to it. Align its agent list with `agentDiscovery.userAgents` or remove the file.')
           return
         }

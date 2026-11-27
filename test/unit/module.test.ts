@@ -421,6 +421,16 @@ describe('module setup: companion modules', () => {
     expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(true)
   })
 
+  it('leaves `/robots.txt` to a static file in the public directory', async () => {
+    // Nuxt resolves `dir.public` to an absolute path, so it must not be joined onto the root again.
+    const publicDir = join(mkdtempSync(join(tmpdir(), 'nad-public-')), 'public')
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, 'robots.txt'), 'User-agent: *\n')
+    const nuxt = await runModule(robots, {}, undefined, undefined, { dir: { public: publicDir } })
+
+    expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(false)
+  })
+
   it('leaves `/robots.txt` to a companion installed after `setup()`', async () => {
     // `@nuxtjs/seo` pulls `@nuxtjs/robots` in through `moduleDependencies`, so
     // it is invisible during this module's `setup()`. Registering a handler
