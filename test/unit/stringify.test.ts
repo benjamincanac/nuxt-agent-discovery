@@ -112,7 +112,37 @@ describe('content stringify: markdown minimark 0.2 loses', () => {
   it('keeps an ordered list\'s start and nests a list under its marker', async () => {
     const markdown = render(await parse('3. Step\n   - detail\n4. Next\n'))
 
-    expect(markdown).toBe('3. Step\n\n   - detail\n4. Next\n')
+    expect(markdown).toBe('3. Step\n   - detail\n4. Next\n')
+  })
+
+  it('writes a code block under its list item, not on the item\'s line', async () => {
+    const markdown = render(await parse('1. Install the module:\n\n   ```bash\n   npm i x\n   ```\n\n2. Configure it.\n'))
+
+    expect(markdown).toBe('1. Install the module:\n\n   ```bash\n   npm i x\n   ```\n2. Configure it.\n')
+  })
+
+  it('indents an item\'s blocks under a two-digit marker', async () => {
+    const markdown = render(await parse('9. Nine\n10. Ten\n\n    ```bash\n    npm i x\n    ```\n'))
+
+    expect(markdown).toBe('9. Nine\n10. Ten\n\n    ```bash\n    npm i x\n    ```\n')
+  })
+
+  it.each([
+    ['a code block in an ordered item', '1. Install the module:\n\n   ```bash\n   npm i x\n   ```\n\n2. Configure it.\n'],
+    ['a code block in a tight item', '- Run:\n  ```bash\n  npm i x\n  ```\n- Done\n'],
+    ['code holding a list in a renumbered item', '3. Three\n\n   ```md\n   1. inside code\n   2. second\n   ```\n\n4. Four\n'],
+    ['a table in an item', '- item\n\n  | a | b |\n  | - | - |\n  | 1 | 2 |\n\n- next\n'],
+    ['a heading in an item', '- item\n\n  ### Heading in item\n\n- next\n'],
+    ['a blockquote in an item', '- a\n\n  > quoted\n\n- b\n'],
+    ['a list in a blockquote in an item', '- a\n\n  > - quoted\n  > - list\n\n- b\n'],
+    ['two paragraphs in an item', '- one\n\n  two\n\n- next\n'],
+    ['a block component in an item', '- item\n\n  ::note\n  Inside\n  ::\n\n- next\n'],
+    ['a code block in a task item', '- [x] Done:\n\n  ```bash\n  npm i x\n  ```\n\n- [ ] Todo\n'],
+    ['three levels of lists', '1. a\n   - b\n     1. c\n\n        ```ts\n        x\n        ```\n   - d\n2. e\n']
+  ])('round-trips %s', async (_name, markdown) => {
+    const tree = await parse(markdown)
+
+    expect(await parse(render(structuredClone(tree)))).toEqual(tree)
   })
 
   it('leaves a table with a block in a cell to minimark', async () => {
