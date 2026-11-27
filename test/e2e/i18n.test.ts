@@ -168,7 +168,8 @@ describe('O(1) route table', () => {
     expect(serialized).not.toMatch(/\/(?:en|fr)\/[^?]/)
     // The locale roots are exact routes: their `.md` alias and their static
     // twin entry, and nothing under them.
-    expect(routes.filter(route => route.src === '^/en\\.md$')).toHaveLength(2)
+    expect(routes.filter(route => route.src === '^/en/?\\.md/?$')).toHaveLength(1)
+    expect(routes.filter(route => route.src === '^/en\\.md$')).toHaveLength(1)
     expect(routes.filter(route => route.src === '^/raw/en\\.md$')).toHaveLength(1)
   })
 
