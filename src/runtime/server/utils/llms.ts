@@ -4,7 +4,7 @@ import type { AgentListEntry, AgentRequestEvent, NegotiationConfig } from '../..
 import { getAgentBase, getAgentSiteUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { appendAgentResources, generatedIndexPage, getSourcePage } from './document'
 import { normalizeAgentEntries } from './pages'
-import { hasFileExtension, isExcluded, isHomepage, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
+import { hasFileExtension, isExcluded, isHomepage, isRawPath, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
 
 type LlmsSection = {
   title: string
@@ -61,6 +61,23 @@ function toLocalUrl(href: string, domain: string): { pathname: string, suffix: s
   }
 }
 
+/** The page a raw twin stands for, so a curated link to `/raw/docs/a.md` counts as `/docs/a`. */
+function twinRoute(config: NegotiationConfig, pathname: string): string | undefined {
+  const exact = config.routes.find(route => route.raw === pathname && !route.path.includes('*'))
+  if (exact) {
+    return exact.path
+  }
+  if (!pathname.endsWith('.md')) {
+    return undefined
+  }
+  if (isRawPath(config, pathname)) {
+    return normalizeAgentRoute(pathname.slice(config.rawPrefix.length, -3))
+  }
+  // The `.md` suffix on a page URL, which negotiates to the same twin.
+  const base = pathname.slice(0, -3)
+  return base.length > 1 && matchRoute(config.routes, base) ? normalizeAgentRoute(base) : undefined
+}
+
 /**
  * The page route a link points at, or `undefined` when it names something with no
  * markdown representation. Judged by exclusion and extension alone, not by
@@ -72,10 +89,11 @@ function pageRoute(config: NegotiationConfig, href: string, domain: string): str
   if (!local) {
     return undefined
   }
+  const twin = twinRoute(config, local.pathname)
   // `URL.pathname` comes out percent-encoded while every backend stores decoded
   // paths, or a curated link to `/docs/café` resolves no page.
-  const route = normalizeAgentRoute(local.pathname)
-  return !isExcluded(route, config) && (route === '/' || !hasFileExtension(route)) ? route : undefined
+  const route = twin ?? normalizeAgentRoute(local.pathname)
+  return !isExcluded(route, config) && (twin || route === '/' || !hasFileExtension(route)) ? route : undefined
 }
 
 /** At most this many adapter calls in flight, per fan-out. */

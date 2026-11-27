@@ -79,6 +79,14 @@ describe('llms bridge: llms.txt', () => {
     expect(options.sections.map(section => section.title)).toEqual(['Docs'])
     expect(hrefs(options)).toEqual(['https://example.com/raw/docs/a.md', 'https://example.com/raw/docs/b.md'])
   })
+
+  it('counts a curated link to a raw twin as its page', async () => {
+    const options: LlmsOptions = { domain: 'https://example.com', sections: [{ title: 'Curated', links: [{ title: 'A', href: 'https://example.com/raw/docs/a.md' }] }] }
+    await createLlmsBridge().generate(event, options)
+
+    expect(options.sections.map(section => section.title)).toEqual(['Curated'])
+    expect(hrefs(options)).toEqual(['https://example.com/raw/docs/a.md'])
+  })
 })
 
 describe('llms bridge: llms-full.txt', () => {
@@ -87,6 +95,13 @@ describe('llms bridge: llms-full.txt', () => {
     await createLlmsBridge().generateFull(event, { domain: 'https://example.com', sections: [{ title: 'Docs', contentCollection: 'docs' } as never] }, contents)
 
     expect(contents).toEqual(['# /docs/a\n', '# /docs/b\n'])
+  })
+
+  it('renders only the page a curated twin link names', async () => {
+    const contents: string[] = []
+    await createLlmsBridge().generateFull(event, { domain: 'https://example.com', sections: [{ title: 'Curated', links: [{ title: 'A', href: 'https://example.com/raw/docs/a.md' }] }] }, contents)
+
+    expect(contents).toEqual(['# /docs/a\n'])
   })
 
   it('skips a page whose `get()` rejects and keeps the others', async () => {
