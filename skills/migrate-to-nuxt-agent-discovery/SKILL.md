@@ -91,7 +91,7 @@ import { createComarkSource } from '#agent-discovery/comark'
 export default createComarkSource(() => getProdContent())
 ```
 
-- **Anything else**: a file default-exporting `defineAgentContentSource({ routes, get })`. Implement `list()` too when the backend can return metadata in one call, since `sitemap.md` and the `llms.txt` bridge otherwise fall back to a `get()` per page, and `firstLeaf()` so a section URL redirects to its first document instead of 404ing. A custom adapter rendering straight to markdown must call `absolutizeMarkdownLinks()` itself.
+- **Anything else**: a file default-exporting `defineAgentContentSource({ list, get })`. Only `get()` is required. Implement `list()` whenever the backend can enumerate its pages, since without it `sitemap.md` and `listAgentPages()` come out empty and the `llms.txt` bridge adds no page links, and `firstLeaf()` so a section URL redirects to its first document instead of 404ing. The module absolutizes site-relative links in whatever `get()` returns, so the adapter does not have to.
 
 ## Step 5: port the site-specific code to hooks
 
@@ -186,7 +186,7 @@ curl -sS http://localhost:3000/.well-known/api-catalog | jq .
 curl -sS -A ClaudeBot http://localhost:3000/nope | head
 ```
 
-Then build, and read the log rather than skimming it. The module logs at info when a cached route rule covers a negotiated pattern, so grep for `response cache` rather than for warnings. It warns when no content source resolves, when a static `robots.txt` shadows the generated one, and when `extend` and `replace` are both set, and it throws on an invented link rel or a `siteUrl` carrying a path. Compare the prerendered route count against the old build.
+Then build, and read the log rather than skimming it. The module logs at info when a cached route rule covers a negotiated pattern, so grep for `response cache` rather than for warnings. It warns when no content source resolves, when a static `robots.txt` shadows the generated one, when `extend` and `replace` are both set, and when `siteUrl` carries a path that is not `app.baseURL`, and it throws on an invented link rel or a `siteUrl` that is not a valid URL. Compare the prerendered route count against the old build.
 
 Stale state fakes results at every stage here, three ways. Nuxt's build cache can keep serving a server route whose file was deleted: clear `node_modules/.cache/nuxt` after deleting route files, and remember a CDN's build cache restores it on preview deploys. A built server persists cached functions under `.data` between boots: wipe it, knowing a `@nuxthub` site needs `.data/db` back before it boots. And before trusting any curl against a locally booted `.output/server`, check the PID actually listening on the port (`lsof -iTCP:<port>`): a zombie server from a previous build answers every probe and never sees an on-disk edit.
 
@@ -199,7 +199,7 @@ Then deploy a preview and run the `verify-nuxt-agent-discovery` skill against it
 - On a cached page the module redirects instead of rewriting, and disables request-time negotiation in production. Dev keeps negotiating.
 - Off Vercel, Nitro serves prerendered files ahead of user handlers, so a prerendered page stays HTML for agents. Either render those routes on demand or accept that agents reach markdown through the `.md` URL.
 - Paths whose last segment is dotted never negotiate, which is what keeps `_payload.json` and images out.
-- A markdown document is read detached from its site, so relative links have to be absolutised. The `@nuxt/content` adapter does it; a custom one has to call `absolutizeMarkdownLinks()`.
+- A markdown document is read detached from its site, so relative links have to be absolutised. The module does it over what every adapter returns, a custom one included.
 
 ## Deliverable
 
