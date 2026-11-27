@@ -1,7 +1,7 @@
 import { createError, defineEventHandler, getRequestHeader, sendRedirect, serverFetch, setResponseStatus } from 'nuxt/server'
 import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getRequestPath } from '../utils/server'
-import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
+import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, pageVary, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves markdown through content negotiation on the Nitro server, through
@@ -47,7 +47,7 @@ export default defineEventHandler(async (event) => {
     // agent asking for markdown. Not a `routeRules` header, since a route rule
     // has no negative pattern and a catch-all would label every asset too.
     if (isNegotiablePath(config, path)) {
-      event.res.headers.set('Vary', MARKDOWN_VARY)
+      event.res.headers.set('Vary', pageVary(config, path))
     }
 
     // Nothing to serve when neither representation is acceptable. The error

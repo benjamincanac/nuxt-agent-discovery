@@ -201,6 +201,12 @@ export interface NegotiationConfig {
    */
   cachedRoutes: string[]
   /**
+   * Set by a deploy preset whose CDN routes answer markdown requests ahead of
+   * the cache, Vercel's Build Output routes. The pages under `cachedRoutes` then
+   * drop `User-Agent` from `Vary`, see `pageVary`.
+   */
+  cdnRoutes?: boolean
+  /**
    * Whether a negotiated page answers 406 to an `Accept` that allows neither of
    * its representations. Off unless the site asks for it, since it breaks any
    * client sending a narrow `Accept` it did not mean.

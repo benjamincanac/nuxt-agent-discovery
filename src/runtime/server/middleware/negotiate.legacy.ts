@@ -1,7 +1,7 @@
 import { appendResponseHeader, createError, defineEventHandler, getRequestHeader, sendRedirect, setResponseHeader, setResponseStatus } from 'h3'
 import { useNitroApp } from 'nitropack/runtime'
 import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
-import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
+import { isNegotiablePath, negotiatedRawPath, normalizePathname, notAcceptable, pageVary, prerenderTwin, ruleMatchesPath, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
  * Serves markdown through content negotiation on the Nitro server. On Vercel
@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
     // agent asking for markdown. Not a `routeRules` header, since a route rule
     // has no negative pattern and a catch-all would label every asset too.
     if (isNegotiablePath(config, event.path)) {
-      setResponseHeader(event, 'Vary', MARKDOWN_VARY)
+      setResponseHeader(event, 'Vary', pageVary(config, event.path))
     }
 
     // Nothing to serve when neither representation is acceptable. The error

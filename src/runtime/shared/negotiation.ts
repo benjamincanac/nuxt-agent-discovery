@@ -172,6 +172,28 @@ export function ruleCoversPattern(rule: string, pattern: string): boolean {
   return !pattern.includes('*') && ruleMatchesPath(rule, pattern)
 }
 
+/**
+ * `Vary` for the HTML half of a negotiated page. Behind CDN routes a cached
+ * page is redirected to its twin before the cache is read, so its HTML only
+ * reaches clients that get HTML. Vercel keys a function response on every
+ * header `Vary` names, the one set here and not the one its routes add, so
+ * `User-Agent` there stores a copy of the page per browser version. `Accept`
+ * is part of that key already. Everywhere else this server answers both
+ * halves from one URL and a cache in front of it needs both headers.
+ */
+export function pageVary(config: Pick<NegotiationConfig, 'cachedRoutes' | 'cdnRoutes'>, path: string): string {
+  const pathname = normalizePathname(path)
+  // `ruleMatchesPath` reads a rule with a wildcard before its `**` by its
+  // static prefix, which errs towards cached. Here that is the unsafe side, so
+  // such a rule is matched whole. Its section root stays out: the preset has
+  // no redirect for a root holding a wildcard, so that page still reaches the
+  // function for both halves.
+  const cached = (rule: string) => rule.endsWith('**') && rule.slice(0, -2).includes('*')
+    ? patternRegExp(rule).test(pathname)
+    : ruleMatchesPath(rule, pathname)
+  return config.cdnRoutes && config.cachedRoutes.some(cached) ? 'Accept' : MARKDOWN_VARY
+}
+
 /** The raw markdown destination for a page. `raw` is only honoured on exact patterns. */
 export function rawDestination(config: NegotiationConfig, route: AgentRoute, pathname: string): string {
   if (route.raw && !route.path.includes('*')) {
