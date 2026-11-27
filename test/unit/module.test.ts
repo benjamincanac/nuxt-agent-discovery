@@ -1151,6 +1151,12 @@ describe('module setup: base path', () => {
     expect((await resolve('https://example.com/docs', '/')).runtimeConfig.agentDiscovery).toMatchObject({ siteUrl: 'https://example.com/docs' })
   })
 
+  it('reads a bare `llms.domain` host as https', async () => {
+    const nuxt = await runModule({}, {}, undefined, undefined, { llms: { domain: 'example.com' } })
+
+    expect(nuxt.options.runtimeConfig.agentDiscovery).toMatchObject({ siteUrl: 'https://example.com' })
+  })
+
   it('puts the base on the `Link` header hrefs of `/`', async () => {
     const { routeRules } = await resolve('https://example.com')
     const link = (routeRules as Record<string, { headers: { Link: string } }>)['/']!.headers.Link
