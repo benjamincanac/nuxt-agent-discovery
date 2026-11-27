@@ -66,7 +66,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/ci.yml
     with:
-      preview: false
+      skip-preview: true
       # the squashed commit on main, which the release tags
       ref: ${{ github.event.pull_request.merge_commit_sha }}
 

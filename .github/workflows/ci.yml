@@ -11,9 +11,9 @@ on:
   # since a PR opened with `GITHUB_TOKEN` triggers no workflow of its own.
   workflow_call:
     inputs:
-      preview:
+      skip-preview:
         type: boolean
-        default: true
+        default: false
       ref:
         type: string
         default: ''
@@ -61,5 +61,7 @@ jobs:
         run: pnpm prepack
 
       - name: Publish preview
-        if: inputs.preview != false
+        # Negated, since `inputs` is empty on `push` and `pull_request` and a
+        # null compares equal to `false`.
+        if: ${{ !inputs.skip-preview }}
         run: pnpm dlx pkg-pr-new@0.0.93 publish
