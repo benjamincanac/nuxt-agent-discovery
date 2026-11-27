@@ -1140,4 +1140,9 @@ describe('vercelMarkdownRoutes: parity with the runtime', () => {
     const paths = ['/docs/3.x', '/docs/3.x/', '/docs/3.x/guide', '/logo.png', '/llms.txt']
     expectParity(config, paths.flatMap(path => [[path, agent], [path, markdown]] as [string, Headers][]))
   })
+  it('matches a pattern spelled with characters the encoder rewrites', () => {
+    const site = createConfig({ routes: [{ path: '/café/**' }, { path: '/x y/**' }], excludePrefixes: EXCLUDE_PREFIXES })
+    const paths = ['/caf%C3%A9/x', '/caf%C3%A9/x.md', '/x%20y/z', '/x%20y/z.md']
+    expectParity(site, paths.flatMap(path => [[path, agent], [path, markdown], [path, {}]] as [string, Headers][]))
+  })
 })

@@ -124,9 +124,19 @@ function patternRegExp(pattern: string): RegExp {
   return regexp
 }
 
-/** First route whose pattern matches the pathname, in declaration order. */
+/**
+ * First route whose pattern matches the pathname, in declaration order.
+ * Patterns are spelled decoded, so the path is too. `decodeURI` keeps an
+ * encoded `/` as data rather than a segment boundary.
+ */
 export function matchRoute(routes: AgentRoute[], pathname: string): AgentRoute | undefined {
-  return routes.find(route => patternRegExp(route.path).test(pathname))
+  let decoded = pathname
+  try {
+    decoded = decodeURI(pathname)
+  } catch {
+    // Malformed escape: match it as it came.
+  }
+  return routes.find(route => patternRegExp(route.path).test(decoded))
 }
 
 /** Everything before the first wildcard: `/docs/**` → `/docs/`, `/` → `/`. */

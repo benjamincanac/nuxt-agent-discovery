@@ -332,6 +332,14 @@ describe('negotiatedRawPath: dotted paths', () => {
 
   // A trailing slash names a directory, which no asset is, the way the CDN
   // lookahead reads the raw request path.
+  it('negotiates a page under a pattern spelled with non-ASCII characters', () => {
+    const site = createConfig({ routes: [{ path: '/café/**' }, { path: '/x y/**' }] })
+    expect(negotiatedRawPath(site, '/caf%C3%A9/x', { userAgent: CLAUDE_BOT })).toBe('/raw/caf%C3%A9/x.md')
+    expect(negotiatedRawPath(site, '/caf%c3%a9/x', { userAgent: CLAUDE_BOT })).toBe('/raw/caf%c3%a9/x.md')
+    expect(negotiatedRawPath(site, '/x%20y/z', { accept: 'text/markdown' })).toBe('/raw/x%20y/z.md')
+    expect(negotiatedRawPath(site, '/caf%C3%A9/x.md')).toBe('/raw/caf%C3%A9/x.md')
+  })
+
   it('negotiates a dotted last segment followed by a slash', () => {
     expect(negotiatedRawPath(config, '/docs/3.x/', { userAgent: CLAUDE_BOT })).toBe('/raw/docs/3.x.md')
     expect(negotiatedRawPath(config, '/docs/3.x/?ref=nav', { accept: 'text/markdown' })).toBe('/raw/docs/3.x.md')
@@ -753,6 +761,18 @@ describe('compilePattern', () => {
 })
 
 describe('matchRoute', () => {
+  // Patterns are written decoded while a request path arrives encoded, in
+  // whatever hex case the client chose.
+  it('matches a percent-encoded request path against a decoded pattern', () => {
+    const routes = [{ path: '/café/**' }, { path: '/x y/**' }, { path: '/a/b/**' }]
+    expect(matchRoute(routes, '/caf%C3%A9/x')).toEqual({ path: '/café/**' })
+    expect(matchRoute(routes, '/caf%c3%a9/x')).toEqual({ path: '/café/**' })
+    expect(matchRoute(routes, '/x%20y/z')).toEqual({ path: '/x y/**' })
+    expect(matchRoute(routes, '/café/x')).toEqual({ path: '/café/**' })
+    // An encoded slash is data, not a segment boundary.
+    expect(matchRoute(routes, '/a%2Fb/c')).toBeUndefined()
+  })
+
   it('requires at least one segment after **', () => {
     const routes = [{ path: '/docs/**' }]
     expect(matchRoute(routes, '/docs')).toBeUndefined()
