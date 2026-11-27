@@ -72,6 +72,25 @@ describe('content negotiation', () => {
 // `notAcceptable: true` in this fixture. A page has an HTML and a markdown
 // representation and nothing else, so an `Accept` allowing neither has nothing
 // to be answered with.
+// h3 v1 decodes `event.path`, where an escaped `#` or `?` reads as the real
+// separator and the request lands on another page. Nitro 3 keeps the escape.
+describe('encoded separators in the path', () => {
+  it('does not cut a negotiated path at an escaped `#` or `?`', async () => {
+    for (const path of ['/docs/getting-started%23zzz', '/docs/getting-started%3Fzzz']) {
+      const response = await fetch(path, { headers: { Accept: 'text/markdown' } })
+
+      expect(response.status).toBe(404)
+      expect(await response.text()).not.toContain('# Getting Started')
+    }
+  })
+
+  it('does not cut a raw twin path at an escaped `#`', async () => {
+    const response = await fetch('/raw/docs/getting-started.md%23zzz')
+
+    expect(response.status).toBe(404)
+  })
+})
+
 describe('406 on a page whose representations were all refused', () => {
   it('refuses an `Accept` that rules out both, and says which they are', async () => {
     const response = await request('/docs/getting-started', { Accept: 'application/xml' })

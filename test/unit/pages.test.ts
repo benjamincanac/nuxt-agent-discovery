@@ -83,6 +83,21 @@ describe('listAgentPages: an adapter without `list()`', () => {
       rawUrl: 'https://example.com/raw/guide/%E6%96%87%E6%A1%A3.md'
     }])
   })
+
+  it('keeps a `?` or `#` in the route inside the raw twin path', async () => {
+    setAgentContentSource({
+      async list() {
+        return [{ route: '/guide/what?' }, { route: '/guide/c#' }]
+      },
+      async get() {
+        return { markdown: '# What?\n' }
+      }
+    })
+
+    const pages = await listAgentPages(event)
+    expect(pages.map(page => page.url)).toEqual(['https://example.com/guide/what%3F', 'https://example.com/guide/c%23'])
+    expect(pages.map(page => page.rawUrl)).toEqual(['https://example.com/raw/guide/what%3F.md', 'https://example.com/raw/guide/c%23.md'])
+  })
 })
 
 describe('listAgentPages: duplicate routes', () => {
