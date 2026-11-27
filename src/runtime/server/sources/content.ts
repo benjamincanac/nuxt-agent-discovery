@@ -7,7 +7,7 @@ import collections from '#content/manifest'
 import { callServerHook } from '#agent-discovery/server'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
 import { minimarkHandlers } from './minimark'
-import { prepareDocumentTree } from './pipeline'
+import { prepareDocumentTree, titleCase } from './pipeline'
 import type { DocNode } from './pipeline'
 import type { AgentContentSource, AgentListEntry, AgentRequestEvent, AgentSectionSelector } from '../../shared/types'
 
@@ -21,14 +21,6 @@ function pageCollections(): (keyof Collections)[] {
   return Object.entries(collections as Record<string, { type: string }>)
     .filter(([_key, value]) => value.type === 'page')
     .map(([key]) => key) as (keyof Collections)[]
-}
-
-/** `getting-started` → `Getting Started`, for auto-generated section titles. */
-function titleCase(value: string): string {
-  return value
-    .replace(/[-_]+/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, char => char.toUpperCase())
 }
 
 /**

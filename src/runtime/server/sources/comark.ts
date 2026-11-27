@@ -18,7 +18,7 @@ interface ComarkContentFile {
   nodes: unknown[]
 }
 
-interface ComarkLikeContent {
+export interface ComarkLikeContent {
   get: (key: string, opts?: { fresh?: boolean }) => Promise<ComarkContentFile | null | undefined>
   navigation: () => Promise<ComarkNavigationItem[]>
 }
