@@ -87,6 +87,13 @@ describe('llms bridge: llms.txt', () => {
     expect(options.sections.map(section => section.title)).toEqual(['Curated'])
     expect(hrefs(options)).toEqual(['https://example.com/raw/docs/a.md'])
   })
+
+  it('survives options with no sections', async () => {
+    const options = { domain: 'https://example.com' } as LlmsOptions
+    await createLlmsBridge().generate(event, options)
+
+    expect(hrefs(options)).toEqual(['https://example.com/raw/docs/a.md', 'https://example.com/raw/docs/b.md'])
+  })
 })
 
 describe('llms bridge: llms-full.txt', () => {

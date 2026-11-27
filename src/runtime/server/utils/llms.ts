@@ -175,6 +175,9 @@ export function createLlmsBridge() {
       options.description = [options.description, ...config.llmsDetails].join('\n\n')
     }
 
+    // Pushed to below, so a hook handing over no sections gets an array.
+    options.sections ||= []
+
     if (source) {
       const adapter = source
 
