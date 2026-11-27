@@ -799,11 +799,12 @@ describe('pageVary', () => {
     expect(pageVary(vercel, '/pricing')).toBe('Accept')
   })
 
-  it('matches a rule with a wildcard before its `**` whole, not by its static prefix', () => {
+  it('matches a rule with a wildcard before its `**` whole, without its section root', () => {
     const vercel = { cachedRoutes: ['/docs/*/private/**'], cdnRoutes: true }
 
     expect(pageVary(vercel, '/docs/en/private/page')).toBe('Accept')
-    expect(pageVary(vercel, '/docs/en/private')).toBe('Accept')
+    // No CDN redirect answers the root of such a rule, so both headers stay.
+    expect(pageVary(vercel, '/docs/en/private')).toBe('Accept, User-Agent')
     expect(pageVary(vercel, '/docs/public')).toBe('Accept, User-Agent')
   })
 

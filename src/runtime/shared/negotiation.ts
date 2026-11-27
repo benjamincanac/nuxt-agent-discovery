@@ -185,9 +185,11 @@ export function pageVary(config: Pick<NegotiationConfig, 'cachedRoutes' | 'cdnRo
   const pathname = normalizePathname(path)
   // `ruleMatchesPath` reads a rule with a wildcard before its `**` by its
   // static prefix, which errs towards cached. Here that is the unsafe side, so
-  // such a rule is matched whole, the section root its `**` covers included.
+  // such a rule is matched whole. Its section root stays out: the preset has
+  // no redirect for a root holding a wildcard, so that page still reaches the
+  // function for both halves.
   const cached = (rule: string) => rule.endsWith('**') && rule.slice(0, -2).includes('*')
-    ? patternRegExp(rule).test(pathname) || patternRegExp(trimSlash(rule.slice(0, -2))).test(pathname)
+    ? patternRegExp(rule).test(pathname)
     : ruleMatchesPath(rule, pathname)
   return config.cdnRoutes && config.cachedRoutes.some(cached) ? 'Accept' : MARKDOWN_VARY
 }
