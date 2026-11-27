@@ -534,6 +534,17 @@ describe('vercelMarkdownRoutes: cached routes', () => {
     expect(site.filter(route => route.status === 307 && matches(route, '/blog/pinned'))).toHaveLength(2)
   })
 
+  it('redirects a cached path a wildcard inside a segment matches', () => {
+    const site = vercelMarkdownRoutes(createConfig({
+      routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/docs/v*/**' }, { path: '/*/docs/**' }],
+      cachedRoutes: ['/docs/v1/**']
+    }))
+    const rewrite = site.find(route => route.dest && route.has && matches(route, '/docs/v1/guide'))
+
+    expect(redirect(site, '/docs/v1/guide')).toBe('/raw/docs/v1/guide.md')
+    expect(rewrite).toBeUndefined()
+  })
+
   it('emits no pair for a rule whose only pages are exact patterns', () => {
     const site = vercelMarkdownRoutes(createConfig({
       routes: [{ path: '/', raw: '/raw/index.md' }, { path: '/blog/pinned' }, { path: '/docs/**' }],

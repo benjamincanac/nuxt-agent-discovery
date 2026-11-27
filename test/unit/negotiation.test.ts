@@ -837,6 +837,12 @@ describe('patternsOverlap', () => {
     expect(patternsOverlap('/**', '/docs/**')).toBe(true)
   })
 
+  it('compares a wildcard inside a segment from its parent', () => {
+    expect(patternsOverlap('/docs/v1/**', '/docs/v*/**')).toBe(true)
+    expect(patternsOverlap('/docs/v*/**', '/docs/v1/guide')).toBe(true)
+    expect(patternsOverlap('/blog/v*/**', '/docs/v1/**')).toBe(false)
+  })
+
   it('is false for disjoint prefixes', () => {
     expect(patternsOverlap('/docs/**', '/blog/**')).toBe(false)
     expect(patternsOverlap('/changelog', '/docs/**')).toBe(false)
