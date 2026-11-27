@@ -53,6 +53,15 @@ export function hasFileExtension(pathname: string): boolean {
 }
 
 /**
+ * The same test on a request path, read before the trailing slash is dropped:
+ * `/docs/3.x/` names a directory, which no asset is, as the CDN reads it too.
+ */
+function isAssetPath(path: string): boolean {
+  const pathname = (path || '/').split('?')[0]!.split('#')[0]!
+  return !pathname.endsWith('/') && hasFileExtension(pathname)
+}
+
+/**
  * Whether an excluded prefix covers a pathname. A prefix ending in `/` names a
  * whole segment, so `/api/` covers `/api` and `/api/x` but not `/apis`. Any
  * other prefix is a plain string prefix, so `/_` covers `/_nuxt`.
@@ -346,7 +355,7 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
     return undefined
   }
 
-  const route = negotiableRoute(config, pathname)
+  const route = negotiableRoute(config, path)
   return route ? rawDestination(config, route, pathname) : undefined
 }
 
@@ -358,7 +367,7 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
  */
 export function prerenderTwin(config: NegotiationConfig, path: string): string | undefined {
   const pathname = normalizePathname(path)
-  const route = negotiableRoute(config, pathname)
+  const route = negotiableRoute(config, path)
   if (!route) {
     return undefined
   }
@@ -400,14 +409,15 @@ export function handlerRouteMatches(pattern: string, path: string): boolean {
  * The route a path negotiates through, whatever the client asked for.
  * `undefined` when the URL has a single representation.
  */
-function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRoute | undefined {
+function negotiableRoute(config: NegotiationConfig, path: string): AgentRoute | undefined {
+  const pathname = normalizePathname(path)
   if (isRawPath(config, pathname)) {
     return undefined
   }
   if (isExcluded(pathname, config)) {
     return undefined
   }
-  if (hasFileExtension(pathname)) {
+  if (isAssetPath(path)) {
     return undefined
   }
   return matchRoute(config.routes, pathname)
@@ -424,7 +434,7 @@ export function isRawPath(config: Pick<NegotiationConfig, 'rawPrefix'>, pathname
  * the negative pattern that keeps the API surface and the assets out.
  */
 export function isNegotiablePath(config: NegotiationConfig, path: string): boolean {
-  return Boolean(negotiableRoute(config, normalizePathname(path)))
+  return Boolean(negotiableRoute(config, path))
 }
 
 /** The media types a negotiated page has, in the order the 406 body lists them. */
@@ -517,7 +527,7 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
     return true
   }
 
-  if (hasFileExtension(pathname)) {
+  if (isAssetPath(options.path)) {
     return false
   }
 

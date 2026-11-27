@@ -1136,4 +1136,8 @@ describe('vercelMarkdownRoutes: parity with the runtime', () => {
     const paths = ['/mcp', '/mcp/', '/mcp/x', '/mcp-guide', '/mcp-toolkit/setup', '/api', '/api/', '/api/x', '/apis', '/_nuxt/x', '/.well-known/api-catalog']
     expectParity(config, paths.flatMap(path => [[path, agent], [path, markdown]] as [string, Headers][]))
   })
+  it('reads a dotted last segment the same way', () => {
+    const paths = ['/docs/3.x', '/docs/3.x/', '/docs/3.x/guide', '/logo.png', '/llms.txt']
+    expectParity(config, paths.flatMap(path => [[path, agent], [path, markdown]] as [string, Headers][]))
+  })
 })

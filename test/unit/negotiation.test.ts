@@ -329,6 +329,17 @@ describe('negotiatedRawPath: dotted paths', () => {
     expect(negotiatedRawPath(config, '/docs/3.x/guide', { userAgent: CLAUDE_BOT })).toBe('/raw/docs/3.x/guide.md')
     expect(negotiatedRawPath(config, '/docs/3.x/guide', { accept: 'text/markdown' })).toBe('/raw/docs/3.x/guide.md')
   })
+
+  // A trailing slash names a directory, which no asset is, the way the CDN
+  // lookahead reads the raw request path.
+  it('negotiates a dotted last segment followed by a slash', () => {
+    expect(negotiatedRawPath(config, '/docs/3.x/', { userAgent: CLAUDE_BOT })).toBe('/raw/docs/3.x.md')
+    expect(negotiatedRawPath(config, '/docs/3.x/?ref=nav', { accept: 'text/markdown' })).toBe('/raw/docs/3.x.md')
+    expect(isNegotiablePath(config, '/docs/3.x/')).toBe(true)
+    expect(prefersMarkdownError(config, { path: '/docs/3.x/', accept: 'text/markdown' })).toBe(true)
+    expect(negotiatedRawPath(config, '/docs/3.x', { userAgent: CLAUDE_BOT })).toBeUndefined()
+    expect(negotiatedRawPath(config, '/docs/logo.png?next=/', { userAgent: CLAUDE_BOT })).toBeUndefined()
+  })
 })
 
 describe('prefersMarkdownError', () => {
