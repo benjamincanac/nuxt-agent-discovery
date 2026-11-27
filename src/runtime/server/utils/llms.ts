@@ -4,7 +4,7 @@ import type { AgentListEntry, AgentRequestEvent, NegotiationConfig } from '../..
 import { getAgentBase, getAgentSiteUrl, useAgentDiscoveryConfig } from './agent-discovery'
 import { appendAgentResources, generatedIndexPage, getSourcePage } from './document'
 import { normalizeAgentEntries } from './pages'
-import { hasFileExtension, isExcluded, isHomepage, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
+import { hasFileExtension, isExcluded, isHomepage, isRawPath, matchRoute, normalizeAgentRoute, normalizePathname, rawDestination, siteServesRaw } from '../../shared/negotiation'
 
 type LlmsSection = {
   title: string
@@ -27,7 +27,8 @@ function llmsDomain(event: AgentRequestEvent, options: LlmsOptions): string {
   if (!options.domain) {
     return getAgentSiteUrl(event)
   }
-  const domain = options.domain.replace(/\/+$/, '')
+  // A bare host fails to parse, which made every link read as foreign.
+  const domain = (/^[a-z][a-z\d+.-]*:\/\//i.test(options.domain) ? options.domain : `https://${options.domain.replace(/^\/+/, '')}`).replace(/\/+$/, '')
   try {
     return new URL(domain).pathname === '/' ? `${domain}${getAgentBase(event)}` : domain
   } catch {
@@ -60,6 +61,23 @@ function toLocalUrl(href: string, domain: string): { pathname: string, suffix: s
   }
 }
 
+/** The page a raw twin stands for, so a curated link to `/raw/docs/a.md` counts as `/docs/a`. */
+function twinRoute(config: NegotiationConfig, pathname: string): string | undefined {
+  const exact = config.routes.find(route => route.raw === pathname && !route.path.includes('*'))
+  if (exact) {
+    return exact.path
+  }
+  if (!pathname.endsWith('.md')) {
+    return undefined
+  }
+  if (isRawPath(config, pathname)) {
+    return normalizeAgentRoute(pathname.slice(config.rawPrefix.length, -3))
+  }
+  // The `.md` suffix on a page URL, which negotiates to the same twin.
+  const base = pathname.slice(0, -3)
+  return base.length > 1 && matchRoute(config.routes, base) ? normalizeAgentRoute(base) : undefined
+}
+
 /**
  * The page route a link points at, or `undefined` when it names something with no
  * markdown representation. Judged by exclusion and extension alone, not by
@@ -71,10 +89,11 @@ function pageRoute(config: NegotiationConfig, href: string, domain: string): str
   if (!local) {
     return undefined
   }
+  const twin = twinRoute(config, local.pathname)
   // `URL.pathname` comes out percent-encoded while every backend stores decoded
   // paths, or a curated link to `/docs/café` resolves no page.
-  const route = normalizeAgentRoute(local.pathname)
-  return !isExcluded(route, config) && (route === '/' || !hasFileExtension(route)) ? route : undefined
+  const route = twin ?? normalizeAgentRoute(local.pathname)
+  return !isExcluded(route, config) && (twin || route === '/' || !hasFileExtension(route)) ? route : undefined
 }
 
 /** At most this many adapter calls in flight, per fan-out. */
@@ -97,12 +116,13 @@ async function mapLimit<T, R>(items: T[], task: (item: T) => R | Promise<R>): Pr
 }
 
 /**
- * The adapter's listing normalized and deduped the way `listAgentPages` does,
- * so an adapter listing its homepage as `/index` lands on the same `/` the
- * landing-page checks key on. `llms.txt` and `llms-full.txt` share this one call.
+ * The adapter's listing normalized, deduped and filtered the way `listAgentPages`
+ * does, so an adapter listing its homepage as `/index` lands on the same `/` the
+ * landing-page checks key on, and no section advertises a page `sitemap.md`
+ * hides. `llms.txt` and `llms-full.txt` share this one call.
  */
-async function listPages(adapter: NonNullable<typeof source>, selector: Record<string, unknown> | undefined, event: AgentRequestEvent): Promise<AgentListEntry[]> {
-  return normalizeAgentEntries((await adapter.list?.(selector, event)) || [])
+async function listPages(adapter: NonNullable<typeof source>, selector: Record<string, unknown> | undefined, event: AgentRequestEvent, config: NegotiationConfig): Promise<AgentListEntry[]> {
+  return normalizeAgentEntries((await adapter.list?.(selector, event)) || []).filter(entry => !isExcluded(entry.route, config))
 }
 
 function toLink(entry: AgentListEntry, domain: string) {
@@ -155,13 +175,16 @@ export function createLlmsBridge() {
       options.description = [options.description, ...config.llmsDetails].join('\n\n')
     }
 
+    // Pushed to below, so a hook handing over no sections gets an array.
+    options.sections ||= []
+
     if (source) {
       const adapter = source
 
       // A section that already carries links owns its curation and is left alone.
       const resolved = await mapLimit(options.sections, section => section.links?.length
         ? null
-        : listPages(adapter, section, event))
+        : listPages(adapter, section, event, config))
 
       const unresolved: LlmsSection[] = []
       for (const [index, section] of options.sections.entries()) {
@@ -185,10 +208,7 @@ export function createLlmsBridge() {
       // `llms-full.txt`, and API endpoints are not documentation either.
       const hasPageLinks = options.sections.some(section => section.links?.some(link => pageRoute(config, link.href, domain)))
       if (!hasPageLinks) {
-        // The same filter `listAgentPages` applies, so the fallback cannot
-        // advertise pages `sitemap.md` hides.
-        const entries = (await listPages(adapter, undefined, event)).filter(entry => !isExcluded(entry.route, config))
-        for (const [title, group] of groupBySection(entries)) {
+        for (const [title, group] of groupBySection(await listPages(adapter, undefined, event, config))) {
           options.sections.push({
             title,
             description: 'Every page below is available as raw markdown.',
@@ -263,7 +283,7 @@ export function createLlmsBridge() {
     const sections = options.sections || []
     const resolved = await mapLimit(sections, section => section.links?.length
       ? null
-      : listPages(adapter, section, event))
+      : listPages(adapter, section, event, config))
     for (const [index, section] of sections.entries()) {
       for (const entry of resolved[index] || []) {
         add(entry.route)
@@ -278,10 +298,8 @@ export function createLlmsBridge() {
     }
     // No section named a page, so render them all, matching what `llms.txt` lists.
     if (!routes.length) {
-      for (const entry of await listPages(adapter, undefined, event)) {
-        if (!isExcluded(entry.route, config)) {
-          add(entry.route)
-        }
+      for (const entry of await listPages(adapter, undefined, event, config)) {
+        add(entry.route)
       }
     }
 
@@ -295,11 +313,18 @@ export function createLlmsBridge() {
     // agent fetches `/raw/**.md` or the full document. The homepages carry the
     // resources block like their twins do, and `/` alone has a fallback.
     const pages = await mapLimit(routes, async (route) => {
-      const page = await getSourcePage(route, event)
-      if (page) {
-        return isHomepage(config, route) ? { ...page, markdown: appendAgentResources(event, page.markdown) } : page
+      // One page failing to render, in the adapter or a document hook, costs that
+      // page and not the whole document.
+      try {
+        const page = await getSourcePage(route, event)
+        if (page) {
+          return isHomepage(config, route) ? { ...page, markdown: appendAgentResources(event, page.markdown) } : page
+        }
+        return route === '/' ? await generatedIndexPage(event) : null
+      } catch (error) {
+        console.warn(`[nuxt-agent-discovery] Left ${route} out of llms-full.txt, rendering it failed:`, error)
+        return null
       }
-      return route === '/' ? await generatedIndexPage(event) : null
     })
     for (const page of pages) {
       if (page?.markdown) {

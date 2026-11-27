@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { tryResolveModule } from '@nuxt/kit'
-import { minimarkHandlers } from '../../src/runtime/server/sources/minimark'
+import { escapeMinimarkText, minimarkHandlers } from '../../src/runtime/server/sources/minimark'
+import { prepareDocumentTree } from '../../src/runtime/server/sources/pipeline'
 import type { DocNode } from '../../src/runtime/server/sources/pipeline'
 
 /**
@@ -23,8 +24,10 @@ async function parse(markdown: string): Promise<DocNode[]> {
 }
 
 /** What `sources/content.ts` hands back as the page markdown. */
-function render(nodes: DocNode[]): string {
-  return stringify({ type: 'minimark', value: nodes }, { format: 'markdown/mdc', handlers: minimarkHandlers(nodes, 'markdown/mdc') })
+function render(nodes: DocNode[], format = 'markdown/mdc'): string {
+  const handlers = minimarkHandlers(nodes, format)
+  escapeMinimarkText(nodes)
+  return stringify({ type: 'minimark', value: nodes }, { format, handlers })
 }
 
 // The playground page holding every construct the raw markdown used to lose.
@@ -160,6 +163,99 @@ describe('content stringify: markdown/html', () => {
     const markdown = stringify({ type: 'minimark', value: nodes }, { format: 'markdown/html', handlers: minimarkHandlers(nodes, 'markdown/html') })
 
     expect(markdown).toBe('`string[]` ![A](/a.png)\n')
+  })
+})
+
+describe('content stringify: lead', () => {
+  it('renders a numeric title and description instead of throwing', () => {
+    const nodes: DocNode[] = [['p', {}, 'Body']]
+    prepareDocumentTree(nodes, { title: 404, description: 3.5, siteUrl: 'https://example.com' })
+
+    expect(render(nodes)).toBe('# 404\n\n> 3.5\n\nBody\n')
+  })
+
+  it('escapes the title and the description like body text', () => {
+    const nodes: DocNode[] = [['p', {}, 'Body']]
+    prepareDocumentTree(nodes, { title: '<NuxtLink> *x* [y]', description: '# not heading\n- dash', siteUrl: 'https://example.com' })
+
+    expect(render(nodes)).toBe('# \\<NuxtLink> \\*x\\* \\[y\\]\n\n> \\# not heading\n> \\- dash\n\nBody\n')
+  })
+
+  it('encodes a related link target holding a space', () => {
+    const nodes: DocNode[] = [['p', {}, 'Body']]
+    prepareDocumentTree(nodes, { links: [{ label: 'Spaced', to: '/x y' }], siteUrl: 'https://example.com' })
+
+    expect(render(nodes)).toBe('Body\n\n---\n\n- [Spaced](https://example.com/x%20y)\n')
+  })
+})
+
+describe('content stringify: text', () => {
+  // minimark 0.2 writes text nodes as they are, so a literal the source
+  // escaped came back as the syntax it was escaped from.
+  it.each([
+    ['an escaped heading marker', '\\# hash\n'],
+    ['escaped emphasis', 'Literal \\*not em\\* and \\_not em\\_ here.\n'],
+    ['escaped character references', 'a &lt;b&gt; and &amp;copy; c\n'],
+    ['escaped link and code syntax', '\\[not a link\\](/x) and \\`not code\\`\n'],
+    ['an escaped HTML tag', '\\<NuxtLink> here\n'],
+    ['an escaped ordered marker in an item', '- 1\\. literal\n'],
+    ['an escaped ordered marker', '1\\. top level\n'],
+    ['an escaped blockquote marker', '\\> not quoted\n'],
+    ['an escaped list marker after a soft break', 'line one\n\\- not a list\n'],
+    ['an escaped setext underline', 'a\n\\===\n'],
+    ['an escaped inline component', 'see \\:badge here\n'],
+    ['escaped attribute braces after a link', '[x](/a)\\{.cls}\n'],
+    ['an escaped strikethrough', 'a \\~single\\~ b\n'],
+    ['backslashes', 'C:\\\\Users and a \\\\* b\n'],
+    ['an escaped marker in a blockquote', '> \\# quoted\n'],
+    ['escaped text in emphasis and a link', '**a \\* b** and [c \\] d](/e)\n'],
+    ['escaped text in a table cell', '| a |\n| --- |\n| \\*x\\* |\n'],
+    ['escaped text in a component', '::note\n\\# inside\n::\n']
+  ])('round-trips %s', async (_name, markdown) => {
+    const tree = await parse(markdown)
+
+    expect(await parse(render(structuredClone(tree)))).toEqual(tree)
+  })
+
+  it('leaves intraword underscores and spaced operators readable', async () => {
+    const markdown = render(await parse('Set snake_case_name to a * b or a < b.\n'))
+
+    expect(markdown).toBe('Set snake_case_name to a \\* b or a < b.\n')
+  })
+
+  it('escapes nothing inside code, link destinations or component props', async () => {
+    const source = 'Run `a *b* [c]` on [x](/a_b*c).\n\n```md\n# *raw*\n```\n\n::badge{label="*x* [y]"}\n::\n'
+    const markdown = render(await parse(source))
+
+    expect(markdown).toBe(source)
+  })
+})
+
+describe('content stringify: links and images', () => {
+  it.each([
+    ['a link title', '[t](/a "My title")\n'],
+    ['link attributes', '[x](/a){target="_blank" .cls}\n'],
+    ['an image title holding quotes', '![a](/a.png "say \\"hi\\"")\n'],
+    ['an image alt holding a bracket', '![a \\] b](/a.png)\n'],
+    ['a bracket in inline component content', 'A :badge[a \\] b] here.\n'],
+    ['whitespace-only inline code', '` x ` and `  ` and `a  b`\n'],
+    ['an external link', '[Nuxt](https://nuxt.com)\n']
+  ])('round-trips %s', async (_name, markdown) => {
+    const tree = await parse(markdown)
+
+    expect(await parse(render(structuredClone(tree)))).toEqual(tree)
+  })
+
+  it('writes a link title and attributes the way the source did', async () => {
+    const markdown = render(await parse('[t](/a "My title") [x](/a){target="_blank" .cls} [Nuxt](https://nuxt.com)\n'))
+
+    expect(markdown).toBe('[t](/a "My title") [x](/a){class="cls" target="_blank"} [Nuxt](https://nuxt.com)\n')
+  })
+
+  it('keeps a link title but no attributes as `markdown/html`', async () => {
+    const markdown = render(await parse('[t](/a "My title") [x](/a){target="_blank"}\n'), 'markdown/html')
+
+    expect(markdown).toBe('[t](/a "My title") [x](/a)\n')
   })
 })
 

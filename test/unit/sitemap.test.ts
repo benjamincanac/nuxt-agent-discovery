@@ -89,3 +89,11 @@ describe('sitemap.md: page titles', () => {
     expect(body).not.toContain('- [/]')
   })
 })
+
+describe('sitemap.md: caching', () => {
+  it('is cacheable once the site URL is configured, like `robots.txt` and the api-catalog', async () => {
+    const { headers } = await sitemapMarkdown(event)
+
+    expect(headers['Cache-Control']).toBe('public, max-age=3600')
+  })
+})

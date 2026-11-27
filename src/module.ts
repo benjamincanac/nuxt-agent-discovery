@@ -760,7 +760,9 @@ export {}
       // back to the incoming host.
       const siteOptions = nuxt.options as { site?: { url?: string, name?: string } }
       if (!config.siteUrl) {
-        config.siteUrl = (siteOptions.site?.url || llms.domain || '').replace(/\/$/, '')
+        // `llms.domain` is often a bare host, which the `llms.txt` bridge reads as https.
+        const domain = llms.domain && !/^[a-z][a-z\d+.-]*:\/\//i.test(llms.domain) ? `https://${llms.domain}` : llms.domain
+        config.siteUrl = (siteOptions.site?.url || domain || '').replace(/\/$/, '')
       }
       if (!config.siteName) {
         config.siteName = siteOptions.site?.name || ''

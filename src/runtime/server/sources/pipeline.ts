@@ -7,10 +7,10 @@ import { absolutizeTreeLinks } from '../../shared/negotiation'
 export type DocNode = [string, Record<string, unknown>?, ...unknown[]]
 
 export interface PrepareDocumentOptions {
-  /** Prepended as an `h1` when the body does not open with one. */
-  title?: string
+  /** Prepended as an `h1` when the body does not open with one. Frontmatter, so of any type. */
+  title?: unknown
   /** Prepended as a blockquote under that title. */
-  description?: string
+  description?: unknown
   /** Frontmatter `links`, appended as a list when any carries a label and a target. */
   links?: unknown
   /** Origin site-relative hrefs are resolved against. */
@@ -31,13 +31,23 @@ function removeStyleNodes(nodes: DocNode[]): void {
 }
 
 /**
+ * A frontmatter value as text. YAML reads `title: 404` as a number and
+ * `title: true` as a boolean, while a list or a map has no text to show.
+ */
+export function frontmatterText(value: unknown): string | undefined {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : undefined
+}
+
+/**
  * Pushed as nodes, not as a `# ${title}` string, so the title and the
  * description go through the same escaper the body does.
  */
-function prependLead(nodes: DocNode[], title?: string, description?: string): void {
+function prependLead(nodes: DocNode[], frontmatterTitle: unknown, frontmatterDescription: unknown): void {
   if (Array.isArray(nodes[0]) && nodes[0][0] === 'h1') {
     return
   }
+  const title = frontmatterText(frontmatterTitle)
+  const description = frontmatterText(frontmatterDescription)
   if (description) {
     nodes.unshift(['blockquote', {}, description])
   }
