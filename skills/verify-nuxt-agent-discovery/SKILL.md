@@ -223,7 +223,7 @@ else
 fi
 ```
 
-- `robots.txt` names the agents negotiation actually matches. Cross-check it: every user agent named there gets markdown on `$DOC`, and the list is not shorter than the 18 defaults unless the site replaced it.
+- `robots.txt` names the agents negotiation actually matches. Cross-check it: every user agent named there gets markdown on `$DOC`, and the list is not shorter than the 26 defaults unless the site replaced it.
 
 ## Step 6: the nuxt-llms bridge
 
@@ -368,11 +368,11 @@ Every finding lands in one of two repos, and the fix is different in each. Attri
 | Invented `rel` in the `Link` header | site, something outside the module emits it | the module validates rels at build time and throws |
 | A discovery link missing from the api-catalog | site, `discovery.links` | only `service-desc` and `service-doc` entries carrying an `anchor` are grouped, by design |
 | Mangled table, dropped component, lost code language | site content, its MDC transform, or its `agent-discovery:document` hook | reproduce the same construct on the module playground; if it breaks there too it is the stringifier in `src/runtime/server/sources/content.ts` |
-| Relative links left in a raw document | module, `absolutizeMarkdownLinks` | unless the site ships a custom adapter, which has to call it itself |
+| Relative links left in a raw document | module, `absolutizeMarkdownLinks` in `src/runtime/shared/negotiation.ts` | it runs over what every adapter returns, a custom one included, so the site's adapter is not the cause |
 | Section URL 404s instead of redirecting to its first page | module `firstLeaf` handling, or the site's adapter not implementing `firstLeaf` | which source the site configures |
 | Agent gets an HTML 404, or a browser gets markdown | module, `src/runtime/server/error.ts` | unless the site chained its own `errorHandler` after the module's |
 | `llms.txt` links not pointing at raw twins | module, the llms bridge plugin | unless the site sets its own `llms:generate` hooks or `contentRawMarkdown` |
-| `robots.txt` short on agents | site, `userAgents.replace` or `@nuxtjs/robots` config | compare with the module's 18 defaults |
+| `robots.txt` short on agents | site, `userAgents.replace` or `@nuxtjs/robots` config | compare with the module's 26 defaults |
 | `sitemap.xml` listing raw URLs | module, the `@nuxtjs/sitemap` exclude | unless the site configures its own `sitemap.exclude` |
 | A cached page serving mixed variants | module, cached-route detection | which `routeRules` the site added, and whether the pattern overlaps |
 

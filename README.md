@@ -86,7 +86,7 @@ export default defineNuxtConfig({
 ```
 
 - **`siteUrl`** Canonical site URL. Left empty it resolves from `site.url`, then `llms.domain`, then per request from the incoming host. Under `app.baseURL` it may be written with or without the base path, and the module adds it when missing.
-- **`siteName`** Used in `sitemap.md` and the generated `/raw/index.md`. Falls back to `site.name`.
+- **`siteName`** Used in `sitemap.md`, the generated `/raw/index.md` and the landing page link of `llms.txt`. Falls back to `site.name`.
 - **`rawPrefix`** Where raw markdown representations live.
 - **`source`** `'auto'` detects `@nuxt/content`, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
 - **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one segment, `**` one or more. `raw` overrides the raw destination on exact patterns; point it under `rawPrefix` or an excluded prefix so the destination never re-enters negotiation, and the build refuses one that negotiates back to itself. Pages the content source doesn't hold answer agents a 404 by design, so on a site mixing hand-written pages with a partial content directory, narrow the patterns or use `excludePrefixes`.
@@ -95,7 +95,7 @@ export default defineNuxtConfig({
 - **`discovery.link`** Emit the discovery `Link` header on `/`.
 - **`discovery.apiCatalog`** Serve `/.well-known/api-catalog` (RFC 9727).
 - **`discovery.sitemapXml`** Advertise `/sitemap.xml`, only when `@nuxtjs/sitemap` is installed and enabled. A disabled companion counts as absent everywhere: the module then serves `/robots.txt` itself and registers no sitemap filter.
-- **`discovery.mcpServerCard`** Given an `McpServerCardOptions` object, serves `/.well-known/mcp/server-card.json`.
+- **`discovery.mcpServerCard`** Given an `McpServerCardOptions` object, serves `/.well-known/mcp/server-card.json`. `endpoint` is the MCP endpoint the card describes, like `/mcp`, and `name` the server name, both required. `title`, `description`, `documentation`, `repository`, `license` and `version` are optional and fill in the card's `serverInfo`, and `documentation` is also advertised as the endpoint's `service-doc` link. `excludeGroups` names the definition groups kept off the card, by subdirectory under `server/mcp/tools`, on top of the default `admin`.
 - **`discovery.links`** Site-specific discovery links. Rels are validated against the IANA registry, an invented one fails the build.
 - **`errors`** Answer errors with a markdown body carrying recovery links when the request prefers it.
 - **`notAcceptable`** See [Strict content negotiation](#strict-content-negotiation).
@@ -166,6 +166,8 @@ export default defineNuxtConfig({
 })
 ```
 
+`source: 'comark'` is not a shorthand for this: it throws at build, with a message pointing at the source file setup above.
+
 It produces the same document the `@nuxt/content` adapter does for prose, which is what makes swapping backends close to a one-file change. Components are the exception: the two stringifiers serialize a component block with different whitespace, so diff a page carrying components before pointing a comark site at this. `agent-discovery:document` fires here too, with comark's own `ContentFile`.
 
 **Custom**, any other source file, exporting an `AgentContentSource` as its default export:
@@ -210,7 +212,17 @@ A single string works too. The blocks are joined with a blank line and rendered 
 
 ### Prerendering
 
-On a backend resolving content per request, prerendered agent documents go stale without a redeploy. `nuxt-llms` 0.2.0 prerenders `llms.txt` and `llms-full.txt` unconditionally, so opt them out through Nitro:
+On a backend resolving content per request, prerendered agent documents go stale without a redeploy. `nuxt-llms` 0.3.0 and later take a `llms.prerender` option that turns off the prerender of `llms.txt` and `llms-full.txt`, and this module's skill files follow it, so one option covers `llms.txt` and the skills together:
+
+```ts
+export default defineNuxtConfig({
+  llms: {
+    prerender: false
+  }
+})
+```
+
+`nuxt-llms` 0.2.0 and earlier prerender both files unconditionally and carry no `prerender` key, so there the option governs the skill files only and fails `nuxt typecheck`. Opt the two files out through Nitro instead:
 
 ```ts
 export default defineNuxtConfig({
@@ -222,25 +234,13 @@ export default defineNuxtConfig({
 })
 ```
 
-`llms.prerender` replaces that once it ships ([nuxt-llms#53](https://github.com/nuxt-content/nuxt-llms/pull/53)), and this module's skill files already follow it, so one option covers `llms.txt` and the skills together:
-
-```ts
-export default defineNuxtConfig({
-  llms: {
-    prerender: false
-  }
-})
-```
-
-It is merged but unreleased, so on 0.2.0 and earlier it governs the skill files only, and it fails `nuxt typecheck` there since the released options carry no `prerender` key.
-
 The skill files are bundled server assets either way, so turning their prerender off moves static files onto the server rather than making them fresher. It is there so one option covers both. The raw twins and `/sitemap.md` keep their own rule and prerender whatever it says: they come from the built-in `@nuxt/content` source, which compiles the content into the build. A static build has no server at all, so `nuxt generate` prerenders the skill files however the option is set.
 
 Worth knowing before you set it: the crawler is handed the twins of pages that never render as HTML while `/llms.txt` is being prerendered, so opting `/llms.txt` out drops those twins from the build as well.
 
 ## Extending
 
-The hook examples in this README target Nitro 2, the server of Nuxt 3 and 4. On Nuxt 5, register the same hooks with `useServerHooks().hook()` from `nuxt/server`, which carries their types.
+The hook examples in this README target Nitro 2, which Nuxt 3 and 4 run unless the site's `package.json` declares `nitro`, in which case Nuxt 4.7 and later run Nitro 3. On Nitro 3, Nuxt 5 included, register the same hooks with `useServerHooks().hook()` from `nuxt/server`, which carries their types.
 
 **`agent-discovery:mcp-server-card`** adds to the served card. With `@nuxtjs/mcp-toolkit` installed the module already lists the server's tools, resources and prompts, so this is for what the toolkit can't know. Tools in the `admin` group are left out, and `discovery.mcpServerCard.excludeGroups` extends that default:
 
@@ -253,7 +253,7 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
-**`renderAgentResources()`** renders the discovery registry as a markdown block, the same list the `Link` header and the api-catalog are built from. The module appends it to the `/` document itself, so call it only for a page you render by hand.
+**`renderAgentResources()`** renders the discovery registry as a markdown block, the same list the `Link` header and the api-catalog are built from. The module appends it to the `/` document itself, so call it only for a page you render by hand. Pass `{ heading }` to replace the default `Resources for Agents` heading.
 
 **`agentDiscoveryOpenApi()`** returns the discovery layer as OpenAPI fragments for sites publishing an `openapi.json`: the negotiated page patterns, their raw twins, and every discovery document the site serves, each with a stable `operationId`. Pass the `paths` you are merging into so your own operation ids are claimed first:
 
@@ -290,7 +290,7 @@ import { rawUrl } from '#agent-discovery'
 rawUrl(event, '/docs/getting-started') // https://example.com/raw/docs/getting-started.md
 ```
 
-The same entry point exports `getAgentSiteUrl(event)` and `useAgentDiscoveryConfig(event)`.
+The same entry point exports `getAgentSiteUrl(event)` and `useAgentDiscoveryConfig(event)`, plus `getAgentBase(event)`, which returns `app.baseURL` as a path prefix and an empty string at the root, and `getAgentMarkdownFormat(event)`, which returns the configured `markdownFormat` for a custom adapter serializing components itself.
 
 **`useCanonical()`** is the app-side half: a `rel="canonical"` link for the current route, and a `rel="alternate"; type="text/markdown"` one when you pass it a markdown path.
 
