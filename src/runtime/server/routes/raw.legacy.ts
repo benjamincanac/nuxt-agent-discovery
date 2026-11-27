@@ -2,6 +2,7 @@ import { createError, defineEventHandler, sendRedirect, setResponseHeader } from
 import source from '#agent-discovery/source'
 import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
+import { assertDocumentMethod, getRequestPath } from '../utils/server.legacy'
 import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
@@ -12,21 +13,23 @@ import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } 
  * here, so this is the response the client keeps and a shared cache stores.
  */
 export default defineEventHandler(async (event) => {
+  assertDocumentMethod(event)
   const config = useAgentDiscoveryConfig(event)
-  const pathname = normalizePathname(event.path)
+  const path = getRequestPath(event)
+  const pathname = normalizePathname(path)
   const slug = pathname.slice(config.rawPrefix.length)
 
   if (!source || !slug.endsWith('.md')) {
-    throw createError({ statusCode: 404, statusMessage: 'Page Not Found', data: { path: event.path } })
+    throw createError({ statusCode: 404, statusMessage: 'Page Not Found', data: { path } })
   }
 
   // Left unnormalized: `getAgentDocument` owns that, and decoding here as well
   // would decode a doubly-encoded path twice.
-  const path = slug.slice(0, -3)
-  const document = await getAgentDocument(event, path)
+  const route = slug.slice(0, -3)
+  const document = await getAgentDocument(event, route)
 
   if (!document) {
-    throw createError({ statusCode: 404, statusMessage: 'Page Not Found', data: { path } })
+    throw createError({ statusCode: 404, statusMessage: 'Page Not Found', data: { path: route } })
   }
 
   setResponseHeader(event, 'Vary', MARKDOWN_VARY)

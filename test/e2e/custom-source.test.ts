@@ -58,6 +58,21 @@ describe('content negotiation', () => {
     expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
     expect(await response.text()).toContain('# 文档')
   })
+
+  // The escape is what keeps the `?` in the path, so a server that decodes it
+  // first reads `/guide/what` and a query.
+  it('serves the page whose route holds a `?` at the URL it advertises', async () => {
+    const sitemap = await (await fetch('/sitemap.md')).text()
+    expect(sitemap).toContain(`[What?](${SITE_URL}/raw/guide/what%3F.md)`)
+
+    for (const response of [
+      await fetch('/raw/guide/what%3F.md'),
+      await fetch('/guide/what%3F', { headers: { Accept: 'text/markdown' } })
+    ]) {
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('# What?')
+    }
+  })
 })
 
 describe('discovery documents', () => {

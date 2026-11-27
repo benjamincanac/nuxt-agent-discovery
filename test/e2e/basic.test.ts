@@ -72,6 +72,25 @@ describe('content negotiation', () => {
 // `notAcceptable: true` in this fixture. A page has an HTML and a markdown
 // representation and nothing else, so an `Accept` allowing neither has nothing
 // to be answered with.
+// h3 v1 decodes `event.path`, where an escaped `#` or `?` reads as the real
+// separator and the request lands on another page. Nitro 3 keeps the escape.
+describe('encoded separators in the path', () => {
+  it('does not cut a negotiated path at an escaped `#` or `?`', async () => {
+    for (const path of ['/docs/getting-started%23zzz', '/docs/getting-started%3Fzzz']) {
+      const response = await fetch(path, { headers: { Accept: 'text/markdown' } })
+
+      expect(response.status).toBe(404)
+      expect(await response.text()).not.toContain('# Getting Started')
+    }
+  })
+
+  it('does not cut a raw twin path at an escaped `#`', async () => {
+    const response = await fetch('/raw/docs/getting-started.md%23zzz')
+
+    expect(response.status).toBe(404)
+  })
+})
+
 describe('406 on a page whose representations were all refused', () => {
   it('refuses an `Accept` that rules out both, and says which they are', async () => {
     const response = await request('/docs/getting-started', { Accept: 'application/xml' })
@@ -235,6 +254,36 @@ describe('discovery documents', () => {
     expect(body).toContain('User-agent: ClaudeBot')
     expect(body).toContain('User-agent: GPTBot')
     expect(body).toContain('Content-Signal: search=yes, ai-train=yes, ai-input=yes')
+  })
+})
+
+describe('methods on the document routes', () => {
+  it('refuses anything but GET and HEAD with a 405 naming both', async () => {
+    for (const path of ['/raw/docs/getting-started.md', '/sitemap.md', '/.well-known/api-catalog', '/robots.txt', '/.well-known/mcp/server-card.json', '/.well-known/skills/index.json', '/.well-known/skills/basic-site/SKILL.md']) {
+      const response = await fetch(path, { method: 'POST' })
+
+      expect(response.status, path).toBe(405)
+      expect(response.headers.get('allow'), path).toBe('GET, HEAD')
+      expect(await response.text(), path).not.toContain('# Getting Started')
+    }
+  })
+
+  it('renders the 405 through the error page like any other error', async () => {
+    const response = await fetch('/raw/docs/getting-started.md', {
+      method: 'POST',
+      headers: { 'Accept': BROWSER_ACCEPT, 'Sec-Fetch-Mode': 'navigate' }
+    })
+
+    expect(response.status).toBe(405)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    expect(await response.text()).toContain('<!DOCTYPE html>')
+  })
+
+  it('still answers HEAD', async () => {
+    const response = await fetch('/raw/docs/getting-started.md', { method: 'HEAD' })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
   })
 })
 

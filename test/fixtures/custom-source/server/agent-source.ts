@@ -9,11 +9,12 @@ import { defineAgentContentSource } from '#agent-discovery'
  * `runtime/server/routes/raw.ts` adds itself. `test/e2e/custom-source.test.ts`
  * asserts both fixtures serve identical documents.
  *
- * The last two pages have no counterpart in the other fixtures. They sit in
+ * The last three pages have no counterpart in the other fixtures. They sit in
  * sections of their own so the documents `test/e2e/expected.ts` pins stay
- * byte-identical, and they cover the two things a route path can carry that
- * plain ASCII does not: characters that have to be percent-encoded before they
- * reach a header, and a section key that names an `Object.prototype` member.
+ * byte-identical, and they cover what a route path can carry that plain ASCII
+ * does not: characters that have to be percent-encoded before they reach a
+ * header, a `?` that only stays in the path while it is escaped, and a section
+ * key that names an `Object.prototype` member.
  */
 const pages: Record<string, { title: string, description: string, markdown: string }> = {
   '/': {
@@ -90,6 +91,16 @@ const label = 'Badge'
 > A page whose route needs percent-encoding.
 
 The slug is CJK, so every URL it appears in has to be encoded.
+`
+  },
+  '/guide/what?': {
+    title: 'What?',
+    description: 'A page whose route holds a query separator.',
+    markdown: `# What?
+
+> A page whose route holds a query separator.
+
+The slug carries a \`?\`, so its URL only works with the escape kept.
 `
   },
   '/constructor/page': {

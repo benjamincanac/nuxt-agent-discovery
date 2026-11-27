@@ -21,7 +21,8 @@ export default definePlugin((nitroApp) => {
   }
 
   const middleware: Middleware = (event) => {
-    if (prerendered.has(normalizePathname(decodePath(getRequestPath(event))))) {
+    // Cut at the real query first: a decoded `%23` or `%3F` is part of the path.
+    if (prerendered.has(decodePath(normalizePathname(getRequestPath(event))))) {
       return (negotiate as unknown as Middleware)(event)
     }
   }

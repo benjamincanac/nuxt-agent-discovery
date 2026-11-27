@@ -1,6 +1,8 @@
 import type { H3Event } from 'h3'
-import { getRequestURL } from 'h3'
+import { createError, getRequestURL, setResponseHeader } from 'h3'
 import { useNitroApp, useRuntimeConfig } from 'nitropack/runtime'
+import { DOCUMENT_ALLOW, isDocumentMethod } from './methods'
+import { withoutAppBase } from '../../shared/paths'
 import type { AgentRequestEvent } from '../../shared/types'
 
 /**
@@ -17,6 +19,29 @@ export function useServerConfig(event?: AgentRequestEvent): Record<string, unkno
 /** Origin of the incoming request. */
 export function getRequestOrigin(event: AgentRequestEvent): string {
   return getRequestURL(event as H3Event).origin
+}
+
+/**
+ * Path and query of the request below `app.baseURL`, escapes kept, as
+ * `server.ts` reads them. Not `event.path`: h3 decodes it, so an escaped `#` or
+ * `?` would read as the separator and cut the path short.
+ */
+export function getRequestPath(event: AgentRequestEvent): string {
+  const h3Event = event as H3Event
+  // Parsed against a fixed origin, since only the path is read and a malformed
+  // `Host` would make the request's own URL throw.
+  const { pathname, search } = new URL((h3Event.node.req.originalUrl || h3Event.path).replace(/^[/\\]+/, '/'), 'http://localhost')
+  const baseURL = (useRuntimeConfig(h3Event).app as { baseURL?: string } | undefined)?.baseURL
+  return withoutAppBase(pathname, baseURL) + search
+}
+
+/** Throws a 405 unless a document route answers the request's method. */
+export function assertDocumentMethod(event: AgentRequestEvent): void {
+  const h3Event = event as H3Event
+  if (!isDocumentMethod(h3Event.method)) {
+    setResponseHeader(h3Event, 'Allow', DOCUMENT_ALLOW)
+    throw createError({ statusCode: 405, statusMessage: 'Method Not Allowed' })
+  }
 }
 
 /** Calls a server runtime hook, the `agent-discovery:*` ones a site registers from a Nitro plugin. */

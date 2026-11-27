@@ -1,6 +1,7 @@
 import type { NitroErrorHandler } from 'nitropack/types'
 import { getRequestHeader, send, setResponseHeader, setResponseStatus } from 'h3'
 import { getAgentSiteUrl, useAgentDiscoveryConfig } from './utils/agent-discovery'
+import { getRequestPath } from './utils/server.legacy'
 import { errorMarkdown, prefersMarkdownError, MARKDOWN_VARY } from '../shared/negotiation'
 
 /**
@@ -16,10 +17,11 @@ const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler })
   }
 
   const config = useAgentDiscoveryConfig(event)
+  const path = getRequestPath(event)
 
   if (!prefersMarkdownError(config, {
     method: event.method,
-    path: event.path,
+    path,
     accept: getRequestHeader(event, 'accept'),
     userAgent: getRequestHeader(event, 'user-agent'),
     secFetchMode: getRequestHeader(event, 'sec-fetch-mode')
@@ -47,7 +49,7 @@ const errorHandler: NitroErrorHandler = async (error, event, { defaultHandler })
   const data = error.data as { path?: unknown } | undefined
 
   return send(event, errorMarkdown(config, {
-    path: typeof data?.path === 'string' ? data.path : event.path,
+    path: typeof data?.path === 'string' ? data.path : path,
     status,
     // Nitro returns the status message verbatim, so `errorMarkdown` strips it.
     statusMessage: res.statusText,

@@ -95,6 +95,8 @@ export async function listAgentPages(event: AgentRequestEvent, options: AgentPag
       // Encoded like `canonical_url`, so the two spellings of a non-ASCII page
       // cannot diverge between the listing and the document itself.
       url: `${siteUrl}${entry.route === '/' ? '' : encodeAgentRoute(entry.route)}`,
-      rawUrl: rawUrl(event, entry.route)
+      // `rawUrl` reads a `?` or `#` as the start of a query, so the route goes
+      // in encoded and `normalizeAgentRoute` decodes it there.
+      rawUrl: rawUrl(event, encodeAgentRoute(entry.route))
     }))
 }
