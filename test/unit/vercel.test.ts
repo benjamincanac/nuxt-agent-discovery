@@ -1156,4 +1156,11 @@ describe('vercelMarkdownRoutes: parity with the runtime', () => {
     const headers = ['Text/Markdown', 'TEXT/MARKDOWN;q=0.5', 'Text/HTML, application/json', 'TEXT/*', 'Application/JSON']
     expectParity(strict, headers.map(accept => ['/docs/guide', { accept }] as [string, Headers]))
   })
+  it('reads the raw prefix and the `.md` suffix the same way', () => {
+    const exact = createConfig({ routes: [{ path: '/' }, { path: '/changelog' }, { path: '/docs/**' }], excludePrefixes: EXCLUDE_PREFIXES })
+    const paths = ['/raw', '/raw/', '/raw/docs/x.md', '/docs/x.md', '/docs/x.md/', '/docs/x/.md', '/docs/.md', '/changelog.md', '/changelog.md/', '/changelog/.md', '/.md']
+    for (const site of [config, exact]) {
+      expectParity(site, paths.flatMap(path => [[path, agent], [path, markdown], [path, {}]] as [string, Headers][]))
+    }
+  })
 })

@@ -284,6 +284,14 @@ describe('negotiatedRawPath: explicit .md twins', () => {
   it('ignores a twin whose base matches no route', () => {
     expect(negotiatedRawPath(config, '/blog/x.md')).toBeUndefined()
   })
+
+  // The CDN never captures a trailing slash, so `/docs/guide/.md` is the
+  // `/docs/guide` twin there, and `/docs/guide.md/` is still a twin URL.
+  it('reads a slash around the suffix the way the CDN does', () => {
+    expect(negotiatedRawPath(config, '/docs/guide/.md')).toBe('/raw/docs/guide.md')
+    expect(negotiatedRawPath(config, '/docs/guide.md/')).toBe('/raw/docs/guide.md')
+    expect(isNegotiablePath(config, '/docs/guide.md/')).toBe(false)
+  })
 })
 
 describe('negotiatedRawPath: exclusions', () => {

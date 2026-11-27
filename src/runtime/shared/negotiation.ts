@@ -55,10 +55,11 @@ export function hasFileExtension(pathname: string): boolean {
 /**
  * The same test on a request path, read before the trailing slash is dropped:
  * `/docs/3.x/` names a directory, which no asset is, as the CDN reads it too.
+ * `/docs/x.md/` stays a twin URL.
  */
 function isAssetPath(path: string): boolean {
   const pathname = (path || '/').split('?')[0]!.split('#')[0]!
-  return !pathname.endsWith('/') && hasFileExtension(pathname)
+  return pathname.endsWith('/') ? pathname.endsWith('.md/') : hasFileExtension(pathname)
 }
 
 /**
@@ -353,7 +354,8 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
   // An explicit `.md` twin is a markdown request whatever the headers say. Not
   // routed through `negotiableRoute`, which would read the suffix as an asset.
   if (pathname.endsWith('.md')) {
-    const base = pathname.slice(0, -3)
+    // `/docs/x/.md` is the `/docs/x` twin, as the CDN never captures the slash.
+    const base = normalizePathname(pathname.slice(0, -3))
     if (base.length <= 1) {
       return undefined
     }

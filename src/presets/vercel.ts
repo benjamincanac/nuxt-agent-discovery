@@ -118,8 +118,11 @@ function excludeLookahead(config: NegotiationConfig): string {
   return `(?!${prefixes.join('|')})`
 }
 
-/** The runtime's dotted-asset rule: a dot in the last segment means asset, `/docs/3.x/` stays negotiable. */
-const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
+/**
+ * The runtime's dotted-asset rule: a dot in the last segment means asset,
+ * `/docs/3.x/` stays negotiable, and `/docs/x.md/` is a twin URL.
+ */
+const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.(?:[^/]*|md/)$)`
 
 /**
  * The alternatives of a lookahead, with the sources that differ only by a
@@ -221,10 +224,10 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // one of these, so the pair has to carry `Vary` end to end.
   const twinSources = config.routes.flatMap((route) => {
     if (route.path.includes('*')) {
-      return [`${excluded}${compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)}\\.md`]
+      return [`${excluded}${compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)}\\.md/?`]
     }
     // `/` has no `.md` twin URL, matching the rewrite loop below.
-    return route.path === '/' ? [] : [`${escapeEncoded(route.path)}\\.md`]
+    return route.path === '/' ? [] : [`${escapeEncoded(route.path)}/?\\.md/?`]
   })
   // Keyed on the registered link, not on this module serving the route: a site
   // serving its own `/sitemap.md` through `discovery.links` needs the label too.
@@ -415,8 +418,9 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     if (route.path.includes('*')) {
       const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
       const dest = `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(route.path))}.md`
+      // The runtime reads the twin URL normalized, so a slash on either side of the suffix is the same twin.
       routes.push({
-        src: `^${excluded}${body}\\.md$`,
+        src: `^${excluded}${body}\\.md/?$`,
         dest,
         methods: METHODS
       })
@@ -424,7 +428,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     } else {
       const dest = encodeAgentRoute(rawDestination(config, route, route.path))
       if (route.path !== '/') {
-        routes.push({ src: `^${escapeEncoded(route.path)}\\.md$`, dest, methods: METHODS })
+        routes.push({ src: `^${escapeEncoded(route.path)}/?\\.md/?$`, dest, methods: METHODS })
       }
       // The same two guards as the wildcard branch: `/faq.html` reads as an asset
       // and `/mcp` sits behind an excluded prefix, both refused by the runtime.
