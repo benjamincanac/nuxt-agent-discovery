@@ -35,6 +35,7 @@ export interface VercelRoute {
   methods?: string[]
   check?: boolean
   continue?: boolean
+  caseSensitive?: boolean
 }
 
 /** Opens a routing phase: every route after it in the table runs in that phase only. */
@@ -100,6 +101,12 @@ const ANY_MEDIA_RANGE = String.raw`(.*,)?\s*${TOKEN}/${TOKEN}\s*([;,].*)?`
 function agentUserAgentPattern(config: NegotiationConfig): string {
   return `.*(${config.userAgents.map(caseless).join('|')}).*`
 }
+
+/**
+ * Vercel matches `src` without regard to case unless told otherwise, while the
+ * runtime patterns are case-sensitive, so `/DOCS/x` would negotiate at the edge only.
+ */
+const caseSensitive = (route: VercelRoute): VercelRoute => ({ ...route, caseSensitive: true })
 
 /** Pattern wildcards replaced by their capture references: `/docs/**` → `/docs/$1`. */
 function patternDest(pattern: string): string {
@@ -436,7 +443,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     }
   }
 
-  return routes
+  return routes.map(caseSensitive)
 }
 
 /**
@@ -505,7 +512,7 @@ export function vercelTwinLinkRoutes(config: NegotiationConfig): VercelRoute[] {
     routes.push({ src: `^${escapeEncoded(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
   }
 
-  return routes
+  return routes.map(caseSensitive)
 }
 
 /**

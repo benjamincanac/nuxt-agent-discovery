@@ -758,7 +758,7 @@ export function errorMarkdown(config: NegotiationConfig, options: { path: string
   const siteUrl = options.siteUrl.replace(/\/$/, '')
   // The pathname is attacker-chosen and lands in a code span of a document an
   // agent will act on, so drop anything that could close the span and smuggle
-  // markdown in. Newlines most of all: h3 has already decoded `%0A`.
+  // markdown in. Newlines most of all, since a host may hand the path over decoded.
   const pathname = normalizePathname(options.path).replace(/[`\\\r\n]+/g, '').slice(0, 200)
   // Server errors never surface their message.
   const statusMessage = status < 500

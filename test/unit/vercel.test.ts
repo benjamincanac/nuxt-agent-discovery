@@ -1100,6 +1100,18 @@ describe('vercelMarkdownRoutes: non-ASCII exact patterns', () => {
   })
 })
 
+describe('vercelMarkdownRoutes: case', () => {
+  it('matches every path the way the runtime does, case included', () => {
+    const config = createConfig({
+      routes: [{ path: '/blog/pinned', raw: '/custom/pinned.md' }, { path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/blog/**']
+    })
+
+    expect(vercelMarkdownRoutes(config).every(route => route.caseSensitive)).toBe(true)
+    expect(vercelTwinLinkRoutes(config).every(route => route.caseSensitive)).toBe(true)
+  })
+})
+
 describe('vercelMarkdownRoutes: parity with the runtime', () => {
   type Headers = Record<string, string>
 
