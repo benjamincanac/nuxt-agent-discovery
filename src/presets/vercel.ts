@@ -1,7 +1,7 @@
 import { resolve } from 'pathe'
 import { readFile, writeFile } from 'node:fs/promises'
 import { useLogger } from '@nuxt/kit'
-import { compilePattern, encodeAgentRoute, formatLinkHeader, isNegotiablePath, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, MARKDOWN_VARY } from '../runtime/shared/negotiation'
+import { compilePattern, encodeAgentRoute, formatLinkHeader, isNegotiablePath, isRawPath, matchRoute, patternsOverlap, rawDestination, ruleCoversPattern, staticPrefix, MARKDOWN_VARY } from '../runtime/shared/negotiation'
 import { appBase } from '../runtime/shared/paths'
 import type { NegotiationConfig } from '../runtime/shared/types'
 
@@ -335,15 +335,50 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     return `(?!(?:${joinAlternatives(sources)})/?$)`
   }
 
+  // What the pair of a wildcard rule has to leave alone, as lookaheads on its
+  // `src`. A rule caches paths, not pages, so it can reach further than the
+  // patterns do: `/fr/**` over a site negotiating `/*/docs/**` covers
+  // `/fr/pricing`, which has no twin, and a 307 compiled from the rule alone
+  // sends every agent there to a 404. Its destination is also the one a
+  // wildcard pattern derives, which an exact pattern with a `raw` of its own
+  // does not share. `undefined` when nothing is left for the pair to answer.
+  const ruleGuards = (rule: string): string | undefined => {
+    const overlapping = config.routes.filter(route => patternsOverlap(rule, route.path))
+    // Answered by the 307 pair the loop over `config.routes` emits for them,
+    // where the runtime resolves them the same way: first match wins.
+    const exact = overlapping.filter(route => !route.path.includes('*') && patternCached(route.path) && matchRoute(config.routes, route.path) === route)
+    const wildcards = overlapping.filter(route => route.path.includes('*'))
+    if (!wildcards.length) {
+      return undefined
+    }
+    const own = exact.length ? `(?!(?:${exact.map(route => escapeEncoded(route.path)).join('|')})/?$)` : ''
+    // A pattern that is a plain prefix over the rule matches everything the
+    // rule does, the default `/**` most of all, and needs no lookahead.
+    const covered = wildcards.some((route) => {
+      const prefix = route.path.slice(0, -2)
+      return route.path.endsWith('**') && !prefix.includes('*') && staticPrefix(rule).startsWith(prefix)
+    })
+    if (covered) {
+      return own
+    }
+    // Non-capturing, so the rule's own groups keep their `$1`.
+    const sources = wildcards.map(route => compilePattern(encodeAgentRoute(route.path), { capture: false }).source.slice(1, -1))
+    return `${own}(?=(?:${sources.join('|')})$)`
+  }
+
   for (const rule of redirectedRules) {
     const wildcard = rule.includes('*')
     const matched = wildcard ? undefined : matchRoute(config.routes, rule)
+    const guards = wildcard ? ruleGuards(rule) : ''
+    if (guards === undefined) {
+      continue
+    }
 
     // The trailing slash is optional on the exact form for the same reason the
     // lookahead above spells it: what a rewrite refuses, a redirect has to
     // answer, or the one spelling neither side claims goes to the origin.
     const src = wildcard
-      ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${compilePattern(encodeAgentRoute(rule)).source.slice(1, -1)}$`
+      ? `^${NO_DOTTED_LAST_SEGMENT}${excluded}${guards}${compilePattern(encodeAgentRoute(rule)).source.slice(1, -1)}$`
       : `^${escapeEncoded(rule)}/?$`
     const dest = matched
       ? encodeAgentRoute(rawDestination(config, matched, rule))
