@@ -1013,13 +1013,13 @@ describe('module setup: prerendered pages', () => {
   type Route = { route: string, fileName?: string, contentType?: string, error?: Error, skip?: boolean }
 
   /** The page list the plugin reads, after Nitro wrote `routes` on a preset that does or does not serve them. */
-  const prerendered = async (routes: Route[], serveStatic: boolean) => {
+  const prerendered = async (routes: Route[], serveStatic: boolean, preset = 'node-server') => {
     const nuxt = await runModule({ excludePrefixes: { extend: ['/admin'] } })
     const nitroConfig: { virtual?: Record<string, () => string> } = {}
     await nuxt.hooks.callHook('nitro:config' as never, nitroConfig as never)
     const hooks: Record<string, (route: Route) => void> = {}
     const nitro = {
-      options: { dev: false, static: false, preset: 'node-server', serveStatic, routeRules: {}, runtimeConfig: { agentDiscovery: {} } },
+      options: { dev: false, static: false, preset, serveStatic, routeRules: {}, runtimeConfig: { agentDiscovery: {} } },
       hooks: { hook: (name: string, callback: (route: Route) => void) => { hooks[name] = callback } }
     }
     await nuxt.hooks.callHook('nitro:init' as never, nitro as never)
@@ -1049,6 +1049,16 @@ describe('module setup: prerendered pages', () => {
 
   it('lists nothing where the CDN serves the files', async () => {
     expect(await prerendered([{ route: '/docs/guide', fileName: '/docs/guide/index.html', contentType: html }], false)).toEqual([])
+  })
+
+  it('lists every page on a Cloudflare Worker, which serves them from its assets binding', async () => {
+    // A wrangler rule is coarser than a pattern, so the Worker sees pages that
+    // never negotiate too, and would render them again without the list.
+    expect(await prerendered([
+      { route: '/docs/guide', fileName: '/docs/guide/index.html', contentType: html },
+      { route: '/admin/panel', fileName: '/admin/panel/index.html', contentType: html },
+      { route: '/docs/guide/_payload.json', fileName: '/docs/guide/_payload.json', contentType: 'application/json' }
+    ], false, 'cloudflare-module')).toEqual(['/docs/guide', '/admin/panel'])
   })
 
   it('leaves `Vary` on `/` to whatever negotiated the response', async () => {

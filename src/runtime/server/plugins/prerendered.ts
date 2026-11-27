@@ -9,6 +9,28 @@ import type { AgentWebRequestEvent } from '../../shared/types'
 /** An h3 v2 middleware, spelled out since `h3` resolves to v1 for the type-check. */
 type Middleware = ((event: AgentWebRequestEvent) => unknown) & { __traced__?: boolean }
 
+/** What Nitro 3 puts on the request on a Cloudflare Worker. */
+interface CloudflareRequest extends Request {
+  runtime?: { cloudflare?: { env?: { ASSETS?: { fetch: (request: Request) => Promise<Response> } } } }
+}
+
+/**
+ * The middleware's answer, or on a Cloudflare Worker, which has no static
+ * handler to fall through to, the HTML half from the assets binding: Nitro
+ * would render the page again otherwise. h3 merges the `Vary` the middleware
+ * set into that response.
+ */
+async function negotiateOrServe(event: AgentWebRequestEvent): Promise<unknown> {
+  const negotiated = await (negotiate as unknown as Middleware)(event)
+  const request = event.req as CloudflareRequest
+  const assets = request.runtime?.cloudflare?.env?.ASSETS
+  if (negotiated !== undefined || !assets || (request.method !== 'GET' && request.method !== 'HEAD')) {
+    return negotiated
+  }
+  const response = await assets.fetch(request)
+  return response.status === 404 ? undefined : response
+}
+
 /**
  * Negotiates the prerendered pages on Nitro 3. `prerendered.legacy.ts` is the
  * Nitro 2 twin. Nitro puts its static handler first among the global
@@ -22,7 +44,7 @@ export default definePlugin((nitroApp) => {
 
   const middleware: Middleware = (event) => {
     if (prerendered.has(normalizePathname(decodePath(getRequestPath(event))))) {
-      return (negotiate as unknown as Middleware)(event)
+      return negotiateOrServe(event)
     }
   }
 
