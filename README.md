@@ -48,7 +48,7 @@ In this order:
 3. `Accept` refusing `text/html` outright while a wildcard permits markdown, as in `text/html;q=0, */*`.
 4. A known agent User-Agent, matched case-insensitively against the shared list.
 
-Exclusions never negotiate: `/_`, `/api/`, `/mcp`, `/.well-known/`, the raw prefix itself, and any path whose last segment is dotted (assets, `_payload.json`, images).
+Exclusions never negotiate: `/_`, `/api/`, `/mcp/`, `/.well-known/`, the raw prefix itself, and any path whose last segment is dotted (assets, `_payload.json`, images). A dotted segment followed by a slash, like `/docs/3.x/`, is a page.
 
 Errors follow the same idea but browsers are protected: a `fetch()` call keeps the HTML or JSON error it was written against, and an explicit `Accept: text/html` or `application/json` is honored unless the client is a known agent. Everything else, curl, an empty `Accept`, a navigation, gets the markdown error body.
 
@@ -90,7 +90,7 @@ export default defineNuxtConfig({
 - **`rawPrefix`** Where raw markdown representations live.
 - **`source`** `'auto'` detects `@nuxt/content`, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
 - **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one segment, `**` one or more. `raw` overrides the raw destination on exact patterns; point it under `rawPrefix` or an excluded prefix so the destination never re-enters negotiation, and the build refuses one that negotiates back to itself. Pages the content source doesn't hold answer agents a 404 by design, so on a site mixing hand-written pages with a partial content directory, narrow the patterns or use `excludePrefixes`.
-- **`excludePrefixes.extend`** Extra path prefixes on top of the defaults (`/_`, `/api/`, `/mcp`, `/.well-known/`). An excluded path is not a page anywhere: it never negotiates, no listing includes it, and the raw route answers 404 for it. Server code can still reach one through the `includeExcluded` option on `getAgentDocument()` and `listAgentPages()`. Add any standalone `.md` document the site serves itself. **`.replace`** replaces the list.
+- **`excludePrefixes.extend`** Extra path prefixes on top of the defaults (`/_`, `/api/`, `/mcp/`, `/.well-known/`). A prefix ending in `/` names a whole segment, so `/mcp/` covers `/mcp` and `/mcp/x` but not `/mcp-guide`. Any other prefix matches as a plain string, so `/_` covers `/_nuxt`. An excluded path is not a page anywhere: it never negotiates, no listing includes it, and the raw route answers 404 for it. Server code can still reach one through the `includeExcluded` option on `getAgentDocument()` and `listAgentPages()`. Add any standalone `.md` document the site serves itself: on Vercel, a static `.md` file a pattern matches is otherwise rewritten to its raw twin. **`.replace`** replaces the list.
 - **`userAgents.extend`** Extra user agents on top of the defaults (26 agents from `ai.robots.txt`, see `src/defaults.ts`). **`.replace`** replaces the list.
 - **`discovery.link`** Emit the discovery `Link` header on `/`.
 - **`discovery.apiCatalog`** Serve `/.well-known/api-catalog` (RFC 9727).
@@ -366,7 +366,7 @@ On the `vercel` preset, a Nitro `compiled` hook prepends routes to `.vercel/outp
 
 The canonical/alternate `Link` pair of the prerendered twins goes at the end of the table, in a `hit` phase, which only runs once a static file has been matched. A twin the function renders gets the pair from the raw handler instead, and a twin that does not exist answers its 404 without advertising a canonical for a page that does not exist.
 
-Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so only the outright refusal `text/markdown;q=0` is covered at the edge. The known divergence: the matcher reads `Accept` by substring, so a prerendered page asked for with a low-q `text/markdown` next to a preferred `text/html` is rewritten to markdown, where the origin ranks per RFC 9110 and serves the HTML.
+Full q-value precedence is not expressible in a matcher (Vercel runs RE2), so only the outright refusal `text/markdown;q=0` is covered at the edge. The known divergence: the matcher reads `Accept` by substring, so a prerendered page asked for with a low-q `text/markdown` next to a preferred `text/html` is rewritten to markdown, where the origin ranks per RFC 9110 and serves the HTML. The reverse holds for rule 3 above: `text/html;q=0, */*` gets markdown from the origin and HTML from a prerendered page at the edge.
 
 ### Other hosts
 
