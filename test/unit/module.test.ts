@@ -807,6 +807,12 @@ describe('module setup: routes', () => {
       .rejects.toThrow('negotiates back to itself')
   })
 
+  it('refuses a raw destination a dotted directory hides', async () => {
+    // `/docs/3.x/` is a page, so the middleware fetching it negotiates again.
+    await expect(runModule({ source: false, routes: [{ path: '/docs/3.x', raw: '/docs/3.x/' }] }))
+      .rejects.toThrow('negotiates back to itself')
+  })
+
   it('refuses a raw destination without an extension', async () => {
     // `/x` negotiates markdown for itself: the middleware fetches `/x` from
     // `/x`, forever. The `.md` spelling is not what loops, the negotiation is.
@@ -1053,6 +1059,8 @@ describe('module setup: prerendered pages', () => {
       { route: '/', fileName: '/index.html', contentType: html },
       { route: '/docs/guide', fileName: '/docs/guide/index.html', contentType: html },
       { route: '/docs/caf%C3%A9', fileName: '/docs/caf%C3%A9/index.html', contentType: html },
+      // A dotted directory is a page, its index file says so.
+      { route: '/docs/3.x/', fileName: '/docs/3.x/index.html', contentType: html },
       // Not pages, or not written.
       { route: '/docs/guide/_payload.json', fileName: '/docs/guide/_payload.json', contentType: 'application/json' },
       { route: '/raw/docs/guide.md', fileName: '/raw/docs/guide.md', contentType: 'text/markdown; charset=utf-8' },
@@ -1060,7 +1068,7 @@ describe('module setup: prerendered pages', () => {
       { route: '/docs/skipped', fileName: '/docs/skipped/index.html', contentType: html, skip: true },
       // Written, but never negotiated.
       { route: '/admin/panel', fileName: '/admin/panel/index.html', contentType: html }
-    ], true)).toEqual(['/', '/docs/guide', '/docs/café'])
+    ], true)).toEqual(['/', '/docs/guide', '/docs/café', '/docs/3.x'])
   })
 
   it('lists nothing where the CDN serves the files', async () => {
