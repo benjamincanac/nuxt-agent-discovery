@@ -7,6 +7,19 @@ on:
   # No base-branch filter: stacked PRs target the previous PR's branch and
   # still need the suite to run.
   pull_request:
+  # The release workflow runs the suite on a merged release PR before it tags,
+  # since a PR opened with `GITHUB_TOKEN` triggers no workflow of its own.
+  workflow_call:
+    inputs:
+      preview:
+        type: boolean
+        default: true
+      ref:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
 
 jobs:
   ci:
@@ -18,11 +31,13 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -46,4 +61,5 @@ jobs:
         run: pnpm prepack
 
       - name: Publish preview
-        run: pnpm dlx pkg-pr-new publish
+        if: inputs.preview != false
+        run: pnpm dlx pkg-pr-new@0.0.93 publish

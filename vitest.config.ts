@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
@@ -22,6 +22,8 @@ export default defineConfig({
     ]
   },
   test: {
+    // Worktrees under `.claude/` carry a copy of the suite.
+    exclude: [...configDefaults.exclude, '.claude/**'],
     testTimeout: 120000,
     // The e2e suites build and boot fixtures in place, and `vercel.test.ts`
     // runs a second build of the `basic` fixture. Two files sharing a

@@ -54,8 +54,25 @@ jobs:
           # same subject as past releases, and a valid conventional PR title
           title: 'chore(release): v{version}'
 
-  # release PR merged: tag it, cut a GitHub release, dispatch the publish run
+  # release PR merged: run the suite on the merge commit, nothing else gates it
+  ci:
+    if: |
+      github.event_name == 'pull_request'
+      && github.event.pull_request.merged == true
+      && startsWith(github.event.pull_request.head.ref, 'release/v')
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.repository == 'benjamincanac/nuxt-agent-discovery'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      preview: false
+      # the squashed commit on main, which the release tags
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+  # then tag it, cut a GitHub release, dispatch the publish run
   release:
+    needs: ci
     if: |
       github.event_name == 'pull_request'
       && github.event.pull_request.merged == true
