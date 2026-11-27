@@ -52,9 +52,27 @@ export function hasFileExtension(pathname: string): boolean {
   return segment.includes('.')
 }
 
-/** Plain prefix match, so `/_` covers `/_nuxt` and `/api/` covers `/api/x`. */
-export function isExcluded(pathname: string, config: NegotiationConfig): boolean {
-  return config.excludePrefixes.some(prefix => pathname.startsWith(prefix))
+/**
+ * The same test on a request path, read before the trailing slash is dropped:
+ * `/docs/3.x/` names a directory, which no asset is, as the CDN reads it too.
+ * `/docs/x.md/` stays a twin URL.
+ */
+function isAssetPath(path: string): boolean {
+  const pathname = (path || '/').split('?')[0]!.split('#')[0]!
+  return pathname.endsWith('/') ? pathname.endsWith('.md/') : hasFileExtension(pathname)
+}
+
+/**
+ * Whether an excluded prefix covers a pathname. A prefix ending in `/` names a
+ * whole segment, so `/api/` covers `/api` and `/api/x` but not `/apis`. Any
+ * other prefix is a plain string prefix, so `/_` covers `/_nuxt`.
+ */
+function excludedBy(prefix: string, pathname: string): boolean {
+  return pathname.startsWith(prefix) || (prefix.length > 1 && prefix.endsWith('/') && pathname === prefix.slice(0, -1))
+}
+
+export function isExcluded(pathname: string, config: Pick<NegotiationConfig, 'excludePrefixes'>): boolean {
+  return config.excludePrefixes.some(prefix => excludedBy(prefix, pathname))
 }
 
 /* -------------------------------- patterns ------------------------------- */
@@ -107,9 +125,23 @@ function patternRegExp(pattern: string): RegExp {
   return regexp
 }
 
-/** First route whose pattern matches the pathname, in declaration order. */
+/** First route whose pattern matches a decoded pathname, in declaration order. */
 export function matchRoute(routes: AgentRoute[], pathname: string): AgentRoute | undefined {
   return routes.find(route => patternRegExp(route.path).test(pathname))
+}
+
+/**
+ * The same for a path off the wire. Patterns are spelled decoded, so the path
+ * is decoded first, with `decodeURI` keeping an encoded `/` as data.
+ */
+function matchRequestRoute(routes: AgentRoute[], pathname: string): AgentRoute | undefined {
+  let decoded = pathname
+  try {
+    decoded = decodeURI(pathname)
+  } catch {
+    // Malformed escape: match it as it came.
+  }
+  return matchRoute(routes, decoded)
 }
 
 /** Everything before the first wildcard: `/docs/**` → `/docs/`, `/` → `/`. */
@@ -326,11 +358,12 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
   // An explicit `.md` twin is a markdown request whatever the headers say. Not
   // routed through `negotiableRoute`, which would read the suffix as an asset.
   if (pathname.endsWith('.md')) {
-    const base = pathname.slice(0, -3)
+    // `/docs/x/.md` is the `/docs/x` twin, as the CDN never captures the slash.
+    const base = normalizePathname(pathname.slice(0, -3))
     if (base.length <= 1) {
       return undefined
     }
-    const route = matchRoute(config.routes, base)
+    const route = matchRequestRoute(config.routes, base)
     return route ? rawDestination(config, route, base) : undefined
   }
 
@@ -338,7 +371,7 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
     return undefined
   }
 
-  const route = negotiableRoute(config, pathname)
+  const route = negotiableRoute(config, path)
   return route ? rawDestination(config, route, pathname) : undefined
 }
 
@@ -350,7 +383,7 @@ export function negotiatedRawPath(config: NegotiationConfig, path: string, optio
  */
 export function prerenderTwin(config: NegotiationConfig, path: string): string | undefined {
   const pathname = normalizePathname(path)
-  const route = negotiableRoute(config, pathname)
+  const route = negotiableRoute(config, path)
   if (!route) {
     return undefined
   }
@@ -392,17 +425,18 @@ export function handlerRouteMatches(pattern: string, path: string): boolean {
  * The route a path negotiates through, whatever the client asked for.
  * `undefined` when the URL has a single representation.
  */
-function negotiableRoute(config: NegotiationConfig, pathname: string): AgentRoute | undefined {
+function negotiableRoute(config: NegotiationConfig, path: string): AgentRoute | undefined {
+  const pathname = normalizePathname(path)
   if (isRawPath(config, pathname)) {
     return undefined
   }
   if (isExcluded(pathname, config)) {
     return undefined
   }
-  if (hasFileExtension(pathname)) {
+  if (isAssetPath(path)) {
     return undefined
   }
-  return matchRoute(config.routes, pathname)
+  return matchRequestRoute(config.routes, pathname)
 }
 
 /** Whether a normalized pathname is the raw prefix itself or sits under it. */
@@ -416,7 +450,7 @@ export function isRawPath(config: Pick<NegotiationConfig, 'rawPrefix'>, pathname
  * the negative pattern that keeps the API surface and the assets out.
  */
 export function isNegotiablePath(config: NegotiationConfig, path: string): boolean {
-  return Boolean(negotiableRoute(config, normalizePathname(path)))
+  return Boolean(negotiableRoute(config, path))
 }
 
 /** The media types a negotiated page has, in the order the 406 body lists them. */
@@ -509,7 +543,7 @@ export function prefersMarkdownError(config: NegotiationConfig, options: {
     return true
   }
 
-  if (hasFileExtension(pathname)) {
+  if (isAssetPath(options.path)) {
     return false
   }
 
@@ -728,7 +762,7 @@ export function errorMarkdown(config: NegotiationConfig, options: { path: string
   const siteUrl = options.siteUrl.replace(/\/$/, '')
   // The pathname is attacker-chosen and lands in a code span of a document an
   // agent will act on, so drop anything that could close the span and smuggle
-  // markdown in. Newlines most of all: h3 has already decoded `%0A`.
+  // markdown in. Newlines most of all, since a host may hand the path over decoded.
   const pathname = normalizePathname(options.path).replace(/[`\\\r\n]+/g, '').slice(0, 200)
   // Server errors never surface their message.
   const statusMessage = status < 500

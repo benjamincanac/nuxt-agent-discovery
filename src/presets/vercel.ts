@@ -35,6 +35,7 @@ export interface VercelRoute {
   methods?: string[]
   check?: boolean
   continue?: boolean
+  caseSensitive?: boolean
 }
 
 /** Opens a routing phase: every route after it in the table runs in that phase only. */
@@ -60,16 +61,22 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\
 const escapeEncoded = (path: string) => escapeRegExp(encodeAgentRoute(path))
 
 /**
+ * A literal matched in any case, letter by letter, for the `has` and
+ * `missing` values: only `src` documents `caseSensitive`.
+ */
+const caseless = (value: string) => escapeRegExp(value).replace(/[a-z]/gi, letter => `[${letter.toLowerCase()}${letter.toUpperCase()}]`)
+
+/**
  * `Accept` values that refuse markdown with `q=0`, used as a `missing` matcher
  * because a regex over the raw header cannot express "markdown, but not at
  * q=0". `[qQ]` since only `src` documents `caseSensitive`, `(\.0+)?` to keep a
  * real `q=0.05` out, and the space before the boundary since RFC 9110 allows
  * one around a list separator.
  */
-const REFUSES_MARKDOWN = String.raw`.*text/markdown\s*;\s*[qQ]=0(\.0+)?(\s*[;,].*)?`
+const REFUSES_MARKDOWN = String.raw`.*${caseless('text/markdown')}\s*;\s*[qQ]=0(\.0+)?(\s*[;,].*)?`
 
 /** A media range half: a non-empty RFC 9110 token, which `*` is one of. */
-const TOKEN = String.raw`[a-z0-9!#$%&'*+.^_|~-]+`
+const TOKEN = String.raw`[a-zA-Z0-9!#$%&'*+.^_|~-]+`
 
 /**
  * `Accept` values leaving a negotiated page something to serve, as the
@@ -78,7 +85,7 @@ const TOKEN = String.raw`[a-z0-9!#$%&'*+.^_|~-]+`
  * substring matches inside a parameter value too. It ranks no q-values, so a
  * range refused with `q=0` reads as offered and the edge serves the page.
  */
-const ACCEPTS_A_REPRESENTATION = String.raw`(([^"]|"[^"]*")*,)?\s*(text/(html|markdown|\*)|\*/\*)\s*([;,].*)?`
+const ACCEPTS_A_REPRESENTATION = String.raw`(([^"]|"[^"]*")*,)?\s*(${caseless('text/')}(${caseless('html')}|${caseless('markdown')}|\*)|\*/\*)\s*([;,].*)?`
 
 /**
  * An `Accept` carrying at least one media range. Both halves have to be there:
@@ -92,9 +99,14 @@ const ANY_MEDIA_RANGE = String.raw`(.*,)?\s*${TOKEN}/${TOKEN}\s*([;,].*)?`
  * Case-folded letter by letter because only `src` documents `caseSensitive`.
  */
 function agentUserAgentPattern(config: NegotiationConfig): string {
-  const fold = (value: string) => value.replace(/[a-z]/gi, letter => `[${letter.toLowerCase()}${letter.toUpperCase()}]`)
-  return `.*(${config.userAgents.map(agent => fold(escapeRegExp(agent))).join('|')}).*`
+  return `.*(${config.userAgents.map(caseless).join('|')}).*`
 }
+
+/**
+ * Vercel matches `src` without regard to case unless told otherwise, while the
+ * runtime patterns are case-sensitive, so `/DOCS/x` would negotiate at the edge only.
+ */
+const caseSensitive = (route: VercelRoute): VercelRoute => ({ ...route, caseSensitive: true })
 
 /** Pattern wildcards replaced by their capture references: `/docs/**` → `/docs/$1`. */
 function patternDest(pattern: string): string {
@@ -102,14 +114,22 @@ function patternDest(pattern: string): string {
   return pattern.replace(/\*\*|\*/g, () => `$${++capture}`)
 }
 
-/** Keeps the excluded prefixes out of a wildcard match, mirroring the runtime's exclusion check. */
+/**
+ * Keeps the excluded prefixes out of a wildcard match, mirroring `isExcluded`:
+ * a prefix ending in `/` covers the bare segment too, so `/api/` refuses `/api`.
+ */
 function excludeLookahead(config: NegotiationConfig): string {
-  const prefixes = [`${config.rawPrefix}/`, ...config.excludePrefixes].map(escapeEncoded)
+  const prefixes = [`${config.rawPrefix}/`, ...config.excludePrefixes].map(prefix => prefix.length > 1 && prefix.endsWith('/')
+    ? `${escapeEncoded(prefix.slice(0, -1))}(?:/|$)`
+    : escapeEncoded(prefix))
   return `(?!${prefixes.join('|')})`
 }
 
-/** The runtime's dotted-asset rule: a dot in the last segment means asset, `/docs/3.x/` stays negotiable. */
-const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.[^/]*$)`
+/**
+ * The runtime's dotted-asset rule: a dot in the last segment means asset,
+ * `/docs/3.x/` stays negotiable, and `/docs/x.md/` is a twin URL.
+ */
+const NO_DOTTED_LAST_SEGMENT = String.raw`(?!.*\.(?:[^/]*|md/)$)`
 
 /**
  * The alternatives of a lookahead, with the sources that differ only by a
@@ -176,7 +196,7 @@ function negotiatedRoute(src: string, dest: string, has: RouteMatcher[], cached:
 export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // Anchored at a media-range boundary: a bare substring also matches inside a
   // parameter value, so `Accept: text/html;profile="text/markdown"` reads as markdown.
-  const acceptMarkdown = { type: 'header', key: 'accept', value: String.raw`(.*,)?\s*text/markdown\s*([;,].*)?` }
+  const acceptMarkdown = { type: 'header', key: 'accept', value: String.raw`(.*,)?\s*${caseless('text/markdown')}\s*([;,].*)?` }
   // Only on the `Accept` routes: a known agent gets markdown whatever its `Accept` says.
   const refusesMarkdown = [{ type: 'header', key: 'accept', value: REFUSES_MARKDOWN }]
   // An empty list has no matcher: `.*().*` matches every user agent there is.
@@ -211,10 +231,10 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
   // one of these, so the pair has to carry `Vary` end to end.
   const twinSources = config.routes.flatMap((route) => {
     if (route.path.includes('*')) {
-      return [`${excluded}${compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)}\\.md`]
+      return [`${excluded}${compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)}\\.md/?`]
     }
     // `/` has no `.md` twin URL, matching the rewrite loop below.
-    return route.path === '/' ? [] : [`${escapeEncoded(route.path)}\\.md`]
+    return route.path === '/' ? [] : [`${escapeEncoded(route.path)}/?\\.md/?`]
   })
   // Keyed on the registered link, not on this module serving the route: a site
   // serving its own `/sitemap.md` through `discovery.links` needs the label too.
@@ -405,8 +425,9 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     if (route.path.includes('*')) {
       const body = compilePattern(encodeAgentRoute(route.path)).source.slice(1, -1)
       const dest = `${encodeAgentRoute(config.rawPrefix)}${patternDest(encodeAgentRoute(route.path))}.md`
+      // The runtime reads the twin URL normalized, so a slash on either side of the suffix is the same twin.
       routes.push({
-        src: `^${excluded}${body}\\.md$`,
+        src: `^${excluded}${body}\\.md/?$`,
         dest,
         methods: METHODS
       })
@@ -414,7 +435,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     } else {
       const dest = encodeAgentRoute(rawDestination(config, route, route.path))
       if (route.path !== '/') {
-        routes.push({ src: `^${escapeEncoded(route.path)}\\.md$`, dest, methods: METHODS })
+        routes.push({ src: `^${escapeEncoded(route.path)}/?\\.md/?$`, dest, methods: METHODS })
       }
       // The same two guards as the wildcard branch: `/faq.html` reads as an asset
       // and `/mcp` sits behind an excluded prefix, both refused by the runtime.
@@ -422,7 +443,7 @@ export function vercelMarkdownRoutes(config: NegotiationConfig): VercelRoute[] {
     }
   }
 
-  return routes
+  return routes.map(caseSensitive)
 }
 
 /**
@@ -491,7 +512,7 @@ export function vercelTwinLinkRoutes(config: NegotiationConfig): VercelRoute[] {
     routes.push({ src: `^${escapeEncoded(entry.raw)}$`, headers: { Link: canonicalLink(entry.href) }, methods: METHODS, continue: true })
   }
 
-  return routes
+  return routes.map(caseSensitive)
 }
 
 /**

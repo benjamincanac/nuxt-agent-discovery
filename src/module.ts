@@ -13,7 +13,7 @@ import {
   useLogger
 } from '@nuxt/kit'
 import { defu } from 'defu'
-import { join } from 'pathe'
+import { join, resolve as resolveDir } from 'pathe'
 import { decodePath, withLeadingSlash, withoutTrailingSlash } from 'ufo'
 import { AGENT_USER_AGENTS, EXCLUDE_PREFIXES } from './defaults'
 import { mcpExcludedGroups } from './runtime/shared/defaults'
@@ -22,7 +22,7 @@ import { isValidRel } from './rels'
 import { scanSkills } from './skills'
 import { disableContentRawMarkdown, dropContentLlmsFeature, resolveContentSource } from './build/content'
 import { setupVercelPreset } from './presets/vercel'
-import { createFenceTracker, formatLinkHeader, hasFileExtension, isNegotiablePath, isRawPath, matchRoute, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix } from './runtime/shared/negotiation'
+import { createFenceTracker, formatLinkHeader, hasFileExtension, isExcluded, isNegotiablePath, isRawPath, matchRoute, negotiatedRawPath, normalizePathname, patternsOverlap, rawDestination, siteServesRaw, staticPrefix } from './runtime/shared/negotiation'
 import type { Nuxt } from '@nuxt/schema'
 import type { ModuleHooks as RobotsModuleHooks } from '@nuxtjs/robots'
 import type { AgentMarkdownFormat, AgentResource, AgentRoute, DiscoveryLink, NegotiationConfig, SitemapSections, SkillEntry } from './runtime/shared/types'
@@ -50,7 +50,7 @@ export interface McpServerCardOptions {
 export interface ModuleOptions {
   /** Canonical site URL, `app.baseURL` included or not. Resolved from the request host when empty. */
   siteUrl?: string
-  /** Site name, used in `sitemap.md` and markdown error bodies. */
+  /** Site name, used in `sitemap.md`, the generated `/raw/index.md` and the `llms.txt` landing link. */
   siteName?: string
   /** Prefix the raw markdown representations are served under. */
   rawPrefix?: string
@@ -333,29 +333,21 @@ export default defineNuxtModule<ModuleOptions>({
 
     // An exact route whose `raw` destination negotiates back into the
     // middleware proxies itself forever, directly or through other routes.
-    // Walk the runtime chain on normalized pathnames; revisiting one is the loop.
-    const nextHop = (pathname: string): string | undefined => {
-      if (isRawPath(config, pathname) || excludePrefixes.some(prefix => pathname.startsWith(prefix))) {
-        return undefined
-      }
-      const base = pathname.endsWith('.md') ? pathname.slice(0, -3) : pathname
-      if (base.length <= 1 || (base === pathname && hasFileExtension(base))) {
-        return undefined
-      }
-      const matched = matchRoute(routes, base)
-      return matched ? normalizePathname(rawDestination(config, matched, base)) : undefined
-    }
+    // Walk the hops the runtime takes, with the request the middleware sends;
+    // revisiting a pathname is the loop.
+    const nextHop = (path: string) => negotiatedRawPath(config, path, { accept: 'text/markdown' })
     for (const route of routes) {
       if (!route.raw || route.path.includes('*')) {
         continue
       }
       const visited = new Set<string>()
-      let hop = nextHop(normalizePathname(route.raw))
+      let hop = nextHop(route.raw)
       while (hop) {
-        if (visited.has(hop)) {
+        const pathname = normalizePathname(hop)
+        if (visited.has(pathname)) {
           throw new Error(`[nuxt-agent-discovery] \`routes\`: the \`raw\` destination \`${route.raw}\` for \`${route.path}\` negotiates back to itself. Point it under \`${rawPrefix}\`, or exclude it through \`excludePrefixes\`.`)
         }
-        visited.add(hop)
+        visited.add(pathname)
         hop = nextHop(hop)
       }
     }
@@ -484,7 +476,9 @@ export default defineNuxtModule<ModuleOptions>({
             return
           }
           const page = route.fileName.replace(/(?:\/index)?\.html$/, '') || '/'
-          if (isNegotiablePath(config, page)) {
+          // An index file is a directory, so `/docs/3.x/index.html` is the page `/docs/3.x/`.
+          const directory = page !== '/' && route.fileName.endsWith('/index.html')
+          if (isNegotiablePath(config, directory ? `${page}/` : page)) {
             prerenderedPages.add(normalizePathname(decodePath(page)))
           }
         })
@@ -618,7 +612,8 @@ export {}
           logger.warn('Another module already serves `/robots.txt`, so the AI robots policy is not applied to it. Contribute the `agentDiscovery.userAgents` list through that module instead.')
           return
         }
-        if (existsSync(join(nuxt.options.rootDir, nuxt.options.dir?.public || 'public', 'robots.txt'))) {
+        // Nuxt resolves `dir.public` to an absolute path already, which `resolve` keeps as is.
+        if (existsSync(join(resolveDir(nuxt.options.rootDir, nuxt.options.dir?.public || 'public'), 'robots.txt'))) {
           logger.warn('A static `public/robots.txt` exists, so the AI robots policy is not applied to it. Align its agent list with `agentDiscovery.userAgents` or remove the file.')
           return
         }
@@ -729,8 +724,11 @@ export {}
         if (!cached) {
           continue
         }
-        // Excluded prefixes never negotiate, so their caches are safe.
-        if (config.excludePrefixes.some(prefix => staticPrefix(key).startsWith(prefix)) || staticPrefix(key).startsWith(`${rawPrefix}/`)) {
+        // Excluded prefixes never negotiate, so their caches are safe. A
+        // wildcard key is excluded only when every path it matches is.
+        const prefix = staticPrefix(key)
+        const excluded = prefix === key ? isExcluded(key, config) : config.excludePrefixes.some(entry => prefix.startsWith(entry))
+        if (excluded || prefix.startsWith(`${rawPrefix}/`)) {
           continue
         }
         // For an exact rule the question is whether the path negotiates, not

@@ -28,6 +28,7 @@ import {
   ruleMatchesPath,
   staticPrefix
 } from '../../src/runtime/shared/negotiation'
+import { EXCLUDE_PREFIXES } from '../../src/defaults'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -40,7 +41,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
       { path: '/docs/**' }
     ],
     userAgents: ['ClaudeBot', 'GPTBot', 'curl/8.4'],
-    excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/'],
+    excludePrefixes: ['/_', '/api/', '/mcp/', '/.well-known/'],
     links: [],
     linkHeader: true,
     cachedRoutes: [],
@@ -283,6 +284,14 @@ describe('negotiatedRawPath: explicit .md twins', () => {
   it('ignores a twin whose base matches no route', () => {
     expect(negotiatedRawPath(config, '/blog/x.md')).toBeUndefined()
   })
+
+  // The CDN never captures a trailing slash, so `/docs/guide/.md` is the
+  // `/docs/guide` twin there, and `/docs/guide.md/` is still a twin URL.
+  it('reads a slash around the suffix the way the CDN does', () => {
+    expect(negotiatedRawPath(config, '/docs/guide/.md')).toBe('/raw/docs/guide.md')
+    expect(negotiatedRawPath(config, '/docs/guide.md/')).toBe('/raw/docs/guide.md')
+    expect(isNegotiablePath(config, '/docs/guide.md/')).toBe(false)
+  })
 })
 
 describe('negotiatedRawPath: exclusions', () => {
@@ -298,6 +307,24 @@ describe('negotiatedRawPath: exclusions', () => {
     expect(negotiatedRawPath(config, '/.well-known/api-catalog', { userAgent: CLAUDE_BOT })).toBeUndefined()
     expect(negotiatedRawPath(config, '/mcp', { userAgent: CLAUDE_BOT })).toBeUndefined()
   })
+
+  // A prefix ending in a slash names a whole segment: `/mcp/` keeps the MCP
+  // endpoint out without taking every page whose name starts with `mcp`.
+  it('reads a prefix ending in a slash as a whole segment', () => {
+    const site = createConfig({ routes: [{ path: '/' }, { path: '/**' }], excludePrefixes: EXCLUDE_PREFIXES })
+    for (const path of ['/mcp', '/mcp/', '/mcp/x', '/api', '/api/', '/api/x', '/_nuxt/x', '/.well-known', '/.well-known/api-catalog']) {
+      expect(negotiatedRawPath(site, path, { userAgent: CLAUDE_BOT }), path).toBeUndefined()
+    }
+    expect(negotiatedRawPath(site, '/mcp-guide', { userAgent: CLAUDE_BOT })).toBe('/raw/mcp-guide.md')
+    expect(negotiatedRawPath(site, '/mcp-toolkit/setup', { accept: 'text/markdown' })).toBe('/raw/mcp-toolkit/setup.md')
+    expect(negotiatedRawPath(site, '/apis', { userAgent: CLAUDE_BOT })).toBe('/raw/apis.md')
+  })
+
+  it('keeps a prefix without a trailing slash a plain string prefix', () => {
+    const site = createConfig({ routes: [{ path: '/**' }], excludePrefixes: ['/admin'] })
+    expect(negotiatedRawPath(site, '/admin', { userAgent: CLAUDE_BOT })).toBeUndefined()
+    expect(negotiatedRawPath(site, '/administrators', { userAgent: CLAUDE_BOT })).toBeUndefined()
+  })
 })
 
 describe('negotiatedRawPath: dotted paths', () => {
@@ -309,6 +336,25 @@ describe('negotiatedRawPath: dotted paths', () => {
   it('negotiates a mid-path dot', () => {
     expect(negotiatedRawPath(config, '/docs/3.x/guide', { userAgent: CLAUDE_BOT })).toBe('/raw/docs/3.x/guide.md')
     expect(negotiatedRawPath(config, '/docs/3.x/guide', { accept: 'text/markdown' })).toBe('/raw/docs/3.x/guide.md')
+  })
+
+  // A trailing slash names a directory, which no asset is, the way the CDN
+  // lookahead reads the raw request path.
+  it('negotiates a page under a pattern spelled with non-ASCII characters', () => {
+    const site = createConfig({ routes: [{ path: '/café/**' }, { path: '/x y/**' }] })
+    expect(negotiatedRawPath(site, '/caf%C3%A9/x', { userAgent: CLAUDE_BOT })).toBe('/raw/caf%C3%A9/x.md')
+    expect(negotiatedRawPath(site, '/caf%c3%a9/x', { userAgent: CLAUDE_BOT })).toBe('/raw/caf%c3%a9/x.md')
+    expect(negotiatedRawPath(site, '/x%20y/z', { accept: 'text/markdown' })).toBe('/raw/x%20y/z.md')
+    expect(negotiatedRawPath(site, '/caf%C3%A9/x.md')).toBe('/raw/caf%C3%A9/x.md')
+  })
+
+  it('negotiates a dotted last segment followed by a slash', () => {
+    expect(negotiatedRawPath(config, '/docs/3.x/', { userAgent: CLAUDE_BOT })).toBe('/raw/docs/3.x.md')
+    expect(negotiatedRawPath(config, '/docs/3.x/?ref=nav', { accept: 'text/markdown' })).toBe('/raw/docs/3.x.md')
+    expect(isNegotiablePath(config, '/docs/3.x/')).toBe(true)
+    expect(prefersMarkdownError(config, { path: '/docs/3.x/', accept: 'text/markdown' })).toBe(true)
+    expect(negotiatedRawPath(config, '/docs/3.x', { userAgent: CLAUDE_BOT })).toBeUndefined()
+    expect(negotiatedRawPath(config, '/docs/logo.png?next=/', { userAgent: CLAUDE_BOT })).toBeUndefined()
   })
 })
 
@@ -723,6 +769,23 @@ describe('compilePattern', () => {
 })
 
 describe('matchRoute', () => {
+  // Patterns are written decoded while a request path arrives encoded, in
+  // whatever hex case the client chose.
+  it('matches a percent-encoded request path against a decoded pattern', () => {
+    const encoded = { ...config, routes: [{ path: '/café/**' }, { path: '/x y/**' }, { path: '/a/b/**' }] }
+    const negotiated = (path: string) => negotiatedRawPath(encoded, path, { accept: 'text/markdown' })
+    expect(negotiated('/caf%C3%A9/x')).toBe('/raw/caf%C3%A9/x.md')
+    expect(negotiated('/caf%c3%a9/x')).toBe('/raw/caf%c3%a9/x.md')
+    expect(negotiated('/x%20y/z')).toBe('/raw/x%20y/z.md')
+    // An encoded slash is data, not a segment boundary.
+    expect(negotiated('/a%2Fb/c')).toBeUndefined()
+  })
+
+  it('matches a configured path as written', () => {
+    expect(matchRoute([{ path: '/blog/a%20b' }], '/blog/a%20b')).toEqual({ path: '/blog/a%20b' })
+    expect(matchRoute([{ path: '/blog/a%20b' }], '/blog/a b')).toBeUndefined()
+  })
+
   it('requires at least one segment after **', () => {
     const routes = [{ path: '/docs/**' }]
     expect(matchRoute(routes, '/docs')).toBeUndefined()

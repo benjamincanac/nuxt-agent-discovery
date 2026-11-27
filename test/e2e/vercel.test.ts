@@ -146,6 +146,7 @@ describe('vercel build output', () => {
       expect(accepts('text/markdown')).toBe(true)
       expect(accepts('text/html, text/markdown')).toBe(true)
       expect(accepts('text/html;profile="text/markdown"')).toBe(false)
+      expect(accepts('Text/Markdown')).toBe(true)
 
       // A client that explicitly refused markdown is excluded, whitespace
       // before the delimiter included: RFC 9110 allows it and a real edge
@@ -177,7 +178,7 @@ describe('vercel build output', () => {
     const twin = routes.find(route => route.dest?.startsWith('/raw/') && !route.has)
 
     expect(twin).toBeDefined()
-    expect(twin!.src).toContain('\\.md$')
+    expect(twin!.src).toContain('\\.md/?$')
   })
 
   // The property is that the table is a function of the configured patterns and

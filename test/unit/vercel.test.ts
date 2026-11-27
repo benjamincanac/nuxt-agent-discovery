@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { dropDuplicateLinkRoutes, joinAlternatives, setupVercelPreset, vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
 import type { VercelHandle, VercelRoute } from '../../src/presets/vercel'
-import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
+import { acceptsMarkdown, formatLinkHeader, negotiatedRawPath, notAcceptable, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
+import { EXCLUDE_PREFIXES } from '../../src/defaults'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
 
 function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationConfig {
@@ -14,7 +15,7 @@ function createConfig(overrides: Partial<NegotiationConfig> = {}): NegotiationCo
       { path: '/docs/**' }
     ],
     userAgents: ['ClaudeBot', 'GPTBot', 'curl/8.4'],
-    excludePrefixes: ['/_', '/api/', '/mcp', '/.well-known/'],
+    excludePrefixes: ['/_', '/api/', '/mcp/', '/.well-known/'],
     links: [],
     linkHeader: true,
     cachedRoutes: [],
@@ -184,9 +185,9 @@ describe('vercelMarkdownRoutes: 406', () => {
   const refusal = vercelMarkdownRoutes(strict).find(route => route.status === 406)!
   const matcher = (route: VercelRoute, key: string, list: 'has' | 'missing') =>
     route[list]?.find(entry => entry.key === key)?.value
-  /** The `missing` `Accept` matcher, read the way the edge reads it: anchored, case-insensitive. */
+  /** The `missing` `Accept` matcher, read the way the edge reads it: anchored and case-sensitive. */
   const accepts = (route: VercelRoute) => (header: string) =>
-    new RegExp(`^(?:${matcher(route, 'accept', 'missing')})$`, 'i').test(header)
+    new RegExp(`^(?:${matcher(route, 'accept', 'missing')})$`).test(header)
 
   it('is absent unless the site turns it on', () => {
     expect(vercelMarkdownRoutes(createConfig()).some(route => route.status === 406)).toBe(false)
@@ -214,13 +215,17 @@ describe('vercelMarkdownRoutes: 406', () => {
     expect(offers('text/markdown')).toBe(true)
     expect(offers('application/xml')).toBe(false)
     expect(offers('image/png, application/pdf')).toBe(false)
+    // Media types are case-insensitive, and the runtime lowercases them.
+    expect(offers('Text/HTML, application/json')).toBe(true)
+    expect(offers('TEXT/*')).toBe(true)
 
     // Present and carrying a media range, so a mangled header cannot refuse.
     // Both halves have to be there, or the edge would 406 what the origin
     // serves, which is the one divergence this route cannot have.
-    const present = new RegExp(`^(?:${matcher(refusal, 'accept', 'has')})$`, 'i')
+    const present = new RegExp(`^(?:${matcher(refusal, 'accept', 'has')})$`)
     expect(present.test('application/xml')).toBe(true)
     expect(present.test('image/png, application/pdf')).toBe(true)
+    expect(present.test('Application/XML')).toBe(true)
     expect(present.test('garbage')).toBe(false)
     expect(present.test('text/')).toBe(false)
     expect(present.test('/html')).toBe(false)
@@ -401,6 +406,7 @@ describe('vercelMarkdownRoutes: negotiated rewrites', () => {
     expect(accept('text/markdown')).toBe(true)
     expect(accept('text/markdown;q=0.9')).toBe(true)
     expect(accept('text/html, text/markdown')).toBe(true)
+    expect(accept('Text/Markdown')).toBe(true)
     expect(accept('text/html;profile="text/markdown"')).toBe(false)
     expect(accept('text/html')).toBe(false)
   })
@@ -543,6 +549,18 @@ describe('vercelMarkdownRoutes: cached routes', () => {
 
     expect(redirect(site, '/docs/v1/guide')).toBe('/raw/docs/v1/guide.md')
     expect(rewrite).toBeUndefined()
+  })
+
+  it('reads a configured path as written, a literal `%` included', () => {
+    // `/blog/a%20b` is a decoded path holding a `%`; decoded again it would
+    // read as `/blog/a b` and lose its own redirect to the wildcard pair.
+    const config = createConfig({
+      routes: [{ path: '/blog/a%20b', raw: '/custom/pinned.md' }, { path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/blog/**']
+    })
+
+    expect(redirect(vercelMarkdownRoutes(config), '/blog/a%2520b')).toBe('/custom/pinned.md')
+    expect(negotiatedRawPath(config, '/blog/a%2520b', { accept: 'text/markdown' })).toBe('/custom/pinned.md')
   })
 
   it('emits no pair for a rule whose only pages are exact patterns', () => {
@@ -893,6 +911,7 @@ describe('vercelMarkdownRoutes: explicit markdown refusal', () => {
       'text/markdown;q=0, text/html',
       'text/markdown; q=0',
       'text/markdown;Q=0',
+      'Text/Markdown;q=0',
       'text/markdown;q=0.0',
       'text/markdown;q=0.000',
       'text/html, text/markdown;q=0'
@@ -1090,5 +1109,82 @@ describe('vercelMarkdownRoutes: non-ASCII exact patterns', () => {
     const pairs = vercelTwinLinkRoutes(config)
     const twinPair = pairs.find(route => new RegExp(route.src).test('/raw/%E6%96%87%E6%A1%A3.md'))
     expect(twinPair?.headers?.Link).toContain('<https://example.com/%E6%96%87%E6%A1%A3>; rel="canonical"')
+  })
+})
+
+describe('vercelMarkdownRoutes: case', () => {
+  it('matches every path the way the runtime does, case included', () => {
+    const config = createConfig({
+      routes: [{ path: '/blog/pinned', raw: '/custom/pinned.md' }, { path: '/', raw: '/raw/index.md' }, { path: '/**' }],
+      cachedRoutes: ['/blog/**']
+    })
+
+    expect(vercelMarkdownRoutes(config).every(route => route.caseSensitive)).toBe(true)
+    expect(vercelTwinLinkRoutes(config).every(route => route.caseSensitive)).toBe(true)
+  })
+})
+
+describe('vercelMarkdownRoutes: parity with the runtime', () => {
+  type Headers = Record<string, string>
+
+  /**
+   * The answer of the first route that ends routing, read the way the edge
+   * reads the table: `has` and `missing` values anchored and case-sensitive.
+   */
+  function edge(config: NegotiationConfig, path: string, headers: Headers): string | undefined {
+    const matcher = (entry: { key: string, value: string }) =>
+      headers[entry.key] !== undefined && new RegExp(`^(?:${entry.value})$`).test(headers[entry.key]!)
+    for (const route of vercelMarkdownRoutes(config)) {
+      const src = new RegExp(route.src)
+      if (!src.test(path) || route.continue || (route.has && !route.has.every(matcher)) || route.missing?.some(matcher)) {
+        continue
+      }
+      if (route.status === 406) {
+        return '406'
+      }
+      return path.replace(src, route.status ? route.headers!.Location! : route.dest!)
+    }
+    return undefined
+  }
+
+  function origin(config: NegotiationConfig, path: string, headers: Headers): string | undefined {
+    const options = { path, accept: headers.accept, userAgent: headers['user-agent'] }
+    return negotiatedRawPath(config, path, options) ?? (notAcceptable(config, options) ? '406' : undefined)
+  }
+
+  const config = createConfig({ routes: [{ path: '/' }, { path: '/**' }], excludePrefixes: EXCLUDE_PREFIXES, notAcceptable: true })
+  const agent = { 'user-agent': 'ClaudeBot/1.0' }
+  const markdown = { accept: 'text/markdown' }
+
+  const expectParity = (site: NegotiationConfig, cases: [string, Headers][]) => {
+    for (const [path, headers] of cases) {
+      expect(edge(site, path, headers), `${path} ${JSON.stringify(headers)}`).toBe(origin(site, path, headers))
+    }
+  }
+
+  it('excludes the same prefixes', () => {
+    const paths = ['/mcp', '/mcp/', '/mcp/x', '/mcp-guide', '/mcp-toolkit/setup', '/api', '/api/', '/api/x', '/apis', '/_nuxt/x', '/.well-known/api-catalog']
+    expectParity(config, paths.flatMap(path => [[path, agent], [path, markdown]] as [string, Headers][]))
+  })
+  it('reads a dotted last segment the same way', () => {
+    const paths = ['/docs/3.x', '/docs/3.x/', '/docs/3.x/guide', '/logo.png', '/llms.txt']
+    expectParity(config, paths.flatMap(path => [[path, agent], [path, markdown]] as [string, Headers][]))
+  })
+  it('matches a pattern spelled with characters the encoder rewrites', () => {
+    const site = createConfig({ routes: [{ path: '/café/**' }, { path: '/x y/**' }], excludePrefixes: EXCLUDE_PREFIXES })
+    const paths = ['/caf%C3%A9/x', '/caf%C3%A9/x.md', '/x%20y/z', '/x%20y/z.md']
+    expectParity(site, paths.flatMap(path => [[path, agent], [path, markdown], [path, {}]] as [string, Headers][]))
+  })
+  it('reads `Accept` in any case', () => {
+    const strict = createConfig({ routes: [{ path: '/' }, { path: '/**' }], excludePrefixes: EXCLUDE_PREFIXES, notAcceptable: true })
+    const headers = ['Text/Markdown', 'TEXT/MARKDOWN;q=0.5', 'Text/HTML, application/json', 'TEXT/*', 'Application/JSON']
+    expectParity(strict, headers.map(accept => ['/docs/guide', { accept }] as [string, Headers]))
+  })
+  it('reads the raw prefix and the `.md` suffix the same way', () => {
+    const exact = createConfig({ routes: [{ path: '/' }, { path: '/changelog' }, { path: '/docs/**' }], excludePrefixes: EXCLUDE_PREFIXES })
+    const paths = ['/raw', '/raw/', '/raw/docs/x.md', '/docs/x.md', '/docs/x.md/', '/docs/x/.md', '/docs/.md', '/changelog.md', '/changelog.md/', '/changelog/.md', '/.md']
+    for (const site of [config, exact]) {
+      expectParity(site, paths.flatMap(path => [[path, agent], [path, markdown], [path, {}]] as [string, Headers][]))
+    }
   })
 })

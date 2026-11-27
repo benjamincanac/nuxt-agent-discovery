@@ -194,11 +194,11 @@ describe('module setup: shared defaults', () => {
     // `/sitemap.md` is pushed onto the negotiation config once per instance.
     // Before the copy it landed on `EXCLUDE_PREFIXES` itself, so the second
     // Nuxt instance in the same process started from a polluted default.
-    expect(EXCLUDE_PREFIXES).toEqual(['/_', '/api/', '/mcp', '/.well-known/'])
+    expect(EXCLUDE_PREFIXES).toEqual(['/_', '/api/', '/mcp/', '/.well-known/'])
     expect(EXCLUDE_PREFIXES).toHaveLength(4)
 
     for (const config of [first, second]) {
-      expect(config.excludePrefixes).toEqual(['/_', '/api/', '/mcp', '/.well-known/', '/sitemap.md'])
+      expect(config.excludePrefixes).toEqual(['/_', '/api/', '/mcp/', '/.well-known/', '/sitemap.md'])
     }
     expect(first.excludePrefixes).not.toBe(second.excludePrefixes)
   })
@@ -395,6 +395,12 @@ describe('module setup: cached routes', () => {
     expect(locations.filter(Boolean)).toEqual(['/raw/tools.md', '/raw/tools.md', '/raw/tools/$1.md', '/raw/tools/$1.md'])
   })
 
+  it('skips a cache under an excluded segment and keeps one beside it', async () => {
+    const config = await setupModule({}, { '/api': { isr: true }, '/mcp/**': { isr: true }, '/mcp-guide/**': { isr: true } })
+
+    expect(config.cachedRoutes).toEqual(['/mcp-guide/**'])
+  })
+
   it('drops a dotted rule under the default catch-all pattern too', async () => {
     // `/**` does match `/llms.txt`, so `matchRoute` alone is not enough: a
     // dotted last segment is an asset, the same rule the runtime applies.
@@ -419,6 +425,16 @@ describe('module setup: companion modules', () => {
 
     expect(nuxt.options.runtimeConfig.agentDiscoveryRobots).toEqual({ contentSignal: 'search=yes', disallow: [] })
     expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(true)
+  })
+
+  it('leaves `/robots.txt` to a static file in the public directory', async () => {
+    // Nuxt resolves `dir.public` to an absolute path, so it must not be joined onto the root again.
+    const publicDir = join(mkdtempSync(join(tmpdir(), 'nad-public-')), 'public')
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, 'robots.txt'), 'User-agent: *\n')
+    const nuxt = await runModule(robots, {}, undefined, undefined, { dir: { public: publicDir } })
+
+    expect(nuxt.options.serverHandlers.some(handler => handler.route === '/robots.txt')).toBe(false)
   })
 
   it('leaves `/robots.txt` to a companion installed after `setup()`', async () => {
@@ -791,6 +807,12 @@ describe('module setup: routes', () => {
       .rejects.toThrow('negotiates back to itself')
   })
 
+  it('refuses a raw destination a dotted directory hides', async () => {
+    // `/docs/3.x/` is a page, so the middleware fetching it negotiates again.
+    await expect(runModule({ source: false, routes: [{ path: '/docs/3.x', raw: '/docs/3.x/' }] }))
+      .rejects.toThrow('negotiates back to itself')
+  })
+
   it('refuses a raw destination without an extension', async () => {
     // `/x` negotiates markdown for itself: the middleware fetches `/x` from
     // `/x`, forever. The `.md` spelling is not what loops, the negotiation is.
@@ -1037,6 +1059,8 @@ describe('module setup: prerendered pages', () => {
       { route: '/', fileName: '/index.html', contentType: html },
       { route: '/docs/guide', fileName: '/docs/guide/index.html', contentType: html },
       { route: '/docs/caf%C3%A9', fileName: '/docs/caf%C3%A9/index.html', contentType: html },
+      // A dotted directory is a page, its index file says so.
+      { route: '/docs/3.x/', fileName: '/docs/3.x/index.html', contentType: html },
       // Not pages, or not written.
       { route: '/docs/guide/_payload.json', fileName: '/docs/guide/_payload.json', contentType: 'application/json' },
       { route: '/raw/docs/guide.md', fileName: '/raw/docs/guide.md', contentType: 'text/markdown; charset=utf-8' },
@@ -1044,7 +1068,7 @@ describe('module setup: prerendered pages', () => {
       { route: '/docs/skipped', fileName: '/docs/skipped/index.html', contentType: html, skip: true },
       // Written, but never negotiated.
       { route: '/admin/panel', fileName: '/admin/panel/index.html', contentType: html }
-    ], true)).toEqual(['/', '/docs/guide', '/docs/café'])
+    ], true)).toEqual(['/', '/docs/guide', '/docs/café', '/docs/3.x'])
   })
 
   it('lists nothing where the CDN serves the files', async () => {
