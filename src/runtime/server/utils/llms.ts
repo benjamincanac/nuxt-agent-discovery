@@ -97,12 +97,13 @@ async function mapLimit<T, R>(items: T[], task: (item: T) => R | Promise<R>): Pr
 }
 
 /**
- * The adapter's listing normalized and deduped the way `listAgentPages` does,
- * so an adapter listing its homepage as `/index` lands on the same `/` the
- * landing-page checks key on. `llms.txt` and `llms-full.txt` share this one call.
+ * The adapter's listing normalized, deduped and filtered the way `listAgentPages`
+ * does, so an adapter listing its homepage as `/index` lands on the same `/` the
+ * landing-page checks key on, and no section advertises a page `sitemap.md`
+ * hides. `llms.txt` and `llms-full.txt` share this one call.
  */
-async function listPages(adapter: NonNullable<typeof source>, selector: Record<string, unknown> | undefined, event: AgentRequestEvent): Promise<AgentListEntry[]> {
-  return normalizeAgentEntries((await adapter.list?.(selector, event)) || [])
+async function listPages(adapter: NonNullable<typeof source>, selector: Record<string, unknown> | undefined, event: AgentRequestEvent, config: NegotiationConfig): Promise<AgentListEntry[]> {
+  return normalizeAgentEntries((await adapter.list?.(selector, event)) || []).filter(entry => !isExcluded(entry.route, config))
 }
 
 function toLink(entry: AgentListEntry, domain: string) {
@@ -161,7 +162,7 @@ export function createLlmsBridge() {
       // A section that already carries links owns its curation and is left alone.
       const resolved = await mapLimit(options.sections, section => section.links?.length
         ? null
-        : listPages(adapter, section, event))
+        : listPages(adapter, section, event, config))
 
       const unresolved: LlmsSection[] = []
       for (const [index, section] of options.sections.entries()) {
@@ -185,10 +186,7 @@ export function createLlmsBridge() {
       // `llms-full.txt`, and API endpoints are not documentation either.
       const hasPageLinks = options.sections.some(section => section.links?.some(link => pageRoute(config, link.href, domain)))
       if (!hasPageLinks) {
-        // The same filter `listAgentPages` applies, so the fallback cannot
-        // advertise pages `sitemap.md` hides.
-        const entries = (await listPages(adapter, undefined, event)).filter(entry => !isExcluded(entry.route, config))
-        for (const [title, group] of groupBySection(entries)) {
+        for (const [title, group] of groupBySection(await listPages(adapter, undefined, event, config))) {
           options.sections.push({
             title,
             description: 'Every page below is available as raw markdown.',
@@ -263,7 +261,7 @@ export function createLlmsBridge() {
     const sections = options.sections || []
     const resolved = await mapLimit(sections, section => section.links?.length
       ? null
-      : listPages(adapter, section, event))
+      : listPages(adapter, section, event, config))
     for (const [index, section] of sections.entries()) {
       for (const entry of resolved[index] || []) {
         add(entry.route)
@@ -278,10 +276,8 @@ export function createLlmsBridge() {
     }
     // No section named a page, so render them all, matching what `llms.txt` lists.
     if (!routes.length) {
-      for (const entry of await listPages(adapter, undefined, event)) {
-        if (!isExcluded(entry.route, config)) {
-          add(entry.route)
-        }
+      for (const entry of await listPages(adapter, undefined, event, config)) {
+        add(entry.route)
       }
     }
 
