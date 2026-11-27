@@ -5,6 +5,7 @@ import { defineNitroPlugin, useRuntimeConfig } from 'nitropack/runtime'
 import prerendered from '#agent-discovery-virtual/prerendered'
 import negotiate from '../middleware/negotiate.legacy'
 import { normalizePathname } from '../../shared/negotiation'
+import { getRequestPath } from '../utils/server.legacy'
 
 /**
  * Negotiates the prerendered pages on Nitro 2. `prerendered.ts` is the Nitro 3
@@ -21,7 +22,8 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
   // `app.baseURL` as the middleware expects.
   const base = `${useRuntimeConfig().app.baseURL}/`.replace(/\/+/g, '/')
   nitroApp.h3App.use(base, defineEventHandler((event) => {
-    if (prerendered.has(normalizePathname(decodePath(event.path)))) {
+    // Cut at the real query first: a decoded `%23` or `%3F` is part of the path.
+    if (prerendered.has(decodePath(normalizePathname(getRequestPath(event))))) {
       return negotiate(event)
     }
   }))

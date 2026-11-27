@@ -116,6 +116,8 @@ export default defineNuxtConfig({
 | `/.well-known/skills/index.json` and `/.well-known/skills/**` | at least one valid skill is found |
 | `/robots.txt` | `robots.aiPolicy`, and neither `@nuxtjs/robots` nor a static `public/robots.txt` |
 
+These routes answer `GET` and `HEAD` only, and any other method gets a 405 with `Allow: GET, HEAD`.
+
 `/llms.txt` and `/llms-full.txt` belong to `nuxt-llms`; this module feeds them but never registers them.
 
 The skills index and the skill files are prerendered too, unless `llms.prerender` is off, see [Prerendering](#prerendering). With the built-in `@nuxt/content` source, the raw twin of every exact route pattern (the locale roots of an i18n site included) and `/sitemap.md` are prerendered, and the `nuxt-llms` bridge hands Nitro's crawler every twin `llms.txt` links when `/` is prerendered too. On a fully static build (`nuxt generate`) they are prerendered whatever the source, since there is no server to render them per request. Whatever the source, every prerendered page hands the crawler its own twin, so a twin is frozen exactly when its page is. A twin the site backs with a handler of its own (a `server/routes/raw/modules.md.get.ts` reading live data, or a handler another module registered on that route) is never prerendered, so it keeps answering per request instead of being frozen at build. A hinted twin the raw route cannot answer as markdown, a section redirecting to its first document or a page with no document behind it, is skipped rather than written or reported as a failed route.
