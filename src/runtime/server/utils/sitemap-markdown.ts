@@ -80,7 +80,8 @@ export async function sitemapMarkdown(event: AgentRequestEvent): Promise<{ body:
       'Content-Type': 'text/markdown; charset=utf-8',
       'Vary': MARKDOWN_VARY,
       // Without a configured site URL every URL below embeds the request origin.
-      ...(config.siteUrl ? {} : { 'Cache-Control': 'no-cache' })
+      // Same rule as the api-catalog and `robots.txt`.
+      'Cache-Control': config.siteUrl ? 'public, max-age=3600' : 'no-cache'
     }
   }
 }
