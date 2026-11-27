@@ -6,7 +6,7 @@ import type { H3Event } from 'h3'
 import collections from '#content/manifest'
 import { callServerHook } from '#agent-discovery/server'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
-import { minimarkHandlers } from './minimark'
+import { escapeMinimarkText, minimarkHandlers } from './minimark'
 import { frontmatterText, prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
 import type { AgentContentSource, AgentListEntry, AgentRequestEvent, AgentSectionSelector } from '../../shared/types'
@@ -170,6 +170,7 @@ const source: AgentContentSource = {
     // on the one option, which `test/e2e/expected.ts` holds them to.
     const format = getAgentMarkdownFormat(event) === 'markdown/html' ? 'markdown/html' : 'markdown/mdc'
     const handlers = minimarkHandlers(page.body.value as unknown as DocNode[], format)
+    escapeMinimarkText(page.body.value as unknown[])
 
     return {
       markdown: stringify({ ...page.body, type: 'minimark' }, { format, handlers: handlers as never }),

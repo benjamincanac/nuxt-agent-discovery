@@ -110,6 +110,17 @@ describe('comark source', () => {
     expect(page?.description).toBe('true')
   })
 
+  it('escapes the title and the description the way the `@nuxt/content` adapter does', async () => {
+    const page = await createStubSource({
+      meta: { kind: 'document' },
+      data: { title: '<NuxtLink> *x* [y]', description: '# not heading\n- dash' },
+      nodes: [['p', {}, 'Body']]
+    }).get('/escaped', event)
+
+    // The same bytes `test/unit/stringify.test.ts` pins for minimark.
+    expect(page?.markdown).toBe('# \\<NuxtLink> \\*x\\* \\[y\\]\n\n> \\# not heading\n> \\- dash\n\nBody\n')
+  })
+
   it('absolutizes site-relative links, including component props', async () => {
     const relative = {
       meta: { kind: 'document' },

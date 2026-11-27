@@ -158,12 +158,10 @@ const img: MinimarkHandler = (node, state) => {
   return `![${alt ?? ''}](${src}${title ? ` "${title}"` : ''})${mdcAttributes(state, rest)}`
 }
 
-/**
- * A GFM table. minimark writes an HTML table indented under its blank lines,
- * so every row after the first blank line parses back as a code block. A cell
- * holding block content has no GFM form and is left to minimark.
- */
-const table: MinimarkHandler = (node, state, parent) => {
+const cells = (row: DocNode) => row.slice(2).filter((cell): cell is DocNode => Array.isArray(cell) && (cell[0] === 'th' || cell[0] === 'td'))
+
+/** A table's header and body rows, or `undefined` when it has no GFM form. */
+function gfmTable(node: DocNode): { header: DocNode, rows: DocNode[] } | undefined {
   const rows: DocNode[] = []
   for (const child of node.slice(2)) {
     if (Array.isArray(child) && child[0] === 'tr') {
@@ -172,12 +170,22 @@ const table: MinimarkHandler = (node, state, parent) => {
       rows.push(...child.slice(2).filter((row): row is DocNode => Array.isArray(row) && row[0] === 'tr'))
     }
   }
-  const cells = (row: DocNode) => row.slice(2).filter((cell): cell is DocNode => Array.isArray(cell) && (cell[0] === 'th' || cell[0] === 'td'))
   const header = rows[0] && cells(rows[0]).every(cell => cell[0] === 'th') ? rows.shift()! : undefined
   const blocky = (cell: DocNode) => cell.slice(2).some(child => Array.isArray(child) && BLOCK_TAGS.has(String(child[0])))
-  if (!header || [header, ...rows].some(row => cells(row).some(blocky))) {
+  return header && ![header, ...rows].some(row => cells(row).some(blocky)) ? { header, rows } : undefined
+}
+
+/**
+ * A GFM table. minimark writes an HTML table indented under its blank lines,
+ * so every row after the first blank line parses back as a code block. A cell
+ * holding block content has no GFM form and is left to minimark.
+ */
+const table: MinimarkHandler = (node, state, parent) => {
+  const gfm = gfmTable(node)
+  if (!gfm) {
     return state.handlers.html!(node, state, parent)
   }
+  const { header, rows } = gfm
 
   const line = (row: DocNode) => `| ${cells(row).map(cell => phrasing(cell, state).replace(/\n/g, ' ').replace(/\|/g, '\\|')).join(' | ')} |`
   const delimiter = cells(header).map((cell) => {
@@ -284,20 +292,22 @@ function slotName(node: DocNode, level: number): string | undefined {
   return keys[0]!.slice(7)
 }
 
+/** Whether a component sits in phrasing content. A list item holds its text bare, next to any block component under it. */
+function isInline(node: DocNode, parent?: DocNode): boolean {
+  return !!parent && (INLINE_PARENTS.has(parent[0]) || (parent.slice(2).some(child => typeof child === 'string') && !isBlock(node)))
+}
+
 /**
  * Walks the tree once up front. minimark 0.2 does not hand the parent down
  * from its own handlers, so a component inside a paragraph cannot tell from
  * its arguments that it has to stay inline.
  */
 function place(nodes: unknown[], placements: WeakMap<DocNode, Placement>, tags: Set<string>, parent?: DocNode, level = 0): void {
-  const phrasingParent = !!parent && INLINE_PARENTS.has(parent[0])
-  const besideText = !!parent && parent.slice(2).some(child => typeof child === 'string')
   for (const node of nodes) {
     if (!Array.isArray(node)) {
       continue
     }
-    // A list item holds its text bare, next to any block component under it.
-    const inline = phrasingParent || (besideText && !isBlock(node))
+    const inline = isInline(node as DocNode, parent)
     const tag = String(node[0])
     let childLevel = level
     if (!MINIMARK_TAGS.has(tag)) {
@@ -378,4 +388,106 @@ export function minimarkHandlers(nodes: DocNode[], format: string): Record<strin
     handlers[tag] = component
   }
   return handlers
+}
+
+/*
+ * Text escaping. minimark 0.2 writes a text node as it is, so a literal the
+ * source escaped (`\# hash`, `\*not em\*`, `&lt;b&gt;`) comes back as the
+ * syntax it was escaped from. The rules are comark's own, so both adapters
+ * write the same bytes: only what would parse back differently is escaped.
+ */
+
+const INLINE_SYNTAX = /[\\`*_<&~[\]{:]/g
+const ALPHANUMERIC = /^[a-z0-9]$/i
+/** Characters after which `:name` opens an inline component. */
+const COMPONENT_COLON_PREV = new Set([' ', '\t', '\n', '*', '_', '[', ']', '}', ')', '>'])
+const OPEN_TAG_START = /<\/?[a-z][a-z0-9-]*[\s/]/iy
+
+function escapeInline(text: string): string {
+  return text.replace(INLINE_SYNTAX, (char: string, offset: number) => {
+    const prev = text[offset - 1]
+    const next = text[offset + 1]
+    switch (char) {
+      // Intraword, an underscore cannot open or close emphasis.
+      case '_':
+        return prev && next && ALPHANUMERIC.test(prev) && ALPHANUMERIC.test(next) ? char : `\\${char}`
+      case '<':
+        if (!next || !/[a-z!?/]/i.test(next)) {
+          return char
+        }
+        // With no `>` after it, only an opening tag name still reads as HTML.
+        OPEN_TAG_START.lastIndex = offset
+        return text.includes('>', offset + 1) || OPEN_TAG_START.test(text) ? `\\${char}` : char
+      case '&':
+        return /^&#?[a-z0-9]+;/i.test(text.slice(offset)) ? `\\${char}` : char
+      case ':':
+        return (prev === undefined || COMPONENT_COLON_PREV.has(prev)) && next !== undefined && /[a-z$]/i.test(next) ? `\\${char}` : char
+      case '{':
+        return prev !== '{' && prev !== '$' && /^\{[ \t]{0,3}[.#:a-z_]/i.test(text.slice(offset, offset + 6)) ? `\\${char}` : char
+      default:
+        return `\\${char}`
+    }
+  })
+}
+
+/** A line opening with what would parse as a block: a heading, a quote, a list item, a setext underline, a component. */
+function escapeLineStart(line: string): string {
+  const ordered = /^(\d{1,9})[.)]([ \t]|$)/.exec(line)
+  if (ordered) {
+    return `${ordered[1]}\\${line.slice(ordered[1]!.length)}`
+  }
+  return /^#{1,6}([ \t]|$)/.test(line) || /^-([ \t-]|$)/.test(line) || /^\+([ \t]|$)/.test(line) || /^=+[ \t]*$/.test(line) || line[0] === '>' || line[0] === ':'
+    ? `\\${line}`
+    : line
+}
+
+function escapeTextNode(text: string, atLineStart: boolean): string {
+  const escaped = escapeInline(text)
+  if (!atLineStart && !escaped.includes('\n')) {
+    return escaped
+  }
+  return escaped.split('\n').map((line, index) => index > 0 || atLineStart ? escapeLineStart(line) : line).join('\n')
+}
+
+/** Subtrees written verbatim, where an escape would show. */
+const VERBATIM_TAGS = new Set(['code', 'pre', 'script', 'style'])
+
+/** Whether a node's first text child starts a line of the output. */
+function startsLine(node: DocNode | undefined, parent: DocNode | undefined): boolean {
+  if (!node) {
+    return true
+  }
+  const tag = String(node[0])
+  if (tag === 'blockquote' || tag === 'li' || tag === 'p') {
+    return true
+  }
+  return !MINIMARK_TAGS.has(tag) && !isInline(node, parent)
+}
+
+/**
+ * Escapes every text node in place, before `minimark/stringify` runs: it has no
+ * handler for text. `container` is the root array or a node, whose children
+ * start at `offset`.
+ */
+export function escapeMinimarkText(container: unknown[], offset = 0, node?: DocNode, parent?: DocNode): void {
+  const lineStarts = startsLine(node, parent)
+  let atLineStart = lineStarts
+  for (let index = offset; index < container.length; index++) {
+    const child = container[index]
+    if (typeof child === 'string') {
+      container[index] = escapeTextNode(child, atLineStart)
+      atLineStart = lineStarts && child.endsWith('\n')
+      continue
+    }
+    if (!Array.isArray(child)) {
+      continue
+    }
+    const tag = String(child[0])
+    // A table with no GFM form goes out as HTML, where a backslash is literal.
+    if (!VERBATIM_TAGS.has(tag) && (tag !== 'table' || gfmTable(child as DocNode))) {
+      escapeMinimarkText(child, 2, child as DocNode, node)
+    }
+    // A task item's checkbox is written as part of the marker.
+    atLineStart = lineStarts && (isBlock(child) || (tag === 'input' && atLineStart))
+  }
 }
