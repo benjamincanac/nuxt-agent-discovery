@@ -490,11 +490,11 @@ function escapeInline(text: string): string {
 
 /** A line opening with what would parse as a block: a heading, a quote, a list item, a setext underline, a component. */
 function escapeLineStart(line: string): string {
-  const ordered = /^(\d{1,9})[.)]([ \t]|$)/.exec(line)
+  const ordered = /^(\d{1,9})[.)](?:[ \t]|$)/.exec(line)
   if (ordered) {
     return `${ordered[1]}\\${line.slice(ordered[1]!.length)}`
   }
-  return /^#{1,6}([ \t]|$)/.test(line) || /^-([ \t-]|$)/.test(line) || /^\+([ \t]|$)/.test(line) || /^=+[ \t]*$/.test(line) || line[0] === '>' || line[0] === ':'
+  return /^#{1,6}(?:[ \t]|$)/.test(line) || /^-(?:[ \t-]|$)/.test(line) || /^\+(?:[ \t]|$)/.test(line) || /^=+[ \t]*$/.test(line) || line[0] === '>' || line[0] === ':'
     ? `\\${line}`
     : line
 }
