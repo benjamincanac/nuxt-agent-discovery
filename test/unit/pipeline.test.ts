@@ -41,6 +41,23 @@ describe('prepareDocumentTree: related links', () => {
   })
 })
 
+describe('prepareDocumentTree: lead', () => {
+  it('writes a scalar title and description as text', () => {
+    // YAML reads `title: 404` as a number and `description: true` as a boolean.
+    const nodes: DocNode[] = [['p', {}, 'Body']]
+    prepareDocumentTree(nodes, { title: 404, description: 3.5, siteUrl: 'https://example.com' })
+
+    expect(nodes).toEqual([['h1', {}, '404'], ['blockquote', {}, '3.5'], ['p', {}, 'Body']])
+  })
+
+  it('ignores a title or description that is not a scalar', () => {
+    const nodes: DocNode[] = [['p', {}, 'Body']]
+    prepareDocumentTree(nodes, { title: { text: 'T' }, description: ['a'], siteUrl: 'https://example.com' })
+
+    expect(nodes).toEqual([['p', {}, 'Body']])
+  })
+})
+
 describe('prepareDocumentTree: links', () => {
   it('absolutizes site-relative links inside a JSON prop', () => {
     // `@nuxt/content` stores an array or object prop as a `:`-prefixed JSON

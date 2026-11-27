@@ -7,7 +7,7 @@ import collections from '#content/manifest'
 import { callServerHook } from '#agent-discovery/server'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
 import { minimarkHandlers } from './minimark'
-import { prepareDocumentTree } from './pipeline'
+import { frontmatterText, prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
 import type { AgentContentSource, AgentListEntry, AgentRequestEvent, AgentSectionSelector } from '../../shared/types'
 
@@ -173,8 +173,8 @@ const source: AgentContentSource = {
 
     return {
       markdown: stringify({ ...page.body, type: 'minimark' }, { format, handlers: handlers as never }),
-      title: page.title,
-      description: page.description
+      title: frontmatterText(page.title),
+      description: frontmatterText(page.description)
     }
   }
 }

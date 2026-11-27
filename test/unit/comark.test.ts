@@ -98,6 +98,18 @@ describe('comark source', () => {
     expect(page?.markdown).toBe('# Styled\n\nBody.\n')
   })
 
+  it('renders a numeric title and a boolean description instead of throwing', async () => {
+    const page = await createStubSource({
+      meta: { kind: 'document' },
+      data: { title: 404, description: true },
+      nodes: [['p', {}, 'Body.']]
+    }).get('/404', event)
+
+    expect(page?.markdown).toBe('# 404\n\n> true\n\nBody.\n')
+    expect(page?.title).toBe('404')
+    expect(page?.description).toBe('true')
+  })
+
   it('absolutizes site-relative links, including component props', async () => {
     const relative = {
       meta: { kind: 'document' },

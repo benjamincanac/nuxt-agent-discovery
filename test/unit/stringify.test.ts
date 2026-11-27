@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { tryResolveModule } from '@nuxt/kit'
 import { minimarkHandlers } from '../../src/runtime/server/sources/minimark'
+import { prepareDocumentTree } from '../../src/runtime/server/sources/pipeline'
 import type { DocNode } from '../../src/runtime/server/sources/pipeline'
 
 /**
@@ -160,6 +161,15 @@ describe('content stringify: markdown/html', () => {
     const markdown = stringify({ type: 'minimark', value: nodes }, { format: 'markdown/html', handlers: minimarkHandlers(nodes, 'markdown/html') })
 
     expect(markdown).toBe('`string[]` ![A](/a.png)\n')
+  })
+})
+
+describe('content stringify: lead', () => {
+  it('renders a numeric title and description instead of throwing', () => {
+    const nodes: DocNode[] = [['p', {}, 'Body']]
+    prepareDocumentTree(nodes, { title: 404, description: 3.5, siteUrl: 'https://example.com' })
+
+    expect(render(nodes)).toBe('# 404\n\n> 3.5\n\nBody\n')
   })
 })
 

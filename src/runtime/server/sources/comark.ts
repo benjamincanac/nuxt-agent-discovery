@@ -1,6 +1,6 @@
 import { callServerHook } from '#agent-discovery/server'
 import type { AgentContentSource, AgentListEntry, AgentRequestEvent, AgentSectionSelector } from '../../shared/types'
-import { prepareDocumentTree } from './pipeline'
+import { frontmatterText, prepareDocumentTree } from './pipeline'
 import type { DocNode } from './pipeline'
 import { getAgentMarkdownFormat, getAgentSiteUrl } from '../utils/agent-discovery'
 
@@ -163,13 +163,15 @@ export function createComarkSource(getContent: (event: AgentRequestEvent) => Pro
       await callServerHook('agent-discovery:document', event, page)
 
       const nodes = page.nodes as DocNode[]
-      const frontmatter = (page.data || {}) as { title?: string, description?: string, links?: unknown }
+      const frontmatter = (page.data || {}) as { title?: unknown, description?: unknown, links?: unknown }
+      const title = frontmatterText(frontmatter.title)
+      const description = frontmatterText(frontmatter.description)
 
       // comark 0.6 declares `removeLastStyle` and reads it nowhere, so the
       // pipeline drops the `<style>` node. All frontmatter lives in `data`.
       prepareDocumentTree(nodes, {
-        title: frontmatter.title,
-        description: frontmatter.description,
+        title,
+        description,
         links: frontmatter.links,
         siteUrl: getAgentSiteUrl(event)
       })
@@ -184,14 +186,14 @@ export function createComarkSource(getContent: (event: AgentRequestEvent) => Pro
 
       // No body is the structured-page case the other adapter 404s, unless the
       // lead above gives it one.
-      if (markdown.trim() === '' && !frontmatter.title) {
+      if (markdown.trim() === '' && !title) {
         return null
       }
 
       return {
         markdown,
-        title: frontmatter.title,
-        description: frontmatter.description
+        title,
+        description
       }
     }
   }
