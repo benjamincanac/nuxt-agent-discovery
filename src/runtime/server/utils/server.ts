@@ -1,5 +1,6 @@
-import { getRequestURL, useRuntimeConfig, useServerHooks } from 'nuxt/server'
-import type { RequestEvent } from 'nuxt/server'
+import { createError, getRequestURL, useRuntimeConfig, useServerHooks } from 'nuxt/server'
+import type { NuxtErrorDetails, RequestEvent } from 'nuxt/server'
+import { DOCUMENT_ALLOW, isDocumentMethod } from './methods'
 import { withoutAppBase } from '../../shared/paths'
 import type { AgentRequestEvent } from '../../shared/types'
 
@@ -27,6 +28,15 @@ export function getRequestOrigin(event: AgentRequestEvent): string {
 export function getRequestPath(event: AgentRequestEvent): string {
   const { pathname, search } = getRequestURL(event as RequestEvent)
   return withoutAppBase(pathname, useRuntimeConfig().app?.baseURL) + search
+}
+
+/** Throws a 405 unless a document route answers the request's method. */
+export function assertDocumentMethod(event: AgentRequestEvent): void {
+  if (!isDocumentMethod((event as RequestEvent).req.method)) {
+    // On the error rather than the response: h3 v2 builds an error response
+    // from the error's own headers and drops the ones set on the event.
+    throw createError({ status: 405, statusText: 'Method Not Allowed', headers: { Allow: DOCUMENT_ALLOW } } as NuxtErrorDetails)
+  }
 }
 
 /**

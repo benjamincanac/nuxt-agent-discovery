@@ -257,6 +257,36 @@ describe('discovery documents', () => {
   })
 })
 
+describe('methods on the document routes', () => {
+  it('refuses anything but GET and HEAD with a 405 naming both', async () => {
+    for (const path of ['/raw/docs/getting-started.md', '/sitemap.md', '/.well-known/api-catalog', '/robots.txt', '/.well-known/mcp/server-card.json', '/.well-known/skills/index.json', '/.well-known/skills/basic-site/SKILL.md']) {
+      const response = await fetch(path, { method: 'POST' })
+
+      expect(response.status, path).toBe(405)
+      expect(response.headers.get('allow'), path).toBe('GET, HEAD')
+      expect(await response.text(), path).not.toContain('# Getting Started')
+    }
+  })
+
+  it('renders the 405 through the error page like any other error', async () => {
+    const response = await fetch('/raw/docs/getting-started.md', {
+      method: 'POST',
+      headers: { 'Accept': BROWSER_ACCEPT, 'Sec-Fetch-Mode': 'navigate' }
+    })
+
+    expect(response.status).toBe(405)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    expect(await response.text()).toContain('<!DOCTYPE html>')
+  })
+
+  it('still answers HEAD', async () => {
+    const response = await fetch('/raw/docs/getting-started.md', { method: 'HEAD' })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(MARKDOWN_CONTENT_TYPE)
+  })
+})
+
 describe('sitemap.md sections', () => {
   it('expands the configured prefix into a section per area, with label overrides', async () => {
     const body = await (await fetch('/sitemap.md')).text()

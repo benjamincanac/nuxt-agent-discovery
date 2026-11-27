@@ -2,7 +2,7 @@ import { createError, defineEventHandler, sendRedirect, setResponseHeader } from
 import source from '#agent-discovery/source'
 import { getAgentBase, useAgentDiscoveryConfig } from '../utils/agent-discovery'
 import { getAgentDocument } from '../utils/document'
-import { getRequestPath } from '../utils/server.legacy'
+import { assertDocumentMethod, getRequestPath } from '../utils/server.legacy'
 import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } from '../../shared/negotiation'
 
 /**
@@ -13,6 +13,7 @@ import { encodeAgentRoute, formatLinkHeader, normalizePathname, MARKDOWN_VARY } 
  * here, so this is the response the client keeps and a shared cache stores.
  */
 export default defineEventHandler(async (event) => {
+  assertDocumentMethod(event)
   const config = useAgentDiscoveryConfig(event)
   const path = getRequestPath(event)
   const pathname = normalizePathname(path)

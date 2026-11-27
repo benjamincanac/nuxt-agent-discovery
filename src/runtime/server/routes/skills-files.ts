@@ -1,6 +1,7 @@
 import { useStorage } from 'nitro/storage'
 import { createError, defineEventHandler } from 'nuxt/server'
 import { resolveSkillFile } from '../utils/skills'
+import { assertDocumentMethod } from '../utils/server'
 
 /**
  * Serves one file of a skill from the bundled server assets, on Nitro 3. Server
@@ -8,6 +9,7 @@ import { resolveSkillFile } from '../utils/skills'
  * variant rather than the portable one.
  */
 export default defineEventHandler(async (event) => {
+  assertDocumentMethod(event)
   const file = resolveSkillFile(event, event.url.pathname)
   if ('status' in file) {
     throw createError({ status: file.status, statusText: file.status === 400 ? 'Bad Request' : 'Not Found' })
