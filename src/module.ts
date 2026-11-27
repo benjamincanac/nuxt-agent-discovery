@@ -50,7 +50,7 @@ export interface McpServerCardOptions {
 export interface ModuleOptions {
   /** Canonical site URL, `app.baseURL` included or not. Resolved from the request host when empty. */
   siteUrl?: string
-  /** Site name, used in `sitemap.md` and markdown error bodies. */
+  /** Site name, used in `sitemap.md`, the generated `/raw/index.md` and the `llms.txt` landing link. */
   siteName?: string
   /** Prefix the raw markdown representations are served under. */
   rawPrefix?: string
