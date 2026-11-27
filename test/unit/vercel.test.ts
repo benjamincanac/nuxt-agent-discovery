@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dropDuplicateLinkRoutes, joinAlternatives, vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
+import { dropDuplicateLinkRoutes, joinAlternatives, setupVercelPreset, vercelMarkdownRoutes, vercelTwinLinkRoutes } from '../../src/presets/vercel'
 import type { VercelHandle, VercelRoute } from '../../src/presets/vercel'
 import { acceptsMarkdown, formatLinkHeader, MARKDOWN_VARY } from '../../src/runtime/shared/negotiation'
 import type { NegotiationConfig } from '../../src/runtime/shared/types'
@@ -82,6 +82,54 @@ describe('vercelMarkdownRoutes: Vary', () => {
 // A negotiated page rewrites or 307s to one of these, so this is the response
 // a client keeps and a shared cache stores. Labelling only the page leaves the
 // URL the hop lands on saying nothing about the pair behind it.
+describe('vercelMarkdownRoutes: headers', () => {
+  const routes = vercelMarkdownRoutes(createConfig({ links: LINKS, cachedRoutes: ['/docs/**'], notAcceptable: true }))
+
+  it('sets `Vary` on the two leading routes, the redirects and the refusal, and nothing else but `Link`', () => {
+    expect(routes.map(route => route.headers)).toEqual([
+      // Every negotiated page, then every markdown representation.
+      { Vary: MARKDOWN_VARY },
+      { Vary: MARKDOWN_VARY },
+      // The 406.
+      { Vary: MARKDOWN_VARY },
+      { Link: formatLinkHeader(LINKS) },
+      // `/`, rewritten for `Accept` and for the agents.
+      undefined,
+      undefined,
+      // `/docs/**`: the `.md` alias, then the 307 pair of the cached pattern.
+      undefined,
+      { Location: '/raw/docs/$1.md', Vary: MARKDOWN_VARY },
+      { Location: '/raw/docs/$1.md', Vary: MARKDOWN_VARY }
+    ])
+  })
+})
+
+describe('setupVercelPreset', () => {
+  const nitro = (options: Partial<Parameters<typeof setupVercelPreset>[0]['options']>) => ({
+    options: { dev: false, static: false, preset: 'vercel', baseURL: '/', output: { dir: '' }, routeRules: {}, ...options },
+    hooks: { hook: () => {} }
+  })
+
+  it('tells the runtime the CDN routes are there', () => {
+    const config = createConfig()
+    setupVercelPreset(nitro({}), config)
+
+    expect(config.cdnRoutes).toBe(true)
+  })
+
+  it.each([
+    ['another preset', { preset: 'node-server' }],
+    ['dev', { dev: true }],
+    ['a static build', { preset: 'vercel-static', static: true }],
+    ['a base path, where no route is emitted', { baseURL: '/docs/' }]
+  ])('leaves it unset on %s', (_name, options) => {
+    const config = createConfig()
+    setupVercelPreset(nitro(options), config)
+
+    expect(config.cdnRoutes).toBeUndefined()
+  })
+})
+
 describe('vercelMarkdownRoutes: Vary on the markdown representations', () => {
   const config = createConfig({ links: [{ href: '/sitemap.md', rel: 'sitemap', type: 'text/markdown' }] })
   const markdown = vercelMarkdownRoutes(config)[1]

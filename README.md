@@ -382,6 +382,8 @@ A site under `app.baseURL`, like a GitLab Pages project site, works everywhere e
 
 A cached route rule (`isr`, `swr`, `cache`) keys its cache on the path alone and ignores `Vary`, so rewriting a negotiated page there would let its two representations overwrite each other. For any configured pattern overlapping a cached rule (logged at build time), the module redirects to the raw twin instead of answering in place, at the CDN (a 307 instead of a rewrite) and in the middleware both. A rule narrower than the pattern covering it gets its own redirect pair, so only the cached section is affected.
 
+On the `vercel` preset the HTML of those pages carries `Vary: Accept` alone. The 307 routes answer every markdown request before the cache is read, and the Vercel CDN keys a function response on each header `Vary` names, so `User-Agent` there would store one copy of a page per browser version. The redirects and the markdown twins keep `Vary: Accept, User-Agent`.
+
 ## Contributing
 
 <details>
