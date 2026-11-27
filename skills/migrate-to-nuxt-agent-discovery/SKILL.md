@@ -91,7 +91,7 @@ import { createComarkSource } from '#agent-discovery/comark'
 export default createComarkSource(() => getProdContent())
 ```
 
-- **Anything else**: a file default-exporting `defineAgentContentSource({ list, get })`. Only `get()` is required. Implement `list()` whenever the backend can enumerate its pages, since without it `sitemap.md`, `listAgentPages()` and the `llms.txt` bridge come out empty, and `firstLeaf()` so a section URL redirects to its first document instead of 404ing. The module absolutizes site-relative links in whatever `get()` returns, so the adapter does not have to.
+- **Anything else**: a file default-exporting `defineAgentContentSource({ list, get })`. Only `get()` is required. Implement `list()` whenever the backend can enumerate its pages, since without it `sitemap.md` and `listAgentPages()` come out empty and the `llms.txt` bridge adds no page links, and `firstLeaf()` so a section URL redirects to its first document instead of 404ing. The module absolutizes site-relative links in whatever `get()` returns, so the adapter does not have to.
 
 ## Step 5: port the site-specific code to hooks
 

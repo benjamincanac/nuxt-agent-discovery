@@ -86,7 +86,7 @@ export default defineNuxtConfig({
 ```
 
 - **`siteUrl`** Canonical site URL. Left empty it resolves from `site.url`, then `llms.domain`, then per request from the incoming host. Under `app.baseURL` it may be written with or without the base path, and the module adds it when missing.
-- **`siteName`** Used in `sitemap.md`, the generated `/raw/index.md` and the landing page link of `llms.txt`. Falls back to `site.name`.
+- **`siteName`** Used in `sitemap.md`, the generated `/raw/index.md` and the landing page link the `llms.txt` bridge adds when no link points at `/`. Falls back to `site.name`.
 - **`rawPrefix`** Where raw markdown representations live.
 - **`source`** `'auto'` detects `@nuxt/content`, `'content'` forces it, `false` disables every content-backed feature, anything else is a path to a file exporting an `AgentContentSource` (see [Content sources](#content-sources)).
 - **`routes`** Page patterns markdown is negotiated for, as strings or `{ path, raw }` objects. `*` matches one segment, `**` one or more. `raw` overrides the raw destination on exact patterns; point it under `rawPrefix` or an excluded prefix so the destination never re-enters negotiation, and the build refuses one that negotiates back to itself. Pages the content source doesn't hold answer agents a 404 by design, so on a site mixing hand-written pages with a partial content directory, narrow the patterns or use `excludePrefixes`.
